@@ -1,0 +1,3 @@
+# Optional dependencies for enhanced features
+azure-identity>=1.15.0
+requests>=2.31.0

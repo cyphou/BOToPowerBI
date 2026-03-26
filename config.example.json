@@ -1,0 +1,21 @@
+{
+    "output_dir": "./artifacts",
+    "output_format": "pbip",
+    "mode": "single",
+    "calendar_start": 2020,
+    "calendar_end": 2030,
+    "culture": "en-US",
+    "verbose": false,
+    "rollback_on_error": true,
+    "auth_type": "enterprise",
+    "server_url": "",
+    "universe_extraction": true,
+    "crystal_extraction": true,
+    "webi_extraction": true,
+    "lumira_extraction": true,
+    "prompt_to_slicer": true,
+    "context_to_allexcept": true,
+    "optimize_dax": true,
+    "generate_comparison": true,
+    "batch_overrides": {}
+}

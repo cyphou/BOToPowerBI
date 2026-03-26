@@ -1,0 +1,32 @@
+{
+  "_comment": "Multi-tenant deployment configuration for BOToPowerBI",
+  "tenants": [
+    {
+      "name": "EMEA",
+      "workspace_id": "00000000-0000-0000-0000-000000000001",
+      "overrides": {
+        "${TENANT_SERVER}": "sql-emea.database.windows.net",
+        "${TENANT_DATABASE}": "Sales_EMEA",
+        "${TENANT_REGION}": "EMEA"
+      }
+    },
+    {
+      "name": "APAC",
+      "workspace_id": "00000000-0000-0000-0000-000000000002",
+      "overrides": {
+        "${TENANT_SERVER}": "sql-apac.database.windows.net",
+        "${TENANT_DATABASE}": "Sales_APAC",
+        "${TENANT_REGION}": "APAC"
+      }
+    },
+    {
+      "name": "Americas",
+      "workspace_id": "00000000-0000-0000-0000-000000000003",
+      "overrides": {
+        "${TENANT_SERVER}": "sql-americas.database.windows.net",
+        "${TENANT_DATABASE}": "Sales_Americas",
+        "${TENANT_REGION}": "Americas"
+      }
+    }
+  ]
+}

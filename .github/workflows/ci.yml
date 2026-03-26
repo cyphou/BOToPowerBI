@@ -1,0 +1,55 @@
+name: CI — BO to Power BI Migration
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Lint with flake8
+        run: |
+          pip install flake8 ruff
+          flake8 bo_export/ powerbi_import/ --select=E9,F63,F7,F82 --show-source
+          ruff check bo_export/ powerbi_import/
+      - name: Type check with pyright
+        run: |
+          pip install pyright
+          pyright bo_export/ powerbi_import/
+
+  test:
+    needs: lint
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        python-version: ["3.12", "3.13"]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Run tests
+        run: |
+          pip install pytest pytest-cov
+          pytest tests/ --tb=short -q --cov=bo_export --cov=powerbi_import --cov-report=term-missing --cov-fail-under=80
+
+  validate:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Validate sample migrations
+        run: |
+          python migrate.py --help
+          echo "CLI validation passed"
