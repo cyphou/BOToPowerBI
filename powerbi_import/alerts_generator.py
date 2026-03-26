@@ -1,12 +1,12 @@
 """
 Data-driven alerts generator.
 
-Extracts alert conditions from Tableau TWB XML and generates
+Extracts alert conditions from BO report data and generates
 Power BI alert rule configurations.
 
-Tableau data alerts are threshold-based notifications on measures.
+BO alerters are threshold-based notifications on measures.
 Power BI supports similar alerts on dashboard tiles (cards, gauges, KPIs).
-This module maps Tableau alert definitions to a PBI-compatible alert
+This module maps BO alert definitions to a PBI-compatible alert
 rules JSON structure.
 
 Usage::
@@ -54,7 +54,7 @@ _FREQUENCY_MAP = {
 
 
 def extract_alerts(extracted_data: Dict) -> List[Dict]:
-    """Extract alert-like conditions from Tableau extracted data.
+    """Extract alert-like conditions from BO extracted data.
 
     Looks for:
     1. Parameters named with alert-related keywords (threshold, alert, limit)
@@ -62,7 +62,7 @@ def extract_alerts(extracted_data: Dict) -> List[Dict]:
     3. Reference lines with constant values (threshold markers)
 
     Args:
-        extracted_data: Dict of extracted JSON objects from Tableau.
+        extracted_data: Dict of extracted JSON objects from BO.
 
     Returns:
         List of alert definition dicts with keys:
@@ -84,7 +84,7 @@ def extract_alerts(extracted_data: Dict) -> List[Dict]:
     # 3. Extract from worksheets with reference lines
     _extract_from_reference_lines(extracted_data, alerts)
 
-    logger.info("Extracted %d alert condition(s) from Tableau data", len(alerts))
+    logger.info("Extracted %d alert condition(s) from BO data", len(alerts))
     return alerts
 
 
@@ -300,7 +300,7 @@ def generate_alert_rules(alerts: List[Dict]) -> List[Dict]:
             'isEnabled': True,
             'migrationSource': alert.get('source', ''),
             'migrationNote': (
-                'Auto-generated from Tableau alert condition. '
+                'Auto-generated from BO alert condition. '
                 'Configure notification recipients in Power BI Service.'
             ),
         }
@@ -326,7 +326,7 @@ def save_alert_rules(rules: List[Dict], output_dir: str) -> str:
         json.dump({
             'alertRules': rules,
             'migrationNote': (
-                'These alert rules were extracted from Tableau data alerts '
+                'These alert rules were extracted from BO alerters '
                 'and threshold parameters. Configure them in Power BI Service '
                 'by pinning the corresponding visuals to a dashboard and '
                 'setting up alerts on the tile.'

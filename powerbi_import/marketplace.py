@@ -18,14 +18,14 @@ import logging
 import os
 import re
 
-logger = logging.getLogger('tableau_to_powerbi.marketplace')
+logger = logging.getLogger('bo_to_powerbi.marketplace')
 
 
 class PatternMetadata:
     """Descriptor for a marketplace pattern."""
 
     __slots__ = ('name', 'version', 'author', 'description', 'tags',
-                 'category', 'tableau_function', 'created', 'updated')
+                 'category', 'bo_function', 'created', 'updated')
 
     VALID_CATEGORIES = frozenset({
         'dax_recipe', 'visual_mapping', 'm_template',
@@ -39,7 +39,7 @@ class PatternMetadata:
         self.description = data.get('description', '')
         self.tags = list(data.get('tags', []))
         self.category = data.get('category', 'dax_recipe')
-        self.tableau_function = data.get('tableau_function', '')
+        self.bo_function = data.get('bo_function', '')
         self.created = data.get('created', '')
         self.updated = data.get('updated', '')
 
@@ -63,7 +63,7 @@ class PatternMetadata:
             'description': self.description,
             'tags': self.tags,
             'category': self.category,
-            'tableau_function': self.tableau_function,
+            'bo_function': self.bo_function,
             'created': self.created,
             'updated': self.updated,
         }
@@ -285,7 +285,7 @@ class PatternRegistry:
         """Apply visual mapping overrides from marketplace patterns.
 
         Each pattern payload should have:
-            - ``overrides``: dict {tableau_mark: pbi_visual_type}
+            - ``overrides``: dict {bo_chart_type: pbi_visual_type}
 
         Args:
             visual_type_map: dict to update in-place

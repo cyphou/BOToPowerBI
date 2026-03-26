@@ -1,6 +1,6 @@
-"""Side-by-side comparison report — Tableau vs. Power BI.
+"""Side-by-side comparison report — BusinessObjects vs. Power BI.
 
-Generates an HTML report that shows each Tableau worksheet alongside
+Generates an HTML report that shows each BO report tab alongside
 the corresponding Power BI visual definition, highlighting:
 
 * Visual type mapping
@@ -11,7 +11,7 @@ the corresponding Power BI visual definition, highlighting:
 Usage::
 
     python -m powerbi_import.comparison_report \\
-        tableau_export/ artifacts/powerbi_projects/MyProject/ \\
+        bo_export/ artifacts/powerbi_projects/MyProject/ \\
         --output comparison.html
 """
 
@@ -112,7 +112,7 @@ def _load_pbip(pbip_dir):
 # ────────────────────────────────────────────────────────
 
 def _compare_worksheets(extracted, pbip_data):
-    """Compare Tableau worksheets to PBI pages/visuals."""
+    """Compare BO report tabs to PBI pages/visuals."""
     comparisons = []
     worksheets = extracted.get('worksheets', [])
     if isinstance(worksheets, dict):
@@ -154,7 +154,7 @@ def _compare_worksheets(extracted, pbip_data):
 
 
 def _compare_calculations(extracted, pbip_data):
-    """Compare Tableau calculations to PBI DAX measures/columns."""
+    """Compare BO formulas to PBI DAX measures/columns."""
     calcs = extracted.get('calculations', [])
     if isinstance(calcs, dict):
         calcs = calcs.get('calculations', [])
@@ -166,16 +166,16 @@ def _compare_calculations(extracted, pbip_data):
         role = calc.get('role', '')
         results.append({
             'name': name,
-            'tableau_formula': formula,
+            'bo_formula': formula,
             'role': role,
         })
     return results
 
 
 def _compare_field_bindings(extracted, pbip_dir):
-    """Compare Tableau worksheet field bindings against PBI visual fields.
+    """Compare BO report field bindings against PBI visual fields.
 
-    Returns a list of per-worksheet results with match status and field details.
+    Returns a list of per-report results with match status and field details.
     """
     worksheets = extracted.get('worksheets', [])
     if isinstance(worksheets, dict):
@@ -313,7 +313,7 @@ def generate_comparison_report(extract_dir, pbip_dir, output_path=None):
     """Generate an HTML comparison report.
 
     Args:
-        extract_dir: Path to the tableau_export/ directory with JSON files.
+        extract_dir: Path to the bo_export/ directory with JSON files.
         pbip_dir: Path to the generated .pbip project directory.
         output_path: Output HTML file path (default: comparison_report.html
                      in the pbip directory's parent).
@@ -351,7 +351,7 @@ def generate_comparison_report(extract_dir, pbip_dir, output_path=None):
 </head>
 <body>
 <div class="report-header">
-<h1>Tableau &rarr; Power BI &mdash; Side-by-Side Comparison</h1>
+<h1>BusinessObjects &rarr; Power BI &mdash; Side-by-Side Comparison</h1>
 <p>Extract: {_esc(extract_dir)} | Project: {_esc(pbip_dir)}</p>
 </div>
 <div class="container">
@@ -384,8 +384,8 @@ def generate_comparison_report(extract_dir, pbip_dir, output_path=None):
   </div>
   <div class="cols">
     <div class="col">
-      <h4>Tableau</h4>
-      <p><span class="label">Mark type:</span> {_esc(ws['tableau']['mark_type'])}</p>
+      <h4>BusinessObjects</h4>
+      <p><span class="label">Chart type:</span> {_esc(ws['tableau']['mark_type'])}</p>
       <p><span class="label">Fields:</span> {ws['tableau']['field_count']}</p>
       <p><span class="label">Filters:</span> {ws['tableau']['filter_count']}</p>
     </div>
@@ -401,7 +401,7 @@ def generate_comparison_report(extract_dir, pbip_dir, output_path=None):
         parts.append('<h2>Field Binding Verification</h2>')
         parts.append('<table><tr>'
                      '<th>Worksheet</th><th>Visual Type</th><th>Status</th>'
-                     '<th>Tableau</th><th>PBI</th><th>Matched</th>'
+                     '<th>BO Fields</th><th>PBI</th><th>Matched</th>'
                      '<th>Missing in PBI</th><th>Extra in PBI</th></tr>')
         _STATUS_BADGE = {
             'OK': ('pass', 'OK'), 'EMPTY': ('', 'Empty'),
@@ -426,11 +426,11 @@ def generate_comparison_report(extract_dir, pbip_dir, output_path=None):
     # ── Calculation comparison ──
     if calc_compare:
         parts.append('<h2>Calculation Conversions</h2>')
-        parts.append('<table><tr><th>Name</th><th>Tableau Formula</th><th>Role</th></tr>')
+        parts.append('<table><tr><th>Name</th><th>BO Formula</th><th>Role</th></tr>')
         for c in calc_compare:
             parts.append(
                 f"<tr><td>{_esc(c['name'])}</td>"
-                f"<td><pre>{_esc(c['tableau_formula'])}</pre></td>"
+                f"<td><pre>{_esc(c['bo_formula'])}</pre></td>"
                 f"<td>{_esc(c['role'])}</td></tr>"
             )
         parts.append('</table>')
@@ -477,9 +477,9 @@ def generate_comparison_report(extract_dir, pbip_dir, output_path=None):
 
 def main():
     parser = argparse.ArgumentParser(
-        description='Generate a side-by-side Tableau vs Power BI comparison report'
+        description='Generate a side-by-side BO vs Power BI comparison report'
     )
-    parser.add_argument('extract_dir', help='Path to tableau_export/ directory')
+    parser.add_argument('extract_dir', help='Path to bo_export/ directory')
     parser.add_argument('pbip_dir', help='Path to generated .pbip project directory')
     parser.add_argument(
         '--output', '-o', default=None,

@@ -136,7 +136,7 @@ def generate_power_query_m(datasource_or_connection: dict, table: dict = None, *
     return build_m_query(ds, tables=table_names, custom_sql=custom_sql)
 
 
-# ── M transform helpers (stubs matching tableau_export.m_query_builder) ──
+# ── M transform helpers (stubs matching bo_export.m_query_builder) ──
 
 def m_transform_rename(renames):
     """Rename columns. renames: dict {old_name: new_name}"""

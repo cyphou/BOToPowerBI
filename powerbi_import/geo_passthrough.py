@@ -1,6 +1,6 @@
 """
 Shapefile/GeoJSON Passthrough — extract geographic boundary files from
-Tableau .twbx packages and configure Power BI Shape Map visuals.
+BO artifacts and configure Power BI Shape Map visuals.
 
 Supports:
 - .geojson / .json (GeoJSON)
@@ -22,7 +22,7 @@ import logging
 import os
 import zipfile
 
-logger = logging.getLogger('tableau_to_powerbi.geo_passthrough')
+logger = logging.getLogger('bo_to_powerbi.geo_passthrough')
 
 # File extensions we recognise as geographic boundary data
 _GEO_EXTENSIONS = frozenset({
@@ -34,10 +34,10 @@ _SHP_COMPONENTS = frozenset({'.shp', '.shx', '.dbf', '.prj', '.cpg'})
 
 
 class GeoExtractor:
-    """Extract geographic files from a Tableau .twbx/.tdsx archive."""
+    """Extract geographic files from a BO artifact archive."""
 
-    def __init__(self, tableau_file, output_dir):
-        self.tableau_file = tableau_file
+    def __init__(self, bo_file, output_dir):
+        self.bo_file = bo_file
         self.output_dir = output_dir
 
     def extract(self):
@@ -50,7 +50,7 @@ class GeoExtractor:
                 - ``output_path``: absolute path where the file was written
                 - ``zip_path``: original path inside the archive
         """
-        ext = os.path.splitext(self.tableau_file)[1].lower()
+        ext = os.path.splitext(self.bo_file)[1].lower()
         if ext not in ('.twbx', '.tdsx'):
             logger.debug("Not an archive file — skipping geo extraction")
             return []
@@ -59,7 +59,7 @@ class GeoExtractor:
         geo_dir = os.path.join(self.output_dir, 'geo')
 
         try:
-            with zipfile.ZipFile(self.tableau_file, 'r') as z:
+            with zipfile.ZipFile(self.bo_file, 'r') as z:
                 for entry in z.namelist():
                     if entry.endswith('/'):
                         continue

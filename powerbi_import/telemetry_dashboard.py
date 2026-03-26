@@ -268,7 +268,7 @@ def generate_dashboard(artifacts_dir, output_path=None, telemetry_log=None):
 <body>
 <div class="report-header">
 <h1>Migration Observability Dashboard</h1>
-<p>Tableau &rarr; Power BI &mdash; {tel_sessions} telemetry sessions, {total_runs} migration reports</p>
+<p>BusinessObjects &rarr; Power BI &mdash; {tel_sessions} telemetry sessions, {total_runs} migration reports</p>
 </div>
 <div class="container">
 """]

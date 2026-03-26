@@ -1,15 +1,15 @@
 """
-M query (Power Query) generator from converted Tableau datasources
+M query (Power Query) generator from converted BO datasources
 Generates realistic M queries instead of empty tables
 """
 
 
 def generate_m_query_from_datasource(datasource, table_name):
     """
-    Generate an M Power Query from a Tableau datasource
+    Generate an M Power Query from a BO datasource
     
     Args:
-        datasource: Datasource converted from Tableau
+        datasource: Datasource converted from BO
         table_name: Name of the table to generate
     
     Returns:

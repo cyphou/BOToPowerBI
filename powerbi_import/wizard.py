@@ -94,24 +94,24 @@ def run_wizard():
     """
     print()
     print("=" * 60)
-    print("  Tableau → Power BI  Migration Wizard")
+    print("  BusinessObjects → Power BI  Migration Wizard")
     print("=" * 60)
     print()
 
     config = {}
 
     # ── Step 1: Source file ──
-    print("─── Step 1: Source Workbook ───")
+    print("─── Step 1: Source Report ───")
 
-    # Auto-detect workbooks in current dir
+    # Auto-detect BO artifacts in current dir
     found = []
-    for ext in ('*.twb', '*.twbx'):
+    for ext in ('*.wid', '*.rpt', '*.unx', '*.unv', '*.biar', '*.lcmbiar', '*.lumx'):
         found.extend(glob.glob(ext))
         found.extend(glob.glob(os.path.join('examples', '**', ext), recursive=True))
     found = sorted(set(found))
 
     if found:
-        print(f"\n  Found {len(found)} workbook(s):")
+        print(f"\n  Found {len(found)} BO artifact(s):")
         for i, f in enumerate(found[:20]):
             print(f"    {i + 1}. {f}")
         if len(found) > 20:
@@ -119,33 +119,33 @@ def run_wizard():
 
         use_found = _yes_no("\n  Use one of these?")
         if use_found and found:
-            idx = _choose("Select workbook:", found[:20])
-            config['tableau_file'] = found[idx]
+            idx = _choose("Select BO artifact:", found[:20])
+            config['bo_file'] = found[idx]
         else:
-            config['tableau_file'] = _input("  Path to Tableau workbook (.twb/.twbx)")
+            config['bo_file'] = _input("  Path to BO artifact (.wid/.rpt/.unx/.biar)")
     else:
-        config['tableau_file'] = _input("  Path to Tableau workbook (.twb/.twbx)")
+        config['bo_file'] = _input("  Path to BO artifact (.wid/.rpt/.unx/.biar)")
 
-    if not config['tableau_file'] or not os.path.isfile(config['tableau_file']):
-        print(f"\n  Error: File not found: {config.get('tableau_file')}")
+    if not config['bo_file'] or not os.path.isfile(config['bo_file']):
+        print(f"\n  Error: File not found: {config.get('bo_file')}")
         return None
 
     # Validate file extension
     valid, err = _validate_file_path(
-        config['tableau_file'],
-        allowed_extensions={'.twb', '.twbx', '.tds', '.tdsx'},
+        config['bo_file'],
+        allowed_extensions={'.wid', '.rpt', '.unx', '.unv', '.biar', '.lcmbiar', '.lumx'},
     )
     if not valid:
         print(f"\n  Error: {err}")
         return None
 
-    # ── Step 2: Prep flow ──
-    print("\n─── Step 2: Tableau Prep Flow (Optional) ───")
-    has_prep = _yes_no("  Do you have a Tableau Prep flow to merge?", default=False)
-    if has_prep:
-        config['prep'] = _input("  Path to Prep flow (.tfl/.tflx)")
+    # ── Step 2: Universe (Optional) ──
+    print("\n─── Step 2: Universe File (Optional) ───")
+    has_universe = _yes_no("  Do you have a separate Universe file to include?", default=False)
+    if has_universe:
+        config['universe'] = _input("  Path to Universe (.unx/.unv)")
     else:
-        config['prep'] = None
+        config['universe'] = None
 
     # ── Step 3: Output ──
     print("\n─── Step 3: Output Options ───")
@@ -188,9 +188,9 @@ def run_wizard():
     print("\n" + "=" * 60)
     print("  Migration Configuration Summary")
     print("=" * 60)
-    print(f"  Source:       {config['tableau_file']}")
-    if config.get('prep'):
-        print(f"  Prep flow:    {config['prep']}")
+    print(f"  Source:       {config['bo_file']}")
+    if config.get('universe'):
+        print(f"  Universe:     {config['universe']}")
     print(f"  Output dir:   {config['output_dir']}")
     print(f"  Format:       {config['output_format']}")
     print(f"  Mode:         {config['mode']}")
@@ -218,8 +218,8 @@ def wizard_to_args(config):
     """
     import argparse
     args = argparse.Namespace(
-        tableau_file=config['tableau_file'],
-        prep=config.get('prep'),
+        bo_file=config['bo_file'],
+        universe=config.get('universe'),
         output_dir=config.get('output_dir'),
         output_format=config.get('output_format', 'pbip'),
         mode=config.get('mode', 'import'),
@@ -252,7 +252,7 @@ def main():
     sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
     from migrate import main as migrate_main
     args = wizard_to_args(config)
-    sys.argv = ['migrate.py', config['tableau_file']]  # Reset argv
+    sys.argv = ['migrate.py', config['bo_file']]  # Reset argv
     # Patch argparse to return our args
     import argparse
     original_parse = argparse.ArgumentParser.parse_args

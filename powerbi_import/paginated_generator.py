@@ -1,4 +1,4 @@
-"""Paginated Report Generator — RDL-style paginated reports from Tableau dashboards.
+"""Paginated Report Generator — RDL-style paginated reports from BO report data.
 
 Extends the existing paginated layout generation in PBIPGenerator with:
 - Multi-page layouts with page breaks
@@ -76,7 +76,7 @@ def _inches(val):
 # ════════════════════════════════════════════════════════════════════
 
 class PaginatedReportGenerator:
-    """Generates paginated (RDL-style) reports from Tableau worksheet data."""
+    """Generates paginated (RDL-style) reports from BO report data."""
 
     def __init__(self, project_dir, report_name):
         self.project_dir = project_dir

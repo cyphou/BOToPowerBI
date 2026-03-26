@@ -45,7 +45,7 @@ import os
 import copy
 import logging
 
-logger = logging.getLogger('tableau_to_powerbi.config')
+logger = logging.getLogger('bo_to_powerbi.config')
 
 
 # Default configuration values

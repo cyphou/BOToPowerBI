@@ -15,7 +15,7 @@ from datetime import datetime
 from .calc_column_utils import (
     classify_calculations,
     sanitize_calc_col_name,
-    tableau_formula_to_pyspark as bo_formula_to_pyspark,
+    bo_formula_to_pyspark,
 )
 from .fabric_naming import make_python_var as _make_var_name
 

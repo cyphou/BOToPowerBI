@@ -1,4 +1,4 @@
-"""Configuration management for Tableau to Power BI migration."""
+"""Configuration management for BusinessObjects to Power BI migration."""
 
 from .migration_config import MigrationConfig, load_config
 

@@ -11,7 +11,7 @@ pairwise overlap, and produces a visual HTML report showing:
 
 Usage (CLI)::
 
-    python migrate.py --batch examples/tableau_samples/ --global-assess
+    python migrate.py --batch examples/bo_samples/ --global-assess
     python migrate.py --global-assess wb1.twbx wb2.twbx wb3.twbx wb4.twbx
 
 Usage (programmatic)::
@@ -851,7 +851,7 @@ individually.</p>
     # ══════════════════════════════════════════════════════════
     html += f"""
 <div class="report-footer">
-    Tableau &#8594; Power BI Migration Tool v{_esc(tool_version)} &nbsp;|&nbsp;
+    BusinessObjects &#8594; Power BI Migration Tool v{_esc(tool_version)} &nbsp;|&nbsp;
     Global Assessment generated: {now} &nbsp;|&nbsp;
     {n} workbooks analyzed
 </div>

@@ -2,7 +2,7 @@
 Shared Semantic Model — HTML Merge Report Generator.
 
 Produces a visual HTML report showing:
-- Tableau source inventory (per-workbook tables, measures, relationships)
+- BO source inventory (per-report tables, measures, relationships)
 - Power BI merged output (unified model structure)
 - Merge details (how tables were matched, column overlap, conflicts resolved)
 - Measure/relationship mapping (Tableau → Power BI, dedup/namespace)
@@ -466,7 +466,7 @@ def generate_merge_html_report(
 
 <div class="card" style="margin-top:15px;text-align:center">
     <div class="flow-box" style="background:#e8f0fe;color:#1a73e8">
-        {len(workbook_names)} Tableau Workbooks<br>
+        {len(workbook_names)} BO Reports<br>
         <span style="font-size:0.8em;font-weight:normal">{total_src_tables} tables &bull; {total_src_measures} measures</span>
     </div>
     <span class="flow-arrow">&#10132;</span>
@@ -493,7 +493,7 @@ def generate_merge_html_report(
     # ══════════════════════════════════════════════════════════════
     html += f"""
 <div class="section-header" onclick="toggleSection(this)">
-<span class="section-icon">&#128214;</span> Tableau Source Inventory <span class="toggle-arrow">&#9660;</span></div>
+<span class="section-icon">&#128214;</span> BO Source Inventory <span class="toggle-arrow">&#9660;</span></div>
 <div class="section-body">
 <div class="card">
 <table>
@@ -681,7 +681,7 @@ def generate_merge_html_report(
         safe = _safe_id(wb_name)
         measures = all_source_measures.get(wb_name, [])
         html += f'<div class="tab-content" id="meas-{safe}"><div class="card">'
-        html += f'<table class="detail-table"><tr><th>Tableau Measure</th><th>Tableau Formula</th><th>&#10132; Power BI</th></tr>'
+        html += f'<table class="detail-table"><tr><th>BO Measure</th><th>BO Formula</th><th>&#10132; Power BI</th></tr>'
         for caption, formula in measures:
             # Find what it became in merged model
             pbi_name = caption
@@ -865,7 +865,7 @@ Conflicts: <strong>{len(assessment.parameter_conflicts)}</strong></p>
     # ══════════════════════════════════════════════════════════════
     html += f"""
 <div class="report-footer">
-    Tableau &#8594; Power BI Migration Tool v{tool_version} &nbsp;|&nbsp;
+    BusinessObjects &#8594; Power BI Migration Tool v{tool_version} &nbsp;|&nbsp;
     Report generated: {now} &nbsp;|&nbsp;
     Model: {_esc(model_name)}
 </div>

@@ -158,7 +158,7 @@ class PowerBIImporter:
 
         Args:
             report_name: Name of the report
-            converted_objects: Dict of extracted Tableau objects
+            converted_objects: Dict of extracted BO objects
             output_dir: Custom output directory for .pbip project
             calendar_start: Start year for Calendar table
             calendar_end: End year for Calendar table

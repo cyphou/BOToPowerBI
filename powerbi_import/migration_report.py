@@ -33,8 +33,8 @@ _APPROXIMATE_PATTERNS = [
     (re.compile(r'/\*.*placeholder', re.IGNORECASE), 'Placeholder formula'),
 ]
 
-# Tableau functions that should not appear in DAX output
-_TABLEAU_LEAK_PATTERNS = [
+# BO functions that should not appear in DAX output
+_BO_LEAK_PATTERNS = [
     re.compile(r'\bCOUNTD\s*\(', re.IGNORECASE),
     re.compile(r'\bZN\s*\(', re.IGNORECASE),
     re.compile(r'\bIFNULL\s*\(', re.IGNORECASE),
@@ -75,7 +75,7 @@ class MigrationReport:
             status: One of 'exact', 'approximate', 'placeholder', 'unsupported', 'skipped'
             dax: Optional generated DAX formula
             note: Optional human-readable note
-            source_formula: Optional original Tableau formula
+            source_formula: Optional original BO formula
         """
         if status not in self._VALID_STATUSES:
             raise ValueError(f"Invalid status '{status}'; must be one of {self._VALID_STATUSES}")
@@ -133,7 +133,7 @@ class MigrationReport:
 
         Args:
             worksheets: List of worksheet dicts from worksheets.json
-            visual_type_map: Optional dict of tableau_mark → pbi_visual used
+            visual_type_map: Optional dict of bo_chart_type → pbi_visual used
         """
         for ws in worksheets:
             name = ws.get('name', 'Unknown')
@@ -302,7 +302,7 @@ class MigrationReport:
             if pattern.search(dax):
                 return cls.APPROXIMATE
 
-        # Check for leaked Tableau functions
+        # Check for leaked BO functions
         for pattern in _TABLEAU_LEAK_PATTERNS:
             if pattern.search(dax):
                 return cls.APPROXIMATE

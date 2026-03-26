@@ -14,7 +14,7 @@ Usage:
 import logging
 import re
 
-logger = logging.getLogger('tableau_to_powerbi.dax_recipes')
+logger = logging.getLogger('bo_to_powerbi.dax_recipes')
 
 
 # ── Healthcare KPIs ──

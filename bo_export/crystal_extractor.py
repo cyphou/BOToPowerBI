@@ -569,3 +569,289 @@ def _extract_command_objects(metadata):
         })
 
     return custom_sql
+
+
+# ═══════════════════════════════════════════════════════════════════
+#  Phase 8: Deep Crystal Analysis
+# ═══════════════════════════════════════════════════════════════════
+
+# Additional binary signature patterns for Crystal .rpt files
+_CRYSTAL_HEADER_SIG = b'\xD0\xCF\x11\xE0\xA1\xB1\x1A\xE1'  # OLE2 compound doc
+_PRINT_OBJECT_SIG = re.compile(b'PrintObject', re.IGNORECASE)
+_DATASOURCE_SIG = re.compile(
+    rb'(?:DatabaseName|ServerName|ServerType|ConnectionURL|UserId|LogonProperties)',
+    re.IGNORECASE,
+)
+
+
+def deep_parse_crystal(input_path):
+    """Enhanced Crystal parsing with binary structure analysis.
+
+    Goes deeper than _parse_rpt_file by:
+    - Detecting OLE2 compound document structure
+    - Extracting embedded images (BMP/PNG headers)
+    - Parsing page layout (margins, orientation, paper size)
+    - Reading datasource connection details
+    - Extracting cross-tab row/col/summary fields
+
+    Args:
+        input_path: Path to .rpt file.
+
+    Returns:
+        dict: Deep metadata extending base extraction.
+    """
+    deep = {
+        "page_layout": {},
+        "embedded_images": [],
+        "datasource_details": [],
+        "crosstab_fields": [],
+        "group_hierarchy": [],
+        "section_formatting": [],
+        "print_objects": [],
+    }
+
+    try:
+        with open(input_path, 'rb') as f:
+            raw = f.read()
+    except (OSError, IOError) as e:
+        logger.warning("Cannot read %s for deep analysis: %s", input_path, e)
+        return deep
+
+    # ── Page layout extraction ──
+    deep["page_layout"] = _extract_page_layout(raw)
+
+    # ── Embedded images ──
+    deep["embedded_images"] = _find_embedded_images(raw)
+
+    # ── Enhanced datasource details ──
+    deep["datasource_details"] = _extract_deep_datasource(raw)
+
+    # ── Cross-tab field extraction ──
+    deep["crosstab_fields"] = _extract_crosstab_fields(raw)
+
+    # ── Group hierarchy with summaries ──
+    deep["group_hierarchy"] = _build_group_hierarchy(raw)
+
+    # ── Section formatting ──
+    deep["section_formatting"] = _extract_section_formatting(raw)
+
+    logger.info(
+        "Deep Crystal parse: layout=%s, images=%d, crosstab_fields=%d, groups=%d",
+        bool(deep["page_layout"]),
+        len(deep["embedded_images"]),
+        len(deep["crosstab_fields"]),
+        len(deep["group_hierarchy"]),
+    )
+    return deep
+
+
+def _extract_page_layout(raw_bytes):
+    """Extract page layout info from .rpt binary."""
+    layout = {}
+    text = _safe_decode(raw_bytes)
+
+    # Paper size patterns
+    paper_match = re.search(r'PaperSize\s*=?\s*(\d+)', text, re.IGNORECASE)
+    if paper_match:
+        size_code = int(paper_match.group(1))
+        paper_sizes = {1: 'Letter', 5: 'Legal', 8: 'A3', 9: 'A4', 11: 'A5'}
+        layout['paper_size'] = paper_sizes.get(size_code, f'Custom({size_code})')
+
+    # Orientation
+    orient_match = re.search(r'(?:Print|Paper)Orientation\s*=?\s*(\d+)', text, re.IGNORECASE)
+    if orient_match:
+        layout['orientation'] = 'landscape' if orient_match.group(1) == '2' else 'portrait'
+
+    # Margins (in twips: 1440 twips = 1 inch)
+    for margin_name in ('TopMargin', 'BottomMargin', 'LeftMargin', 'RightMargin'):
+        m = re.search(rf'{margin_name}\s*=?\s*(\d+)', text, re.IGNORECASE)
+        if m:
+            layout[margin_name.lower()] = int(m.group(1))
+
+    return layout
+
+
+def _find_embedded_images(raw_bytes):
+    """Find embedded images in Crystal binary data."""
+    images = []
+
+    # PNG signature
+    png_sig = b'\x89PNG\r\n\x1a\n'
+    idx = 0
+    while True:
+        pos = raw_bytes.find(png_sig, idx)
+        if pos < 0:
+            break
+        images.append({'type': 'png', 'offset': pos})
+        idx = pos + len(png_sig)
+
+    # BMP signature
+    bmp_sig = b'BM'
+    idx = 0
+    while True:
+        pos = raw_bytes.find(bmp_sig, idx)
+        if pos < 0:
+            break
+        # Verify it looks like a real BMP (check file size field)
+        if pos + 6 <= len(raw_bytes):
+            bmp_size = struct.unpack_from('<I', raw_bytes, pos + 2)[0]
+            if 1000 < bmp_size < len(raw_bytes):
+                images.append({'type': 'bmp', 'offset': pos, 'size': bmp_size})
+        idx = pos + 2
+
+    # JPEG SOI marker
+    jpg_soi = b'\xFF\xD8\xFF'
+    idx = 0
+    while True:
+        pos = raw_bytes.find(jpg_soi, idx)
+        if pos < 0:
+            break
+        images.append({'type': 'jpeg', 'offset': pos})
+        idx = pos + 3
+
+    return images
+
+
+def _extract_deep_datasource(raw_bytes):
+    """Extract detailed datasource connection info from binary."""
+    details = []
+    text = _safe_decode(raw_bytes)
+
+    # Connection string patterns
+    conn_patterns = {
+        'server': r'(?:ServerName|Server|Data\s*Source)\s*=\s*([^\s;,\x00]+)',
+        'database': r'(?:DatabaseName|Database|Initial\s*Catalog)\s*=\s*([^\s;,\x00]+)',
+        'provider': r'(?:Provider|Driver)\s*=\s*([^\s;,\x00]+)',
+        'dsn': r'DSN\s*=\s*([^\s;,\x00]+)',
+        'user': r'(?:User\s*ID|UID|UserId)\s*=\s*([^\s;,\x00]+)',
+    }
+
+    info = {}
+    for key, pattern in conn_patterns.items():
+        m = re.search(pattern, text, re.IGNORECASE)
+        if m:
+            val = m.group(1).strip('"').strip("'")
+            info[key] = val
+
+    if info:
+        # Determine DB type from provider/driver
+        provider = info.get('provider', '').lower()
+        if 'oracle' in provider or 'ora' in provider:
+            info['db_type'] = 'Oracle'
+        elif 'sqloledb' in provider or 'sqlncli' in provider or 'msoledbsql' in provider:
+            info['db_type'] = 'SQL Server'
+        elif 'mysql' in provider:
+            info['db_type'] = 'MySQL'
+        elif 'postgresql' in provider or 'pgsql' in provider:
+            info['db_type'] = 'PostgreSQL'
+        elif 'odbc' in provider.lower() or info.get('dsn'):
+            info['db_type'] = 'ODBC'
+        else:
+            info['db_type'] = 'Unknown'
+        details.append(info)
+
+    return details
+
+
+def _extract_crosstab_fields(raw_bytes):
+    """Extract cross-tab row, column, and summary field assignments."""
+    fields = []
+    text = _safe_decode(raw_bytes)
+
+    # Cross-tab patterns from Crystal binary
+    ct_row = re.finditer(r'CrossTab\s*Row\s*[-–:]?\s*\{?(\w+(?:\.\w+)?)\}?', text, re.I)
+    for m in ct_row:
+        fields.append({'role': 'row', 'field': m.group(1)})
+
+    ct_col = re.finditer(r'CrossTab\s*Col(?:umn)?\s*[-–:]?\s*\{?(\w+(?:\.\w+)?)\}?', text, re.I)
+    for m in ct_col:
+        fields.append({'role': 'column', 'field': m.group(1)})
+
+    ct_sum = re.finditer(r'CrossTab\s*Sum(?:mary)?\s*[-–:]?\s*\{?(\w+(?:\.\w+)?)\}?', text, re.I)
+    for m in ct_sum:
+        fields.append({'role': 'summary', 'field': m.group(1)})
+
+    return fields
+
+
+def _build_group_hierarchy(raw_bytes):
+    """Build hierarchical group tree with summary fields and formulas."""
+    text = _safe_decode(raw_bytes)
+    groups = []
+
+    # Enhanced group detection with summary functions
+    group_pattern = re.compile(
+        r'Group\s*#?(\d+)\s*[-–:]?\s*(?:on\s+)?\{?(\w+(?:\.\w+)?)\}?'
+        r'(?:\s*\((\w+)\))?',  # optional sort direction
+        re.IGNORECASE,
+    )
+
+    for m in group_pattern.finditer(text):
+        idx = int(m.group(1))
+        field = m.group(2)
+        sort_dir = (m.group(3) or 'ascending').lower()
+
+        # Find associated group summaries
+        summaries = []
+        summary_pattern = re.compile(
+            rf'Group\s*#?{idx}\s+Summary\s*[-–:]?\s*(\w+)\s*\(\{{?(\w+(?:\.\w+)?)\}}?\)',
+            re.IGNORECASE,
+        )
+        for sm in summary_pattern.finditer(text):
+            summaries.append({
+                'function': sm.group(1).upper(),
+                'field': sm.group(2),
+            })
+
+        groups.append({
+            'index': idx,
+            'field': field,
+            'sort_direction': sort_dir,
+            'summaries': summaries,
+            'level': idx,
+        })
+
+    groups.sort(key=lambda g: g['index'])
+    return groups
+
+
+def _extract_section_formatting(raw_bytes):
+    """Extract section-level formatting (suppress, background color, borders)."""
+    text = _safe_decode(raw_bytes)
+    sections = []
+
+    section_pattern = re.compile(
+        r'(Report|Page|Group)\s*(Header|Footer|Detail)\s*#?(\d*)',
+        re.IGNORECASE,
+    )
+
+    for m in section_pattern.finditer(text):
+        section_type = m.group(1)
+        section_part = m.group(2)
+        section_num = m.group(3) or ''
+        name = f"{section_type} {section_part} {section_num}".strip()
+
+        sections.append({
+            'name': name,
+            'type': f'{section_type.lower()}_{section_part.lower()}',
+            'suppress': False,
+            'background_color': None,
+        })
+
+    return sections
+
+
+def _safe_decode(raw_bytes):
+    """Decode binary to text, keeping only printable segments."""
+    segments = []
+    current = []
+    for byte in raw_bytes:
+        if 32 <= byte <= 126:
+            current.append(chr(byte))
+        else:
+            if len(current) > 3:
+                segments.append(''.join(current))
+            current = []
+    if len(current) > 3:
+        segments.append(''.join(current))
+    return '\n'.join(segments)

@@ -1,12 +1,12 @@
 """LLM-Assisted DAX Correction — AI-powered refinement for approximated DAX formulas.
 
-When the Tableau→DAX converter produces an approximated result (marked with
+When the BO→DAX converter produces an approximated result (marked with
 MigrationNote), this module can optionally send the formula to an LLM (OpenAI
 or Anthropic) for refinement.
 
 Features:
 - OpenAI and Anthropic client support via stdlib urllib (no external deps)
-- Structured prompt with Tableau formula + current DAX + schema context
+- Structured prompt with BO formula + current DAX + schema context
 - Confidence scoring per refinement
 - Token counting and cost estimation
 - Rate limiting and retry-after logic
@@ -30,7 +30,7 @@ from datetime import datetime
 from urllib.request import Request, urlopen
 from urllib.error import HTTPError, URLError
 
-logger = logging.getLogger('tableau_to_powerbi.llm_client')
+logger = logging.getLogger('bo_to_powerbi.llm_client')
 
 # ════════════════════════════════════════════════════════════════════
 #  CONSTANTS
@@ -63,20 +63,20 @@ _PROVIDERS = {
     },
 }
 
-_SYSTEM_PROMPT = """You are an expert in both Tableau calculated fields and Power BI DAX.
-Your task is to refine an approximated DAX formula that was auto-converted from Tableau.
+_SYSTEM_PROMPT = """You are an expert in both SAP BusinessObjects formulas and Power BI DAX.
+Your task is to refine an approximated DAX formula that was auto-converted from BusinessObjects.
 
 Rules:
 1. Output ONLY the corrected DAX formula — no explanation, no markdown.
 2. The formula must be syntactically valid DAX.
 3. Use proper column references: 'TableName'[ColumnName].
-4. Preserve the original semantics of the Tableau formula as closely as possible.
+4. Preserve the original semantics of the BO formula as closely as possible.
 5. If the approximation is already correct, return it unchanged.
 6. Use modern DAX functions (COALESCE, SELECTEDVALUE, WINDOW, OFFSET) when appropriate.
 """
 
-_USER_PROMPT_TEMPLATE = """Tableau formula:
-{tableau_formula}
+_USER_PROMPT_TEMPLATE = """BusinessObjects formula:
+{bo_formula}
 
 Current approximated DAX:
 {current_dax}
@@ -330,7 +330,7 @@ def refine_approximated_measures(client, measures, tables=None, source_formulas=
             - expression: current DAX expression
             - annotations (optional): list including MigrationNote
         tables: list of table dicts for schema context
-        source_formulas: dict mapping measure_name → original Tableau formula
+        source_formulas: dict mapping measure_name → original BO formula
 
     Returns:
         list of result dicts:
@@ -370,9 +370,9 @@ def refine_approximated_measures(client, measures, tables=None, source_formulas=
             })
             continue
 
-        tableau_formula = source_formulas.get(name, '(not available)')
+        bo_formula = source_formulas.get(name, '(not available)')
         user_prompt = _USER_PROMPT_TEMPLATE.format(
-            tableau_formula=tableau_formula,
+            bo_formula=bo_formula,
             current_dax=expression,
             migration_note=note,
             schema_context=schema_ctx,

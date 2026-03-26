@@ -55,7 +55,7 @@ class MigrationSession:
     # ── Loading ───────────────────────────────────────────────
 
     def load(self, workbook_path):
-        """Extract a Tableau workbook into the session.
+        """Extract a BO artifact into the session.
 
         Args:
             workbook_path: Path to ``.twb`` or ``.twbx`` file.
@@ -147,7 +147,7 @@ class MigrationSession:
 
             results.append({
                 'name': name,
-                'tableau_formula': formula,
+                'bo_formula': formula,
                 'dax_formula': dax,
                 'status': status,
             })
@@ -247,7 +247,7 @@ class MigrationSession:
             fields = ws.get('fields', [])
             results.append({
                 'worksheet': ws_name,
-                'tableau_mark': mark,
+                'bo_chart_type': mark,
                 'pbi_visual_type': pbi_type,
                 'field_count': len(fields),
                 'overridden': override,
@@ -258,7 +258,7 @@ class MigrationSession:
         """Override the PBI visual type for a specific worksheet.
 
         Args:
-            visual_name: Tableau worksheet name.
+            visual_name: BO report tab name.
             new_type: PBI visual type string (e.g., 'lineChart').
         """
         self._visual_overrides[visual_name] = new_type
@@ -408,7 +408,7 @@ class MigrationSession:
         cells = [
             _make_markdown_cell(
                 f"# Migration Notebook: {wb_name}\n\n"
-                "This notebook guides you through migrating a Tableau workbook "
+                "This notebook guides you through migrating a BO report "
                 "to Power BI using the interactive `MigrationSession` API."
             ),
             _make_code_cell(

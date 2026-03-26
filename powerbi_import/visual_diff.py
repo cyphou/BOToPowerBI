@@ -1,7 +1,7 @@
 """
 Visual diff report generator.
 
-Produces a side-by-side HTML report comparing Tableau visuals
+Produces a side-by-side HTML report comparing BO visuals
 (worksheets) against the generated Power BI visuals, highlighting:
 
 * Visual type mappings and approximations
@@ -177,14 +177,14 @@ _ENCODING_TYPES = ['color', 'size', 'shape', 'label', 'tooltip', 'detail', 'path
 
 
 def _diff_worksheet(ws: Dict, pbi_visuals: List[Dict]) -> Dict:
-    """Compare a single Tableau worksheet against PBI visuals."""
+    """Compare a single BO report tab against PBI visuals."""
     ws_name = ws.get('name', 'Unknown')
     mark_type = ws.get('mark_type', '')
     if isinstance(mark_type, dict):
         mark_type = mark_type.get('type', '')
     mark_type = str(mark_type).lower()
 
-    # Tableau fields
+    # BO fields
     tab_fields = []
     for f in ws.get('fields', []):
         if isinstance(f, dict):
@@ -193,14 +193,14 @@ def _diff_worksheet(ws: Dict, pbi_visuals: List[Dict]) -> Dict:
             tab_fields.append(f)
     tab_fields = [f for f in tab_fields if f]
 
-    # Tableau encodings
+    # BO encodings
     mark_enc = ws.get('mark_encoding', {})
     tab_encodings = {}
     for enc_type in _ENCODING_TYPES:
         val = mark_enc.get(enc_type)
         tab_encodings[enc_type] = val is not None and val != ''
 
-    # Tableau filters
+    # BO filters
     tab_filters = ws.get('filters', [])
 
     # Expected PBI type
@@ -245,7 +245,7 @@ def _diff_worksheet(ws: Dict, pbi_visuals: List[Dict]) -> Dict:
         'expected_pbi_type': expected_pbi,
         'actual_pbi_type': pbi_match['visualType'] if pbi_match else None,
         'status': status,
-        'tableau_fields': tab_fields,
+        'bo_fields': tab_fields,
         'pbi_fields': pbi_fields,
         'mapped_fields': mapped_fields,
         'unmapped_fields': unmapped_fields,
@@ -253,8 +253,8 @@ def _diff_worksheet(ws: Dict, pbi_visuals: List[Dict]) -> Dict:
             round(len(mapped_fields) / len(tab_fields) * 100)
             if tab_fields else 100
         ),
-        'tableau_encodings': tab_encodings,
-        'tableau_filter_count': len(tab_filters),
+        'bo_encodings': tab_encodings,
+        'bo_filter_count': len(tab_filters),
         'pbi_matched': pbi_match is not None,
     }
 
@@ -267,7 +267,7 @@ def generate_visual_diff(
     """Generate a visual diff HTML report.
 
     Args:
-        extracted_data: Dict of extracted JSON objects from Tableau.
+        extracted_data: Dict of extracted JSON objects from BO.
         pbip_dir: Path to the generated .pbip project directory.
         output_path: Output HTML file path (default: visual_diff.html
                      in the pbip directory's parent).
@@ -309,7 +309,7 @@ def generate_visual_diff(
 </head>
 <body>
 <div class="report-header">
-<h1>Tableau &rarr; Power BI &mdash; Visual Diff Report</h1>
+<h1>BusinessObjects &rarr; Power BI &mdash; Visual Diff Report</h1>
 <p>Project: {_esc(pbip_dir)}</p>
 </div>
 <div class="container">
@@ -335,7 +335,7 @@ def generate_visual_diff(
 
         # Encoding status
         enc_html = '<div class="encoding-grid">'
-        for enc_type, present in d['tableau_encodings'].items():
+        for enc_type, present in d['bo_encodings'].items():
             cls = 'present' if present else 'missing'
             enc_html += f'<div class="enc-item {cls}">{_esc(enc_type)}</div>'
         enc_html += '</div>'
@@ -359,14 +359,14 @@ def generate_visual_diff(
   </div>
   <div class="cols">
     <div class="col">
-      <h4>Tableau</h4>
+      <h4>BusinessObjects</h4>
       <p><span class="label">Mark type:</span> {_esc(d['mark_type']) or 'auto'}</p>
       <p><span class="label">Expected PBI type:</span> {_esc(d['expected_pbi_type'])}</p>
-      <p><span class="label">Fields ({len(d['tableau_fields'])}):</span></p>
+      <p><span class="label">Fields ({len(d['bo_fields'])}):</span></p>
       <ul class="field-list">{mapped_html}{unmapped_html}</ul>
       <p><span class="label">Encodings:</span></p>
       {enc_html}
-      <p><span class="label">Filters:</span> {d['tableau_filter_count']}</p>
+      <p><span class="label">Filters:</span> {d['bo_filter_count']}</p>
     </div>
     <div class="col">
       <h4>Power BI</h4>
@@ -380,7 +380,7 @@ def generate_visual_diff(
     # Summary table
     parts.append('<h2>Summary Table</h2>')
     parts.append(
-        '<table><tr><th>Worksheet</th><th>Tableau Mark</th>'
+        '<table><tr><th>Worksheet</th><th>BO Chart Type</th>'
         '<th>Expected PBI</th><th>Actual PBI</th>'
         '<th>Status</th><th>Field Coverage</th></tr>'
     )

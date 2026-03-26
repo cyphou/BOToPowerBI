@@ -1,10 +1,10 @@
 """Query Equivalence Tester — Cross-platform validation framework.
 
-Compares Tableau and Power BI output to verify that migrated reports
+Compares BO and Power BI output to verify that migrated reports
 produce equivalent data within configurable tolerance thresholds.
 
 Features:
-- Measure value comparison (Tableau expected vs PBI actual)
+- Measure value comparison (BO expected vs PBI actual)
 - Visual screenshot comparison framework (SSIM-based)
 - Per-measure pass/fail validation report
 """
@@ -18,7 +18,7 @@ def compare_measure_values(expected, actual, tolerance=0.01):
     """Compare two sets of measure values within a tolerance threshold.
 
     Args:
-        expected: Dict of measure_name → numeric value (from Tableau)
+        expected: Dict of measure_name → numeric value (from BO)
         actual: Dict of measure_name → numeric value (from PBI)
         tolerance: Relative tolerance for floating-point comparison (default 1%)
 
@@ -147,7 +147,7 @@ def compare_screenshots(img_a_data, img_b_data, threshold=0.85):
     """Compare two screenshot images and return pass/fail result.
 
     Args:
-        img_a_data: bytes of Tableau screenshot (PNG)
+        img_a_data: bytes of BO screenshot (PNG)
         img_b_data: bytes of PBI screenshot (PNG)
         threshold: Minimum SSIM score to pass (default 0.85)
 

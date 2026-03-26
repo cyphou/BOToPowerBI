@@ -1,9 +1,9 @@
 """
-Migration Strategy Advisor for Tableau → Power BI.
+Migration Strategy Advisor for BO → Power BI.
 
 Automatically recommends the optimal data-loading approach — **Import Mode**
 (Power Query M), **DirectQuery**, or **Composite** — based on workbook
-characteristics extracted from the Tableau file.
+characteristics extracted from the BO artifact.
 
 Decision signals
 ~~~~~~~~~~~~~~~~
@@ -109,7 +109,7 @@ MARGIN = 2                 # score gap ≤ margin → recommend composite
 # ── Calculation classification ──────────────────────────────────────
 
 def _classify_calculations(calculations):
-    """Split Tableau calculations into calculated columns vs measures.
+    """Split BO calculations into calculated columns vs measures.
 
     Returns (calc_columns, measures) — two lists.
     """
@@ -178,13 +178,13 @@ def recommend_strategy(
     calc_col_threshold: int = CALC_COL_THRESHOLD,
     margin: int = MARGIN,
 ) -> StrategyRecommendation:
-    """Analyse extracted Tableau data and recommend a data-loading strategy.
+    """Analyse extracted BO data and recommend a data-loading strategy.
 
     Args:
         extracted: dict loaded by ``PowerBIImporter._load_converted_objects()``
                    — must contain ``datasources``, ``calculations``,
                    ``custom_sql`` keys (others optional).
-        prep_flow: True if a Tableau Prep flow is being merged.
+        prep_flow: True if a universe file is being merged.
         table_threshold: Tables above this favour DirectQuery.
         column_threshold: Columns above this favour DirectQuery.
         calc_col_threshold: Calculated columns above this favour DirectQuery.
@@ -322,7 +322,7 @@ def recommend_strategy(
     if prep_flow:
         signals.append(StrategySignal(
             'prep_flow',
-            'Tableau Prep flow transforms present',
+            'Universe transforms present',
             'directquery', weight=2,
         ))
 

@@ -1,6 +1,6 @@
 """Power BI Goals/Scorecard JSON generator.
 
-Converts Tableau Pulse metrics into Fabric Scorecard API-compatible
+Converts BO metrics into Fabric Scorecard API-compatible
 JSON artifacts for manual import into a Power BI workspace.
 
 Usage:
@@ -29,7 +29,7 @@ _CADENCE_REFRESH = {
 
 def generate_goals_json(pulse_metrics, report_name='Report',
                         workspace_id=None):
-    """Convert Tableau Pulse metrics to PBI Goals/Scorecard JSON.
+    """Convert BO metrics to PBI Goals/Scorecard JSON.
 
     Generates a Fabric Scorecard API-compatible JSON artifact that
     can be manually imported into a Power BI workspace.
@@ -57,7 +57,7 @@ def generate_goals_json(pulse_metrics, report_name='Report',
     scorecard = {
         'id': scorecard_id,
         'name': f'{report_name} Scorecard',
-        'description': f'Migrated from Tableau Pulse — {len(goals)} goals',
+        'description': f'Migrated from BO report — {len(goals)} goals',
         'createdTime': now,
         'lastModifiedTime': now,
         'goals': goals,
@@ -140,7 +140,7 @@ def _build_goal(metric, ordinal, scorecard_id):
     goal['annotations'] = [{
         'name': 'MigrationNote',
         'value': (
-            f'Migrated from Tableau Pulse metric "{name}". '
+            f'Migrated from BO metric "{name}". '
             f'Aggregation: {aggregation}. '
             f'Connect to a Power BI dataset measure for live updates.'
         ),

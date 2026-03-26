@@ -1,15 +1,15 @@
 """
-Plugin architecture for the Tableau to Power BI migration pipeline.
+Plugin architecture for the BusinessObjects to Power BI migration pipeline.
 
 Defines hook points that plugins can implement to customize behavior:
 
-    - pre_extraction(tableau_file: str) -> None
+    - pre_extraction(bo_file: str) -> None
     - post_extraction(extracted_data: dict) -> dict
     - pre_generation(converted_objects: dict) -> dict
     - post_generation(project_dir: str) -> None
     - transform_dax(dax_formula: str) -> str
     - transform_m_query(m_query: str) -> str
-    - custom_visual_mapping(tableau_mark: str) -> str | None
+    - custom_visual_mapping(bo_chart_type: str) -> str | None
 
 Plugins are discovered via:
     1. A 'plugins' list in the config file (module paths)
@@ -30,7 +30,7 @@ Example plugin:
 import importlib
 import logging
 
-logger = logging.getLogger('tableau_to_powerbi.plugins')
+logger = logging.getLogger('bo_to_powerbi.plugins')
 
 
 class PluginBase:
@@ -42,11 +42,11 @@ class PluginBase:
 
     name = "base_plugin"
 
-    def pre_extraction(self, tableau_file):
-        """Called before Tableau extraction begins.
+    def pre_extraction(self, bo_file):
+        """Called before BO extraction begins.
 
         Args:
-            tableau_file: Path to the .twb/.twbx file
+            bo_file: Path to the .wid/.rpt/.unx/.biar file
         """
         pass
 
@@ -69,7 +69,7 @@ class PluginBase:
         Can modify the converted objects in-place or return a new dict.
 
         Args:
-            converted_objects: Dict of converted Tableau objects
+            converted_objects: Dict of converted BO objects
 
         Returns:
             dict: Modified converted objects (or None to keep original)
@@ -106,11 +106,11 @@ class PluginBase:
         """
         return m_query
 
-    def custom_visual_mapping(self, tableau_mark):
-        """Override visual type mapping for a Tableau mark type.
+    def custom_visual_mapping(self, bo_chart_type):
+        """Override visual type mapping for a BO chart type.
 
         Args:
-            tableau_mark: The Tableau mark type string (e.g., 'bar', 'line')
+            bo_chart_type: The BO chart type string (e.g., 'bar', 'line')
 
         Returns:
             str | None: PBI visual type string, or None to use default mapping
@@ -125,7 +125,7 @@ class PluginBase:
         Args:
             conflict_type: "measure", "parameter", or "column"
             name: Name of the conflicting item
-            variants: dict {workbook_name: value/formula}
+            variants: dict {report_name: value/formula}
 
         Returns:
             str | None: Resolution action ("namespace", "keep_first", "skip")
@@ -143,13 +143,13 @@ class PluginBase:
         """
         pass
 
-    def transform_merged_dax(self, measure_name, dax_formula, source_workbook):
+    def transform_merged_dax(self, measure_name, dax_formula, source_report):
         """Transform a DAX formula during merge (post-namespace).
 
         Args:
             measure_name: The measure name (possibly namespaced)
             dax_formula: The DAX formula
-            source_workbook: Source workbook name (or None if shared)
+            source_report: Source report name (or None if shared)
 
         Returns:
             str: Modified DAX formula
@@ -166,7 +166,7 @@ class PluginManager:
         manager.load_from_config(["my_module.MyPlugin"])
 
         # Dispatch hooks
-        manager.call_hook("pre_extraction", tableau_file="file.twbx")
+        manager.call_hook("pre_extraction", bo_file="file.wid")
         modified = manager.apply_transform("transform_dax", formula)
     """
 

@@ -1,5 +1,5 @@
 """
-Optional anonymous usage telemetry for the TableauToPowerBI migration tool.
+Optional anonymous usage telemetry for the BOToPowerBI migration tool.
 
 Collects anonymous, aggregate migration statistics to help improve the tool.
 **Disabled by default** — opt-in via ``--telemetry`` CLI flag or

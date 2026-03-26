@@ -1,9 +1,9 @@
-"""REST API server for Tableau-to-Power BI migration.
+"""REST API server for BusinessObjects-to-Power BI migration.
 
 Sprint 110: Lightweight HTTP wrapper around the migration pipeline.
 
 Endpoints:
-    POST /migrate          Upload .twb/.twbx/.tds/.tdsx → returns job ID
+    POST /migrate          Upload .wid/.rpt/.unx/.biar → returns job ID
     GET  /status/{id}      Check migration job status
     GET  /download/{id}    Download generated .pbip project as ZIP
     GET  /health           Health check
@@ -262,7 +262,7 @@ class MigrationHandler(BaseHTTPRequestHandler):
 
             # Parse multipart or raw file upload
             content_type = self.headers.get('Content-Type', '')
-            filename = 'upload.twbx'
+            filename = 'upload.wid'
             file_data = body
 
             if 'multipart/form-data' in content_type:
@@ -282,7 +282,7 @@ class MigrationHandler(BaseHTTPRequestHandler):
                 try:
                     import base64
                     payload = json.loads(body)
-                    filename = payload.get('filename', 'upload.twbx')
+                    filename = payload.get('filename', 'upload.wid')
                     file_data = base64.b64decode(payload['file'])
                 except (json.JSONDecodeError, KeyError, Exception) as exc:
                     self._send_error(400, f'Invalid JSON payload: {exc}')
@@ -290,9 +290,9 @@ class MigrationHandler(BaseHTTPRequestHandler):
 
             # Validate extension
             ext = os.path.splitext(filename)[1].lower()
-            if ext not in ('.twb', '.twbx', '.tds', '.tdsx'):
+            if ext not in ('.wid', '.rpt', '.unx', '.unv', '.biar', '.lcmbiar', '.lumx'):
                 self._send_error(400,
-                    f'Unsupported file type: {ext}. Use .twb, .twbx, .tds, or .tdsx')
+                    f'Unsupported file type: {ext}. Use .wid, .rpt, .unx, .unv, .biar, .lcmbiar, or .lumx')
                 return
 
             # Save to temp file
@@ -399,7 +399,7 @@ def _parse_multipart(body, boundary):
                         c for c in filename if ord(c) >= 32 and c != '\x00'
                     )
                     if not filename or not re.match(r'^[\w\-. ]+$', filename):
-                        filename = f'upload_{uuid.uuid4().hex[:8]}.twbx'
+                        filename = f'upload_{uuid.uuid4().hex[:8]}.wid'
                 break
         return filename, data
     return None
@@ -430,7 +430,7 @@ def run_server(host='127.0.0.1', port=8000):
     """Start the migration API server."""
     server = HTTPServer((host, port), MigrationHandler)
     print(f"Migration API server running on http://{host}:{port}")
-    print(f"  POST /migrate     Upload .twb/.twbx/.tds/.tdsx for migration")
+    print(f"  POST /migrate     Upload .wid/.rpt/.unx/.biar for migration")
     print(f"  GET  /status/{{id}} Check job status")
     print(f"  GET  /download/{{id}} Download result as ZIP")
     print(f"  GET  /health      Health check")

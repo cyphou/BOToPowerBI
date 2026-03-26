@@ -4,7 +4,7 @@ Healthcare, Finance, and Retail verticals.
 
 Each template defines tables, columns, relationships, measures, and
 hierarchies that represent common industry data models. Templates
-can be merged with migrated Tableau data to produce a richer,
+can be merged with migrated BO data to produce a richer,
 standards-compliant Power BI semantic model.
 
 Usage:
@@ -16,7 +16,7 @@ Usage:
 import copy
 import logging
 
-logger = logging.getLogger('tableau_to_powerbi.model_templates')
+logger = logging.getLogger('bo_to_powerbi.model_templates')
 
 
 # ── Healthcare Star Schema ──

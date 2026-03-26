@@ -182,7 +182,7 @@ class _PrometheusBackend(_BaseBackend):
             try:
                 from prometheus_client import push_to_gateway
                 push_to_gateway(
-                    self.gateway_url, job="tableau_to_pbi",
+                    self.gateway_url, job="bo_to_pbi",
                     registry=self._registry,
                 )
                 logger.info("Pushed metrics to Prometheus gateway")

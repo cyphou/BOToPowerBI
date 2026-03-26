@@ -828,7 +828,7 @@ def html_close(version: str = "", timestamp: str = "") -> str:
     if not timestamp:
         timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
 
-    footer_parts = ["Tableau &#8594; Power BI Migration Tool"]
+    footer_parts = ["BusinessObjects &#8594; Power BI Migration Tool"]
     if version:
         footer_parts[0] += f" v{esc(version)}"
     footer_parts.append(f"Report generated {esc(timestamp)}")

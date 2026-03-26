@@ -1,5 +1,5 @@
 """
-Utility functions for classifying and converting Tableau calculated columns.
+Utility functions for classifying and converting BO calculated columns.
 
 Determines which calculations should be materialised as physical columns
 in the Lakehouse (loaded by Dataflows or Notebooks) versus kept as
@@ -20,7 +20,7 @@ _CALC_SPARK_TYPE = {k: v for k, v in SPARK_TYPE_MAP.items()
 
 
 def classify_calculations(calculations):
-    """Split Tableau calculations into *calculated columns* vs *measures*.
+    """Split BO calculations into *calculated columns* vs *measures*.
 
     Calculated columns are row-level expressions without aggregation and
     are materialised in the Lakehouse.  Measures use aggregation functions
@@ -67,8 +67,8 @@ def sanitize_calc_col_name(name):
     return name.lower() or 'calc_col'
 
 
-def tableau_formula_to_m(formula):
-    """Best-effort conversion of a Tableau formula to a Power Query M
+def bo_formula_to_m(formula):
+    """Best-effort conversion of a BO formula to a Power Query M
     row expression (for use inside ``each …``).
     """
     m = formula.strip()
@@ -131,14 +131,14 @@ def make_m_add_column_step(formula, col_name, prev_step):
         ``(m_line, step_name)`` tuple.
     """
     safe_col = col_name.replace('"', '""')
-    m_expr = _quote_m_ids(tableau_formula_to_m(formula))
+    m_expr = _quote_m_ids(bo_formula_to_m(formula))
     step_name = f'CalcCol_{sanitize_calc_col_name(col_name)}'
     line = f'    {step_name} = Table.AddColumn({prev_step}, "{safe_col}", each {m_expr})'
     return line, step_name
 
 
-def tableau_formula_to_pyspark(formula, col_name):
-    """Best-effort conversion of a Tableau formula to PySpark
+def bo_formula_to_pyspark(formula, col_name):
+    """Best-effort conversion of a BO formula to PySpark
     ``.withColumn()`` code.
     """
 

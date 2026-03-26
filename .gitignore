@@ -16,3 +16,6 @@ MIGRATION_REPORT.json
 *.log
 batch_result.txt
 test_output.txt
+test_output_full.txt
+migration_checkpoint.json
+.migration_cache/
