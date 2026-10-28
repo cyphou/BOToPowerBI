@@ -18,6 +18,9 @@ from .calc_column_utils import (
     bo_formula_to_pyspark,
 )
 from .fabric_naming import make_python_var as _make_var_name
+from .fabric_naming import sanitize_table_name, sanitize_column_name
+from .fabric_item import write_platform
+from .fabric_sources import table_connection, is_file_connection
 
 # Connection type → PySpark read snippet
 _SPARK_READ_TEMPLATES = {
@@ -170,6 +173,7 @@ def _markdown_cell(source, cell_id=None):
 
 def _code_cell(source, cell_id=None):
     """Create a code cell."""
+    text = ''.join(source) if isinstance(source, list) else source
     return {
         'cell_type': 'code',
         'metadata': {
@@ -177,7 +181,7 @@ def _code_cell(source, cell_id=None):
             'nteract': {'transient': {'deleting': False}},
             'microsoft': {'language': 'python'},
         },
-        'source': source if isinstance(source, list) else [source],
+        'source': [line if line.endswith('\n') else line + '\n' for line in text.splitlines(keepends=True)],
         'outputs': [],
         'execution_count': None,
         'id': cell_id or '',
@@ -204,15 +208,30 @@ class NotebookGenerator:
             {'cells': int, 'notebooks': int, 'calc_columns': int}
         """
         datasources = extracted_data.get('datasources', [])
-        custom_sql = extracted_data.get('custom_sql', [])
         calculations = extracted_data.get('calculations', [])
 
         calc_columns, measures = classify_calculations(calculations)
 
-        etl_cells = self._generate_etl_cells(datasources, custom_sql)
+        etl_cells = self._generate_etl_cells(datasources, [])
+        if calc_columns:
+            physical_tables = [table for datasource in datasources for table in datasource.get('tables', []) if table.get('name')]
+            names = [sanitize_column_name(column.get('caption', column.get('name', ''))) for column in calc_columns]
+            if not physical_tables:
+                etl_cells.append(_code_cell('raise NotImplementedError("No physical source table metadata for calculated-column materialization")'))
+            elif len(names) != len(set(names)):
+                etl_cells.append(_code_cell('raise NotImplementedError("Calculated-column names collide after Delta normalization")'))
+            else:
+                etl_cells.extend(self._generate_transformation_cells(datasources, calc_columns, []))
+        dependencies = {'lakehouse': {
+            'default_lakehouse': '{{LAKEHOUSE_ID}}',
+            'default_lakehouse_name': f'{self.project_name}_Lakehouse',
+            'default_lakehouse_workspace_id': '{{WORKSPACE_ID}}',
+            'known_lakehouses': [],
+        }}
         etl_nb = _make_notebook(etl_cells, {
             'lakehouse_name': f'{self.project_name}_Lakehouse',
             'description': f'ETL pipeline for {self.project_name}',
+            'dependencies': dependencies,
         })
 
         etl_path = os.path.join(self.notebook_dir, 'etl_pipeline.ipynb')
@@ -222,22 +241,11 @@ class NotebookGenerator:
         total_cells = len(etl_cells)
         notebooks = 1
 
-        if calculations:
-            transform_cells = self._generate_transformation_cells(
-                datasources, calc_columns, measures,
-            )
-            transform_nb = _make_notebook(transform_cells, {
-                'lakehouse_name': f'{self.project_name}_Lakehouse',
-                'description': f'Data transformations for {self.project_name}',
-            })
+        transform_path = os.path.join(self.notebook_dir, 'transformations.ipynb')
+        if os.path.isfile(transform_path):
+            os.remove(transform_path)
 
-            transform_path = os.path.join(self.notebook_dir, 'transformations.ipynb')
-            with open(transform_path, 'w', encoding='utf-8') as f:
-                json.dump(transform_nb, f, indent=2, ensure_ascii=False)
-
-            total_cells += len(transform_cells)
-            notebooks += 1
-
+        write_platform(self.notebook_dir, 'Notebook', self.project_name, self.project_name)
         return {
             'cells': total_cells,
             'notebooks': notebooks,
@@ -272,24 +280,15 @@ class NotebookGenerator:
         seen_tables = set()
 
         for ds in datasources:
-            connection = ds.get('connection', {})
-            if not connection and ds.get('connections'):
-                connection = ds['connections'][0]
-            connection_map = ds.get('connection_map', {})
-
             for table in ds.get('tables', []):
                 table_name = table.get('name', '')
                 if not table_name or table_name in seen_tables:
                     continue
                 seen_tables.add(table_name)
 
-                table_conn = table.get('connection_details', {})
-                if table_conn and table_conn.get('type'):
-                    conn = table_conn
-                elif table.get('connection') and table.get('connection') in connection_map:
-                    conn = connection_map[table['connection']]
-                else:
-                    conn = connection
+                conn = table_connection(ds, table)
+                if not is_file_connection(conn):
+                    continue
 
                 tables_info.append({
                     'name': table_name,
@@ -306,10 +305,10 @@ class NotebookGenerator:
         for table_info in tables_info:
             table_name = table_info['name']
             conn = table_info['connection']
-            conn_type = conn.get('type', 'Unknown')
+            conn_type = {'csv': 'CSV', 'excel': 'Excel'}.get(str(conn.get('type', '')).strip().lower(), 'Unknown')
             details = conn.get('details', {})
             table_var = _make_var_name(table_name)
-            lh_table = re.sub(r'[^a-zA-Z0-9_]', '_', table_name).lower()
+            lh_table = sanitize_table_name(table_name)
 
             cells.append(_markdown_cell(f'### Table: `{table_name}` ({conn_type})'))
 
@@ -336,6 +335,12 @@ class NotebookGenerator:
                     f'df_{table_var} = spark.createDataFrame([], schema=StructType([]))\n'
                 )
 
+            for column in table_info['columns']:
+                original_name = column.get('name', '')
+                normalized_name = sanitize_column_name(original_name)
+                if original_name and original_name != normalized_name:
+                    code += (f'df_{table_var} = df_{table_var}.withColumnRenamed('
+                             f'{json.dumps(original_name)}, {json.dumps(normalized_name)})\n')
             code += f'\n# Preview\ndf_{table_var}.printSchema()\n'
             code += f'print(f"Rows: {{df_{table_var}.count()}}")\n'
             code += f'\n# Write to Lakehouse Delta table\n'
@@ -353,7 +358,7 @@ class NotebookGenerator:
                 sql_name = sql_entry.get('name', 'Custom Query')
                 sql_query = sql_entry.get('query', '')
                 table_var = _make_var_name(sql_name)
-                lh_table = re.sub(r'[^a-zA-Z0-9_]', '_', sql_name).lower()
+                lh_table = sanitize_table_name(sql_name)
 
                 cells.append(_markdown_cell(f'### {sql_name}'))
                 code = (
@@ -403,18 +408,12 @@ class NotebookGenerator:
             'print(f"Transformations started: {datetime.now()}")\n',
         ]))
 
-        main_table_name = None
-        for ds in datasources:
-            for table in ds.get('tables', []):
-                t_name = table.get('name', '')
-                if t_name:
-                    lh_name = re.sub(r'[^a-zA-Z0-9_]', '_', t_name).lower()
-                    if main_table_name is None:
-                        main_table_name = lh_name
-                    elif len(table.get('columns', [])) > 0:
-                        main_table_name = lh_name
-
-        main_table_name = main_table_name or 'main_table'
+        tables = [table for datasource in datasources for table in datasource.get('tables', []) if table.get('name')]
+        main_table = max(tables, key=lambda table: len(table.get('columns', [])), default={})
+        main_table_name = sanitize_table_name(main_table['name']) if main_table else 'main_table'
+        aliases = {column['name']: sanitize_column_name(column['name'])
+                   for column in main_table.get('columns', []) if column.get('name')
+                   and column['name'] != sanitize_column_name(column['name'])}
 
         if calc_columns:
             cells.append(_markdown_cell([
@@ -430,6 +429,9 @@ class NotebookGenerator:
                 f'print(f"Rows: {{df.count()}}, Columns: {{len(df.columns)}}")\n',
             ]))
 
+            for original_name, normalized_name in aliases.items():
+                cells.append(_code_cell(f'df = df.withColumn({json.dumps(original_name)}, F.col({json.dumps(normalized_name)}))'))
+
             for cc in calc_columns:
                 col_name = cc.get('caption', cc.get('name', ''))
                 formula = cc.get('formula', '')
@@ -439,9 +441,11 @@ class NotebookGenerator:
                     f'**BO formula:** `{formula}`'
                 ))
 
-                pyspark_line = bo_formula_to_pyspark(formula, col_name)
+                pyspark_line = bo_formula_to_pyspark(formula, sanitize_column_name(col_name))
                 cells.append(_code_cell(pyspark_line + '\n'))
 
+            if aliases:
+                cells.append(_code_cell('df = df.drop(' + ', '.join(json.dumps(name) for name in aliases) + ')'))
             cells.append(_code_cell([
                 f'# Overwrite the Delta table with the new columns\n',
                 f'df.write.format("delta").mode("overwrite")'

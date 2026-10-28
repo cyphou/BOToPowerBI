@@ -81,12 +81,11 @@ class TestFileValidation(unittest.TestCase):
         from bo_export.extract_bo_data import extract_bo_data
         with tempfile.NamedTemporaryFile(suffix=".txt", delete=False) as f:
             f.write(b"test")
-            f.flush()
-            try:
-                with self.assertRaises(ValueError):
-                    extract_bo_data(f.name)
-            finally:
-                os.unlink(f.name)
+        try:
+            with self.assertRaises(ValueError):
+                extract_bo_data(f.name)
+        finally:
+            os.unlink(f.name)
 
     def test_file_not_found(self):
         from bo_export.extract_bo_data import extract_bo_data

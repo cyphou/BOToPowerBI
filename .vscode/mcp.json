@@ -1,0 +1,18 @@
+{
+  "servers": {
+    "bo-to-powerbi": {
+      "type": "stdio",
+      "command": "python",
+      "args": [
+        "-m",
+        "powerbi_import.mcp_server",
+        "--root",
+        "${workspaceFolder}"
+      ],
+      "cwd": "${workspaceFolder}",
+      "env": {
+        "PYTHONUTF8": "1"
+      }
+    }
+  }
+}

@@ -13,8 +13,15 @@ See `docs/AGENTS.md` for the full architecture diagram and `.github/agents/` for
 - **Pipeline**: BusinessObjects source → [bo_export] → Extraction → [migration_output, powerbi_import] → Power BI
 - **Source**: `bo_export/`
 - **Target**: `migration_output/`, `powerbi_import/`
-- **Tests**: `pytest tests/ --tb=short -q` — 15 test files
+- **Tests**: `pytest tests/ --tb=short -q` (or `python -m pytest tests/ --tb=short -q` with the selected interpreter)
 - **Agents**: See `.github/agents/` and `docs/AGENTS.md`
+- **Ownership**: `.github/agents/ownership.json`; validate with `python -m pytest tests/test_agent_contracts.py -q`
+- **Planning/docs gates**: Roadmap Planner uses `docs/DEVELOPMENT_PLAN.md`; Documentation Guardian checks changed claims before and after a task
+- **Quality/repair/AI**: Evidence owns deterministic reports, Healing recovery behavior, AI optional provider/pattern work, AgentTools local MCP transport
+- **Source server**: BusinessObjects owns the CMS client; Extractor owns local formats and the BO adapter
+- **Migration skill**: `.github/skills/bo-to-powerbi/SKILL.md`
+- **Fabric/MCP routing**: `.github/skills/fabric-mcp-routing/SKILL.md`; setup in `docs/FABRIC_MCP_SETUP.md`
+- **Fabric ownership**: Fabric handles local generators; Deployer handles explicitly authorized remote writes. Local tests do not prove Desktop or Fabric execution.
 
 ---
 

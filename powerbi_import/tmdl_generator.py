@@ -687,6 +687,8 @@ def generate_tmdl(datasources, report_name, extra_objects, output_dir,
     from powerbi_import.recovery_report import RecoveryReport
     recovery = RecoveryReport(report_name)
     repair_count = _self_heal_model(model, recovery=recovery)
+    if model_mode == 'directLake':
+        _configure_direct_lake(model, datasources, extra_objects.get('_direct_lake', {}))
 
     # Attach languages metadata for _write_tmdl_files
     if languages:
@@ -741,8 +743,47 @@ def generate_tmdl(datasources, report_name, extra_objects, output_dir,
         'self_heal_repairs': repair_count,
         'recovery_summary': recovery.get_summary() if recovery.has_repairs else None,
         'lineage': lineage,
+        'deferred_features': model.get('_deferred_features', []),
     }
     return stats
+
+
+def _configure_direct_lake(model_data, datasources, binding):
+    from .fabric_naming import sanitize_table_name, sanitize_column_name
+
+    physical_tables = {table.get('name'): table for datasource in datasources
+                       for table in datasource.get('tables', [])}
+    entity_names = [sanitize_table_name(name) for name in physical_tables]
+    if len(entity_names) != len(set(entity_names)):
+        raise ValueError('Direct Lake table names collide after Delta normalization')
+    for physical_table in physical_tables.values():
+        columns = physical_table.get('columns', [])
+        names = [sanitize_column_name(column.get('name', '')) for column in columns]
+        if len(names) != len(set(names)):
+            raise ValueError(f'Direct Lake column names collide in {physical_table.get("name")}')
+        if any(str(column.get('datatype', '')).lower() in ('binary', 'varbinary', 'blob') for column in columns):
+            raise ValueError('Binary columns are not supported by Direct Lake; exclude or transform them upstream')
+    model_data['_direct_lake'] = binding
+    model = model_data['model']
+    model['defaultMode'] = 'directLake'
+    model['compatibilityLevel'] = 1702
+    for table in model.get('tables', []):
+        if table['name'] not in physical_tables:
+            continue
+        for partition in table.get('partitions', []):
+            if partition.get('source', {}).get('type') != 'm':
+                continue
+            partition['mode'] = 'directLake'
+            partition['source'] = {
+                'type': 'entity', 'entityName': sanitize_table_name(table['name']),
+                'schemaName': 'dbo', 'expressionSource': 'DirectLakeSource',
+            }
+        for column in table.get('columns', []):
+            source_column = column.get('sourceColumn', column['name'])
+            column['sourceColumn'] = sanitize_column_name(source_column)
+            column.pop('expression', None)
+            if column.get('type') == 'calculated':
+                column.pop('type')
 
 
 def _build_lineage_map(tables, relationships, extra_objects, datasources):
@@ -1384,13 +1425,27 @@ def _apply_semantic_enrichments(model, extra_objects, main_table_name, column_ta
             if has_date_columns:
                 break
     if has_date_columns and not has_existing_date_table:
-        _add_date_table(model)
+        if model.get('_model_mode') == 'directLake':
+            model.setdefault('_deferred_features', []).append({
+                'kind': 'automatic_calendar',
+                'reason': 'Direct Lake requires a source-backed date table; no Calendar M partition was invented',
+            })
+        else:
+            _add_date_table(model)
 
     # Phase 7: Hierarchies from Tableau drill-paths
     _apply_hierarchies(model, extra_objects.get('hierarchies', []), column_table_map)
 
     # Phase 7b: Auto-generate date hierarchies for DateTime columns without one
-    _auto_date_hierarchies(model)
+    if model.get('_model_mode') == 'directLake':
+        if any(column.get('dataType', '').lower() in ('datetime', 'date')
+               for table in model['model']['tables'] for column in table.get('columns', [])):
+            model.setdefault('_deferred_features', []).append({
+                'kind': 'automatic_date_parts',
+                'reason': 'Date-part columns and automatic date hierarchies require upstream materialization',
+            })
+    else:
+        _auto_date_hierarchies(model)
 
     # Phase 8: Parameter tables (What-If parameters)
     _create_parameter_tables(model, extra_objects.get('parameters', []), main_table_name)
@@ -1616,6 +1671,7 @@ def _build_table(table, connection, calculations, columns_metadata, dax_context=
         r'STDEV|STDEVP|VAR|VARP|PERCENTILE|DISTINCTCOUNT|CALCULATE|'
         r'TOTALYTD|SAMEPERIODLASTYEAR|RANKX|SUMX|AVERAGEX|MINX|MAXX|COUNTX|'
         r'CORR|COVAR|COVARP|RUNNING_SUM|RUNNING_AVG|RUNNING_COUNT|RUNNING_MAX|RUNNING_MIN|'
+        r'RunningSum|RunningCount|RunningAverage|RunningMax|RunningMin|RunningProduct|'
         r'WINDOW_SUM|WINDOW_AVG|WINDOW_MAX|WINDOW_MIN|WINDOW_COUNT|'
         r'WINDOW_MEDIAN|WINDOW_STDEV|WINDOW_STDEVP|WINDOW_VAR|WINDOW_VARP|'
         r'WINDOW_CORR|WINDOW_COVAR|WINDOW_COVARP|WINDOW_PERCENTILE|'
@@ -4246,7 +4302,8 @@ def _write_tmdl_files(model_data, output_dir):
     _write_relationships_tmdl(def_dir, relationships)
 
     # 4. expressions.tmdl (with datasource parameters)
-    _write_expressions_tmdl(def_dir, tables, datasources=model_data.get('_datasources'))
+    _write_expressions_tmdl(def_dir, tables, datasources=model_data.get('_datasources'),
+                            direct_lake=model_data.get('_direct_lake'))
 
     # 5. roles.tmdl
     if roles:
@@ -4761,6 +4818,8 @@ def _write_model_tmdl(def_dir, model, tables, roles=None, relationships=None):
     lines.append("model Model")
     lines.append(f"\tculture: {culture}")
     lines.append("\tdefaultPowerBIDataSourceVersion: powerBI_V3")
+    if model.get('defaultMode') == 'directLake':
+        lines.append("\tdefaultMode: directLake")
     lines.append("\tsourceQueryCulture: en-US")
     if has_calc_groups:
         lines.append("\tdiscourageImplicitMeasures")
@@ -4790,7 +4849,10 @@ def _write_model_tmdl(def_dir, model, tables, roles=None, relationships=None):
         lines.append("")
 
     # Ref expression for the DataFolder parameter
-    lines.append("ref expression DataFolder")
+    if model.get('defaultMode') == 'directLake':
+        lines.extend(["ref expression WorkspaceId", "ref expression LakehouseId", "ref expression DirectLakeSource"])
+    else:
+        lines.append("ref expression DataFolder")
     lines.append("")
 
     # Ref roles (RLS)
@@ -4819,7 +4881,7 @@ def _write_model_tmdl(def_dir, model, tables, roles=None, relationships=None):
         f.write(content)
 
 
-def _write_expressions_tmdl(def_dir, tables, datasources=None):
+def _write_expressions_tmdl(def_dir, tables, datasources=None, direct_lake=None):
     """Generate expressions.tmdl with M parameters.
 
     Creates parameterized data source expressions:
@@ -4829,6 +4891,24 @@ def _write_expressions_tmdl(def_dir, tables, datasources=None):
 
     These M parameters allow easy switching between dev/staging/prod environments.
     """
+    if direct_lake is not None:
+        workspace = str(direct_lake.get('workspace_id', '{{WORKSPACE_ID}}')).replace('"', '""')
+        lakehouse = str(direct_lake.get('lakehouse_id', '{{LAKEHOUSE_ID}}')).replace('"', '""')
+        lines = [
+            f'expression WorkspaceId = "{workspace}" meta [IsParameterQuery=true, Type="Text", IsParameterQueryRequired=true]',
+            '',
+            f'expression LakehouseId = "{lakehouse}" meta [IsParameterQuery=true, Type="Text", IsParameterQueryRequired=true]',
+            '',
+            'expression DirectLakeSource =',
+            '\t\tlet',
+            '\t\t\tSource = AzureStorage.DataLake("https://onelake.dfs.fabric.microsoft.com/" & WorkspaceId & "/" & LakehouseId, [HierarchicalNavigation=true])',
+            '\t\tin',
+            '\t\t\tSource',
+            '',
+        ]
+        with open(os.path.join(def_dir, 'expressions.tmdl'), 'w', encoding='utf-8') as handle:
+            handle.write('\n'.join(lines))
+        return
     file_dirs = []          # directory paths for DataFolder
     has_file_source = False  # whether any file-based DataFolder ref exists
     server_names = set()
@@ -5464,6 +5544,13 @@ def _write_partition(lines, table_name, partition):
 
     # Calculation group partitions have no source expression
     if source_type == 'calculationGroup':
+        lines.append("")
+        return
+    if source_type == 'entity':
+        lines.append("\t\tsource")
+        for property_name in ('entityName', 'schemaName', 'expressionSource'):
+            if source.get(property_name):
+                lines.append(f"\t\t\t{property_name}: {source[property_name]}")
         lines.append("")
         return
 

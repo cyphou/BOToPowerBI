@@ -34,6 +34,7 @@ import re
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Dict, List, Optional, Tuple
+from powerbi_import.fabric_sources import table_connection, is_file_connection
 
 logger = logging.getLogger(__name__)
 
@@ -50,6 +51,7 @@ class TableFingerprint:
     database: str
     schema: str
     table_name: str
+    source_identity: str = ''
 
     def fingerprint(self) -> str:
         """Normalized hash key for matching."""
@@ -60,6 +62,8 @@ class TableFingerprint:
             self.schema.lower().strip(),
             self.table_name.lower().strip(),
         ])
+        if self.source_identity:
+            raw += '\x00' + self.source_identity
         return hashlib.sha256(raw.encode('utf-8')).hexdigest()[:16]
 
     def __eq__(self, other):
@@ -354,18 +358,21 @@ def build_table_fingerprints(datasources: list) -> Dict[str, Tuple[TableFingerpr
     """
     result = {}
     for ds in datasources:
-        conn = ds.get('connection', {})
-        conn_type = conn.get('type', 'unknown')
-        details = conn.get('details', {})
-        server = details.get('server', details.get('host', ''))
-        database = details.get('database', details.get('db', ''))
-
         for table in ds.get('tables', []):
             ttype = table.get('type', 'table')
             raw_name = table.get('name', '')
+            conn = table_connection(ds, table)
+            conn_type = conn.get('type', 'unknown')
+            details = conn.get('details', conn)
+            server = details.get('server', details.get('host', conn.get('server', conn.get('host', ''))))
+            database = details.get('database', details.get('db', conn.get('database', conn.get('db', ''))))
+            source_identity = ''
+            if is_file_connection(conn):
+                source_identity = json.dumps([details.get('directory', ''), details.get('filename', conn.get('filename', ''))],
+                                             ensure_ascii=False)
 
             # Custom SQL tables: fingerprint by normalized SQL hash
-            sql = table.get('custom_sql', table.get('query', ''))
+            sql = table.get('custom_sql') or table.get('query') or table.get('sql', '')
             if sql:
                 sql_hash = _hash_sql(sql)
                 fp = TableFingerprint(
@@ -374,20 +381,27 @@ def build_table_fingerprints(datasources: list) -> Dict[str, Tuple[TableFingerpr
                     database=database,
                     schema='_custom_sql',
                     table_name=sql_hash,
+                    source_identity=source_identity,
                 )
+                if raw_name in result and result[raw_name][0] != fp:
+                    raise ValueError(f'Ambiguous physical table name: {raw_name}; explicit source-qualified mapping is required')
                 result[raw_name] = (fp, table, conn)
                 continue
 
             if ttype != 'table':
                 continue
             schema, tname = _parse_table_name(raw_name)
+            schema = table.get('schema') or schema
             fp = TableFingerprint(
                 connection_type=conn_type,
                 server=server,
                 database=database,
                 schema=schema,
                 table_name=tname,
+                source_identity=source_identity,
             )
+            if raw_name in result and result[raw_name][0] != fp:
+                raise ValueError(f'Ambiguous physical table name: {raw_name}; explicit source-qualified mapping is required')
             result[raw_name] = (fp, table, conn)
     return result
 
@@ -1502,18 +1516,13 @@ def _merge_datasources(all_extracted: List[dict],
 
     # Track which tables have been added (by fingerprint hash)
     added_tables: Dict[str, dict] = {}  # fp_hash → merged_table
+    table_name_fingerprints = {}
 
     # Track relationships for deduplication
     rel_keys_seen = set()
 
     # Track datasource-level calculations for deduplication
     _ds_calc_seen = set()  # (caption, formula)
-
-    # Build set of isolated table names (normalized) to skip
-    _isolated_set = set()
-    for _wb, tnames in assessment.isolated_tables.items():
-        for t in tnames:
-            _isolated_set.add(_normalize_table_key(t))
 
     for wb_name, extracted in zip(workbook_names, all_extracted):
         for ds in extracted.get('datasources', []):
@@ -1526,14 +1535,14 @@ def _merge_datasources(all_extracted: List[dict],
                 if k not in merged_ds['connection_map']:
                     merged_ds['connection_map'][k] = copy.deepcopy(v)
 
-            # Process tables — skip isolated tables
+            # Assessment recommendations do not authorize dropping source tables.
             fps = build_table_fingerprints([ds])
             for raw_name, (fp, table, _conn) in fps.items():
-                # Skip tables classified as isolated (no links to merged model)
-                if _normalize_table_key(raw_name) in _isolated_set:
-                    continue
-
                 fp_hash = fp.fingerprint()
+                table_key = _normalize_table_key(raw_name)
+                if table_key in table_name_fingerprints and table_name_fingerprints[table_key] != fp_hash:
+                    raise ValueError(f'Ambiguous merged table name: {raw_name}; explicit source-qualified mapping is required')
+                table_name_fingerprints[table_key] = fp_hash
                 if fp_hash in added_tables:
                     # Merge columns into existing table
                     _merge_columns_into(added_tables[fp_hash], table)
@@ -1543,6 +1552,7 @@ def _merge_datasources(all_extracted: List[dict],
                 else:
                     # Add new table
                     merged_table = copy.deepcopy(table)
+                    merged_table['connection_details'] = copy.deepcopy(_conn)
                     merged_table['_source_workbooks'] = [wb_name]
                     merged_table['_merge_action'] = 'unique'
                     added_tables[fp_hash] = merged_table

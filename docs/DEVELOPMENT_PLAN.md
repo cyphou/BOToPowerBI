@@ -1,11 +1,47 @@
 # Development Plan — BO to Power BI Migration
 
-> **Last updated**: 2026-03-26
-> **Version**: 3.0 — Phases 1–5 complete; Phases 6–15 roadmap defined
+> **Last reviewed**: 2026-10-28
+> The March 2026 version 3.0 plan is retained below as historical planning evidence,
+> not a current release or a certification that every phase exit criterion passed.
 
-## Current State Assessment
+## Current Evidence - 2026-10-28
 
-### Completed: Phases 1–5 (Sprints 1–33) ✅
+- Full local suite: `python -m pytest tests/ --tb=short -o addopts="" -q`:
+        **419 passed, 242 subtests passed**. Coverage/hosted CI was not measured by this run.
+- 22 specialist development roles with an ownership contract; not runtime CLI stages.
+- Local assessment, dry-run, file/batch/BIAR/shared generation, six-tool guarded
+        MCP, and PBIP/Fabric quality reporting are exercised by local tests.
+- Forced eFashion/HR shared generation: 11 Fabric ingestion tables, quality WARN,
+        exit 0; PBIP emits a model and two thin-report descriptors. Without explicit
+        force approval this low-overlap pair is declined. Distinct same-named source
+        queries still reject instead of merging unsafely.
+- Direct Lake source entities, unique ingestion ownership, physical metadata
+        retention, and unsupported-semantics findings are local artifact contracts.
+- Desktop opening/rendering, semantic equivalence, deployed refresh, and Fabric
+        execution remain `not_run`; historical phase completion labels do not waive them.
+
+### Open Gates And Owners
+
+| Priority | Status | Gate | Owner |
+|----------|--------|------|-------|
+| P1 | Open | Redact source-embedded credentials before persistence; prove with export regression tests. Current output can contain secrets. | Extractor |
+| P1 | Open | Server assessment/dry-run must not download/extract unexpectedly; wire portfolio assessment and generation or reject unsupported flag combinations. | Orchestrator / BusinessObjects / Assessor |
+| P1 | Open | Wire or reject shared deployment flags; propagate remote failures rather than equating local exit 0 with publication. | Orchestrator / Deployer |
+| P2 | Open | Explicit source-qualified mapping for ambiguous shared queries; never bypass identity checks with force-merge. | Merger |
+| P2 | Open | Prove sample generation and any planned staging/production gates in CI; current final job checks only help. | Tester / Deployer |
+| P2 | Not run | Validate clean-environment developer installation, Desktop rendering, refresh, security semantics, and deployed workload execution in approved environments. | Tester / Semantic / Visual / Deployer |
+
+See [current gaps](GAP_ANALYSIS.md), [workflow boundaries](ENTERPRISE_GUIDE.md),
+and [unreleased changes](../CHANGELOG.md). Keep this document canonical; do not
+copy Tableau release numbers or create a competing roadmap.
+
+## Historical State Assessment - 2026-03-26
+
+The remaining reuse analysis and sprint roadmap are the original planning
+snapshot. `COMPLETE` labels and exit criteria below describe that snapshot's
+claims or goals, not newly verified runtime evidence. Consult the current gates above.
+
+### Historically Reported Complete: Phases 1–5 (Sprints 1–33)
 
 | Metric | Value |
 |--------|-------|
@@ -15,8 +51,6 @@
 | BO formula → DAX mappings | 150+ |
 | Power Query M connectors | 15+ |
 | Example artifacts | 11 (3 WebI, 2 Crystal, 2 UNX, 1 UNV, 1 Lumira, 1 BIAR, 1 config) |
-
-### Project Modules
 
 ### Project Modules
 

@@ -11,6 +11,8 @@ Architecture:
 """
 
 import re
+import json
+import ast
 
 from .fabric_constants import AGG_PATTERN as _AGG_PATTERN, SPARK_TYPE_MAP
 
@@ -42,7 +44,10 @@ def classify_calculations(calculations):
         datatype = calc.get('datatype', 'string')
 
         is_literal = '[' not in formula
-        has_aggregation = bool(_AGG_PATTERN.search(formula))
+        has_aggregation = bool(_AGG_PATTERN.search(formula)) or bool(re.search(
+            r'\b(?:RunningSum|RunningCount|RunningAverage|RunningMin|RunningMax|RunningProduct)\s*\(',
+            formula, re.IGNORECASE,
+        ))
 
         is_calc_col = (not is_literal) and (
             role == 'dimension' or not has_aggregation
@@ -71,7 +76,9 @@ def bo_formula_to_m(formula):
     """Best-effort conversion of a BO formula to a Power Query M
     row expression (for use inside ``each …``).
     """
-    m = formula.strip()
+    m = formula.strip().removeprefix('=').lstrip()
+    if re.search(r'\bPrevious\s*\(', m, re.IGNORECASE):
+        return 'error "BO Previous requires explicit source ordering; materialization is unsupported"'
 
     # Pre-process ELSEIF → else if (before keyword lowering)
     m = re.sub(r'\bELSEIF\b', 'ELSE IF', m, flags=re.IGNORECASE)
@@ -141,23 +148,35 @@ def bo_formula_to_pyspark(formula, col_name):
     """Best-effort conversion of a BO formula to PySpark
     ``.withColumn()`` code.
     """
+    formula = formula.strip().removeprefix('=').lstrip()
+    if re.search(r'\b(?:Previous|RunningSum|RunningCount|RunningAverage|RunningMin|RunningMax|RunningProduct)\s*\(', formula, re.IGNORECASE):
+        return 'raise NotImplementedError("BO Previous requires explicit source ordering; materialization is unsupported")'
+    quoted_name = json.dumps(col_name, ensure_ascii=False)
 
     def _col_ref(m):
-        return f'F.col("{m.group(1)}")'
+        return f'F.col({json.dumps(m.group(1), ensure_ascii=False)})'
 
     if_match = re.match(
-        r'^\s*IF\s+(.+?)\s+THEN\s+(.+?)\s+ELSE\s+(.+?)\s+END\s*$',
+        r'^\s*IF\s+(.+?)\s+THEN\s+(.+?)\s+ELSE\s+(.+?)(?:\s+END)?\s*$',
         formula, re.IGNORECASE | re.DOTALL,
     )
     if if_match:
         cond = re.sub(r'\[([^\]]+)\]', _col_ref, if_match.group(1).strip())
+        comparison = re.fullmatch(r'(F\.col\("(?:[^"\\]|\\.)*"\))\s*<>\s*([-+]?\d+(?:\.\d+)?)', cond)
+        if comparison:
+            cond = comparison.group(1) + ' != ' + comparison.group(2)
         then_v = re.sub(r'\[([^\]]+)\]', _col_ref, if_match.group(2).strip())
         else_v = re.sub(r'\[([^\]]+)\]', _col_ref, if_match.group(3).strip())
-        return f'df = df.withColumn("{col_name}", F.when({cond}, {then_v}).otherwise({else_v}))'
-
-    if re.match(r'^\[[^\]]+\]$', formula.strip()):
+        pyspark_expr = f'F.when({cond}, {then_v}).otherwise({else_v})'
+    elif re.match(r'^\[[^\]]+\]$', formula.strip()):
         inner = formula.strip().strip('[]')
-        return f'df = df.withColumn("{col_name}", F.col("{inner}"))'
-
-    pyspark_expr = re.sub(r'\[([^\]]+)\]', _col_ref, formula)
-    return f'df = df.withColumn("{col_name}", {pyspark_expr})'
+        pyspark_expr = f'F.col({json.dumps(inner, ensure_ascii=False)})'
+    else:
+        pyspark_expr = re.sub(r'\[([^\]]+)\]', _col_ref, formula)
+    try:
+        expression_tree = ast.parse(pyspark_expr, mode='eval')
+    except SyntaxError:
+        return 'raise NotImplementedError("Unsupported BO row-expression syntax; manual materialization is required")'
+    if any(isinstance(node, ast.Name) and node.id != 'F' for node in ast.walk(expression_tree)):
+        return 'raise NotImplementedError("Unsupported BO row-expression function; manual materialization is required")'
+    return f'df = df.withColumn({quoted_name}, {pyspark_expr})'

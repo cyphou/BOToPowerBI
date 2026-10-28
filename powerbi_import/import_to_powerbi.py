@@ -41,9 +41,7 @@ class PowerBIImporter:
         converted_objects = self._load_converted_objects()
 
         if not converted_objects.get('datasources'):
-            print(f"  [ERROR] No datasources found in {os.path.join(self.source_dir, 'datasources.json')}")
-            print("     Run extraction first: python migrate.py <file>")
-            return
+            raise ValueError(f"No datasources found in {os.path.join(self.source_dir, 'datasources.json')}")
 
         # Determine report name
         if not report_name:
@@ -59,8 +57,9 @@ class PowerBIImporter:
         print(f"  Calculations: {len(converted_objects.get('calculations', []))}")
 
         # Generate Power BI Project (.pbip) directly from converted objects
+        project_path = None
         if generate_pbip:
-            self.generate_powerbi_project(report_name, converted_objects, output_dir=output_dir,
+            project_path = self.generate_powerbi_project(report_name, converted_objects, output_dir=output_dir,
                                           calendar_start=calendar_start, calendar_end=calendar_end,
                                           culture=culture, model_mode=model_mode,
                                           output_format=output_format, languages=languages,
@@ -75,6 +74,7 @@ class PowerBIImporter:
             print("[OK] Power BI Projects (.pbip) generated automatically")
             print("   Open the .pbip files in Power BI Desktop")
             print()
+        return project_path
 
     def _load_converted_objects(self):
         """Load BO extracted JSON files and adapt to converted_objects schema."""
@@ -176,6 +176,15 @@ class PowerBIImporter:
                 projects_dir = os.path.join(artifacts_dir, 'powerbi_projects', 'migrated')
             
             artifacts_dir = os.path.abspath('artifacts')
+            if output_format == 'fabric':
+                from powerbi_import.fabric_project_generator import FabricProjectGenerator
+                result = FabricProjectGenerator(output_dir=projects_dir).generate_project(
+                    report_name, converted_objects,
+                    calendar_start=calendar_start, calendar_end=calendar_end,
+                    culture=culture, languages=languages,
+                )
+                return result['project_path']
+
             generator = PowerBIProjectGenerator(
                 output_dir=projects_dir
             )
@@ -191,9 +200,11 @@ class PowerBIImporter:
                                                        composite_threshold=composite_threshold,
                                                        agg_tables=agg_tables)
             print(f"  [OK] Power BI Project created: {project_path}")
+            return project_path
             
         except Exception as e:
             print(f"  [WARN] Error generating Power BI Project: {str(e)}")
+            raise
 
     def import_shared_model(self, model_name, all_converted_objects,
                             workbook_names, output_dir=None,
@@ -257,13 +268,13 @@ class PowerBIImporter:
             print("  Merge not recommended (score too low). Use --force-merge to override.")
             return {'assessment': assessment, 'model_path': None, 'report_paths': []}
 
-        # 1c. Report isolated tables (excluded from shared model)
+        # 1c. Report isolated tables retained with source provenance.
         if assessment.isolated_tables:
             total_isolated = sum(len(v) for v in assessment.isolated_tables.values())
-            print(f"\n  Step 1c: {total_isolated} isolated table(s) excluded from shared model")
+            print(f"\n  Step 1c: {total_isolated} isolated table(s) retained in shared model")
             for wb, tables in assessment.isolated_tables.items():
                 for t in tables:
-                    print(f"    [skip] {t} — no link to other workbooks (stays in {wb} report only)")
+                    print(f"    [keep] {t} — source workbook: {wb}; no inferred relationship added")
 
         # 1d. Analyze measure risks
         risk_analysis = []

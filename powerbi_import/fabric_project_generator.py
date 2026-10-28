@@ -22,6 +22,10 @@ from .dataflow_generator import DataflowGenerator
 from .notebook_generator import NotebookGenerator
 from .pipeline_generator import PipelineGenerator
 from .fabric_semantic_model_generator import FabricSemanticModelGenerator
+from .fabric_validator import FabricProjectValidator
+from .fabric_sources import build_ingestion_plan
+from .fabric_naming import sanitize_table_name, sanitize_column_name
+from .calc_column_utils import classify_calculations
 
 
 def _json_default(obj):
@@ -54,6 +58,11 @@ class FabricProjectGenerator:
         Returns:
             dict with project_path and per-artifact stats.
         """
+        ingestion_plan = build_ingestion_plan(extracted_data)
+        calc_columns, _measures = classify_calculations(extracted_data.get('calculations', []))
+        source_tables = [table for datasource in extracted_data.get('datasources', [])
+                 for table in datasource.get('tables', []) if table.get('name')]
+        main_table = max(source_tables, key=lambda table: len(table.get('columns', [])), default={})
         project_dir = os.path.join(self.output_dir, project_name)
         os.makedirs(project_dir, exist_ok=True)
 
@@ -62,6 +71,13 @@ class FabricProjectGenerator:
             'project_name': project_name,
             'generated_at': datetime.now().isoformat(),
             'artifacts': {},
+            'ingestion_plan': ingestion_plan,
+            'materialization': {
+                'owner': 'Notebook',
+                'entity': sanitize_table_name(main_table['name']) if main_table else None,
+                'columns': [sanitize_column_name(column.get('caption', column.get('name', '')))
+                            for column in calc_columns],
+            },
         }
 
         # 1. Lakehouse
@@ -118,6 +134,12 @@ class FabricProjectGenerator:
         meta_path = os.path.join(project_dir, 'fabric_project_metadata.json')
         with open(meta_path, 'w', encoding='utf-8') as f:
             json.dump(results, f, indent=2, default=_json_default)
+
+        results['validation'] = FabricProjectValidator.validate(project_dir)
+        with open(meta_path, 'w', encoding='utf-8') as f:
+            json.dump(results, f, indent=2, default=_json_default)
+        if not results['validation']['valid']:
+            print(f"  [WARN] Local bundle validation: {len(results['validation']['errors'])} error(s); see fabric_project_metadata.json")
 
         print(f"\n  [OK] Fabric project created: {project_dir}")
         return results

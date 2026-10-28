@@ -16,6 +16,7 @@ from .calc_column_utils import classify_calculations, sanitize_calc_col_name
 from .fabric_constants import map_to_spark_type as _map_to_spark_type
 from .fabric_naming import sanitize_table_name as _sanitize_table_name
 from .fabric_naming import sanitize_column_name as _sanitize_column_name
+from .fabric_item import write_platform
 
 
 class LakehouseGenerator:
@@ -102,7 +103,7 @@ class LakehouseGenerator:
             existing_names = {c['name'] for c in main_table['columns']}
 
             for cc in calc_columns:
-                cc_name = sanitize_calc_col_name(
+                cc_name = _sanitize_column_name(
                     cc.get('caption', cc.get('name', 'calc'))
                 )
                 if cc_name in existing_names:
@@ -137,6 +138,7 @@ class LakehouseGenerator:
 
         self._generate_ddl(tables)
         self._generate_table_metadata(tables)
+        write_platform(self.lakehouse_dir, 'Lakehouse', f'{self.project_name}_Lakehouse', self.project_name)
 
         total_columns = sum(len(t.get('columns', [])) for t in tables)
         return {'tables': len(tables), 'columns': total_columns,

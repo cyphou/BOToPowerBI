@@ -135,6 +135,12 @@ Maps 150+ BO functions to DAX equivalents:
 
 - **ZIP slip defense**: All ZIP extraction validates entry paths
 - **XXE protection**: XML parsing blocks DOCTYPE with ENTITY declarations
-- **Credential redaction**: Connection strings scrubbed before JSON output
+- **Credential handling limitation**: Extracted connection strings are serialized
+      without guaranteed redaction and can contain credentials. Restrict access to
+      sources/outputs and review them before sharing. Automatic export redaction is
+      an open Extractor task, not an implemented security guarantee.
 - **Path validation**: Null byte blocking, traversal detection, extension whitelist
-- **No credential storage**: All secrets via environment variables or Azure AD
+- **Authentication boundaries**: Cloud authentication and BO CMS sessions are
+      separate. The CLI accepts BO credentials/tokens; avoid putting secrets in
+      command history. JSON extraction can persist source-embedded credentials, so
+      environment-based authentication alone does not make outputs secret-free.

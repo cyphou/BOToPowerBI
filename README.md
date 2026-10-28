@@ -7,11 +7,11 @@
 <h1 align="center">Business Objects to Power BI Migration</h1>
 
 <p align="center">
-  <strong>Migrate SAP BusinessObjects reports to Power BI in seconds — fully automated, zero manual rework.</strong>
+  <strong>Generate Power BI migration artifacts from SAP BusinessObjects, with local assessment and explicit conversion limitations.</strong>
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/tests-244%20passed-brightgreen?style=flat-square" alt="Tests"/>
+  <img src="https://img.shields.io/badge/tests-419%20passed-brightgreen?style=flat-square" alt="Tests"/>
   <img src="https://img.shields.io/badge/python-3.12%2B-3776AB?style=flat-square&logo=python&logoColor=white" alt="Python"/>
   <img src="https://img.shields.io/badge/license-MIT-green?style=flat-square" alt="License"/>
   <img src="https://img.shields.io/badge/deps-zero-orange?style=flat-square" alt="Zero Dependencies"/>
@@ -33,12 +33,19 @@
 ## ⚡ Quick Start
 
 ```bash
-# That's it. One command.
+# Generate local artifacts from a source file
 python migrate.py report.wid
 ```
 
 > [!TIP]
-> The output is a `.pbip` project — just double-click to open in **Power BI Desktop** (December 2025+).
+> The output is a `.pbip` project intended for Power BI Desktop. Opening, rendering,
+> data refresh, and semantic equivalence require separate validation; they are not
+> established by successful local generation.
+
+> [!WARNING]
+> Extracted connection strings can contain credentials and are not automatically
+> redacted before JSON export. Treat source files and generated outputs as sensitive.
+> Do not commit or share them without a credential review.
 
 <details>
 <summary><b>📦 Installation</b></summary>
@@ -66,7 +73,7 @@ python migrate.py report.rpt --output-dir /tmp/output
 # 📦 Batch migration from BIAR archive
 python migrate.py --biar export.biar --output-dir /tmp/batch
 
-# ☁️ Directly from BO Server (CMS)
+# ☁️ Download and extract from BO Server (CMS); not full project generation
 python migrate.py --server https://bo-server:6405 --folder "/Public/Sales" \
     --user admin --auth enterprise
 
@@ -98,7 +105,61 @@ python migrate.py report.wid --schema-drift /prev/extraction/
 python migrate.py report.wid --dry-run
 ```
 
+The server path currently downloads and extracts files. It does not perform
+portfolio assessment or target generation; `--global-assess` and `--dry-run`
+do not make that path an assessment-only/read-only operation. Use local sources
+with `--assess` or `--dry-run` for those contracts. Deployment flags below are
+single-file hooks, not verified cloud outcomes; inspect service results separately.
+
 ---
+
+## Local Quality And MCP
+
+```powershell
+# Read-only validation of already generated projects; nonzero exit on errors
+python migrate.py --validate-project artifacts/bo-sales --quality-output artifacts/quality.json
+
+# Also fail CI on warnings
+python migrate.py --validate-project artifacts/bo-sales --quality-strict
+
+# Discover the six local migration tools
+python -m powerbi_import.mcp_server --list
+```
+
+`--assess` now evaluates without generation; `--dry-run` leaves no persistent
+extraction or project output. Directory batches generate isolated projects and
+write a manifest with per-source status and a nonzero exit code on partial failure.
+Shared-model and BIAR CLI workflows invoke the existing generators rather than
+stopping at extraction. `--no-compare` and `--no-optimize-dax` are honored for
+single-file/directory workflows.
+
+The workspace MCP server starts read-only. Local generation requires both server
+`--allow-write` and per-call confirmation, and cannot overwrite nonempty outputs.
+It does not deploy to Fabric. See [MCP setup](docs/FABRIC_MCP_SETUP.md) and the
+[dated capability comparison](docs/GAP_ANALYSIS.md#tableautopowerbi-comparison---2026-10-27).
+
+Local quality is not proof of Desktop rendering, refresh, or Fabric execution.
+Fabric bundles still require identity/connection binding; the current semantic
+wrapper emits entity-based Direct Lake partitions for source tables and a shared
+OneLake expression. Calculated utility tables that remain Import are flagged.
+Dataflow Gen2 includes its mashup, query metadata, and platform manifest;
+notebooks include persistent lakehouse dependencies. Each bundle records local
+validation in `fabric_project_metadata.json`. Missing bindings and unsupported BO
+semantics remain explicit findings, not proof of deployability.
+
+Fabric ingestion has a single owner per table: CSV/Excel files use the Notebook;
+connected sources and custom SQL use Dataflow Gen2. Calculated columns are
+materialized only in the primary ETL notebook, after ingestion. Bundles persist
+an `ingestion_plan` and `materialization` contract which local validation checks
+against emitted Dataflow targets, notebook writes, and pipeline dependencies.
+
+Fabric generation returns exit code **6** when local quality has blocking errors,
+including single-file, BIAR, batch, and shared-model workflows. Generated artifacts
+and per-project `quality_report.json` remain available for diagnosis; deployment
+is not reached for a blocked single-project migration. Warnings alone do not
+block generation. Use `--validate-project ... --quality-strict` to reject warnings
+as well. The local MCP `migrate` tool reports such a failure with `isError: true`,
+`ok: false`, its exit code, and `quality_report` when `output_format` is `fabric`.
 
 ## 🎯 Key Features
 
@@ -141,13 +202,13 @@ SQL Server, PostgreSQL, Oracle, MySQL, SAP HANA, BigQuery, Snowflake, Databricks
 <td>
 
 ### 🧠 Smart Semantic Model
-Auto-generates Calendar table, date hierarchies, relationships, RLS roles from BO security profiles, display folders, number formats, What-If parameters from prompts
+Generates relationships, display folders, number formats, parameters, and supported RLS metadata. Import mode can add Calendar/date parts; Direct Lake defers automatic date enrichments absent upstream. Security and calculation equivalence need separate validation.
 
 </td>
 <td>
 
-### 🚀 Deploy Anywhere
-One-command deploy to **Power BI Service** or **Microsoft Fabric** with Azure AD auth. Multi-tenant deployment with per-tenant connection overrides.
+### 🚀 Deployment Hooks
+Single-file deployment and multi-tenant hooks are available, with optional cloud dependencies. Shared CLI deployment is not wired. Authentication, binding, publication, and refresh require separately authorized environment checks.
 
 </td>
 </tr>
@@ -223,7 +284,7 @@ flowchart LR
 
 **Step 2 — Generate:** Converts JSON into a complete `.pbip` project with PBIR v4.0 report and TMDL semantic model
 
-**Step 3 — Deploy** *(optional):* Packages and uploads to Power BI Service or Microsoft Fabric
+**Step 3 — Validate and deploy** *(separate authorization):* Review quality findings, bind the target environment, and verify service-side publication and refresh. Server extraction and shared generation do not automatically execute this step.
 
 ### 🏭 Fabric-Native Output Mode
 
@@ -237,7 +298,7 @@ flowchart LR
     C --> DF["🔄 Dataflow Gen2\nPower Query M"]
     C --> NB["📓 PySpark Notebook\nETL pipeline"]
     C --> SM["📦 DirectLake\nSemantic Model"]
-    C --> PL["⚡ Data Pipeline\n3-stage orchestration"]
+    C --> PL["⚡ Data Pipeline\nConditional orchestration"]
     PL -.-> DF
     PL -.-> NB
     PL -.-> SM
@@ -255,14 +316,28 @@ flowchart LR
 | Artifact | Description |
 |----------|-------------|
 | **Lakehouse** | Delta table schemas, Spark SQL DDL scripts, table metadata |
-| **Dataflow Gen2** | Power Query M ingestion queries with Lakehouse destinations |
-| **PySpark Notebook** | ETL pipeline + transformation notebook |
+| **Dataflow Gen2** | Connected-source/custom-SQL ingestion with Lakehouse destinations; no file ingestion or calculated-column injection |
+| **PySpark Notebook** | One primary ETL notebook for CSV/Excel ingestion and once-only calculated-column materialization |
 | **Semantic Model** | DirectLake TMDL pointing to Lakehouse Delta tables |
-| **Data Pipeline** | 3-stage orchestration: Dataflow → Notebook → Semantic Model refresh |
+| **Data Pipeline** | Connected/mixed: Dataflow → Notebook → Semantic Model refresh; file-only: Notebook → Semantic Model refresh |
 
 ### 🔗 Shared Semantic Model Mode
 
 Merge multiple BO reports that share data sources into **one shared semantic model** + **N thin reports**:
+
+Shared merging retains physical tables, columns, source connections, and workbook
+provenance, including tables classified as isolated. Isolation does not invent a
+relationship or authorize data loss. Matching physical identities can union known
+columns; the same table/query name on distinct physical sources is rejected until
+an explicit source-qualified mapping is available. The BO adapter preserves both
+Power BI types and the source-type metadata consumed by Fabric generators.
+
+The eFashion and HR Universe example pair is covered by a real CLI regression:
+shared Fabric generation retains 11 ingestion tables and passes local validation
+with warnings. This does not prove runtime refresh or deployment. In Direct Lake,
+automatic Calendar M tables and derived date-part columns are deferred unless
+provided upstream; physical date columns and explicit source hierarchies remain.
+Import mode retains its existing automatic Calendar/date-part behavior.
 
 ```mermaid
 flowchart LR
@@ -288,12 +363,18 @@ flowchart LR
 # Assess merge feasibility
 python migrate.py --shared-model r1.wid r2.wid --assess-merge
 
-# Generate shared model + thin reports
-python migrate.py --shared-model r1.wid r2.wid r3.wid --model-name "Shared Sales"
+# Local example: inspect compatibility first
+python migrate.py --shared-model examples/eFashion_Universe.unx examples/HR_Universe.unx --assess-merge
 
-# Deploy shared model to Fabric as a bundle
-python migrate.py --shared-model r1.wid r2.wid --deploy WORKSPACE_ID
+# These independent universes need explicit approval of the low-overlap merge
+python migrate.py --shared-model examples/eFashion_Universe.unx examples/HR_Universe.unx --force-merge --model-name "Shared Universes" --output-dir artifacts/shared-universes
 ```
+
+Without `--force-merge`, this example pair is declined for low overlap (exit 5).
+Forcing bypasses the merge recommendation, not physical-source ambiguity:
+Enterprise Sales/Financial Report still reject distinct same-named `FreehandSQL`
+sources (exit 3). The shared CLI does not invoke deployment even if `--deploy`
+is supplied; standalone `--deploy-bundle` is not a working publish command.
 
 ### 📂 Generated Output
 
@@ -426,7 +507,7 @@ YourReport/
 
 ## 🏗️ Architecture
 
-> 8-agent multi-agent model — see [docs/AGENTS.md](docs/AGENTS.md) for details.
+> 22 specialist development roles, not runtime pipeline stages — see [docs/AGENTS.md](docs/AGENTS.md) for details.
 
 <details>
 <summary><b>📁 Project structure</b> (click to expand)</summary>
@@ -465,10 +546,10 @@ BOToPowerBI/
 │   │   ├── deployer.py                #     Fabric deployment
 │   │   └── multi_tenant.py            #     Multi-tenant deployment
 │   └── ...                            #   (50+ modules from generation engine)
-├── tests/                              # 🧪 244 tests across 8 files
+├── tests/                              # Unit, integration, and contract tests
 ├── docs/                               # 📚 Architecture, dev plan, enterprise guide
 └── .github/
-    ├── agents/                         # 🤖 8 specialized agents
+    ├── agents/                         # 22 specialist development roles
     └── copilot-instructions.md
 ```
 
@@ -486,7 +567,7 @@ BOToPowerBI/
 | `input` | Path to `.wid`, `.rpt`, `.unx`, `.unv`, `.lumx`, or `.lums` file |
 | `--biar FILE` | Path to BIAR/LCMBIAR archive for batch migration |
 | `--batch DIR` | Directory containing BO artifacts for batch migration |
-| `--server URL` | BO CMS server URL |
+| `--server URL` | BO CMS download/extraction path; not target generation |
 | `--folder PATH` | Server folder to migrate |
 | `--user NAME` | BO server username |
 | `--password SECRET` | BO server password |
@@ -496,10 +577,15 @@ BOToPowerBI/
 | `--shared-model FILE [FILE ...]` | Build shared semantic model from multiple reports |
 | `--model-name NAME` | Name for shared semantic model |
 | `--assess` | Run migration readiness assessment |
-| `--global-assess` | Cross-report portfolio assessment |
-| `--deploy WORKSPACE_ID` | Deploy to Fabric workspace |
+| `--global-assess` | Parsed flag; server portfolio-assessment dispatch is not connected |
+| `--assess-merge` | Inspect shared-model compatibility without generation |
+| `--force-merge` | Approve a low-overlap merge; does not resolve source ambiguity |
+| `--validate-project DIR` | Run local PBIP/Fabric quality checks |
+| `--quality-output FILE` | Save validation JSON with `--validate-project` |
+| `--quality-strict` | Fail local validation on warnings as well as errors |
+| `--deploy WORKSPACE_ID` | Single-file deployment hook; ignored by shared CLI |
 | `--deploy-refresh` | Trigger refresh after deployment |
-| `--deploy-bundle WORKSPACE_ID` | Deploy shared model + thin reports |
+| `--deploy-bundle WORKSPACE_ID` | Parsed but not wired to a usable standalone CLI publish path |
 | `--refresh-config` | Generate PBI scheduled refresh config from BO schedules |
 | `--multi-tenant CONFIG` | Multi-tenant deployment config JSON |
 | `--incremental` | Incremental migration: skip unchanged artifacts |
@@ -507,7 +593,7 @@ BOToPowerBI/
 | `--calendar-start YEAR` | Calendar table start year (default: 2020) |
 | `--calendar-end YEAR` | Calendar table end year (default: 2030) |
 | `--culture LOCALE` | Locale for date formatting (default: `en-US`) |
-| `--dry-run` | Parse and analyze without writing output |
+| `--dry-run` | No persistent outputs for local file/batch/BIAR/shared paths; not enforced by server path |
 | `--verbose` / `-v` | Enable debug logging |
 | `--no-optimize-dax` | Skip DAX optimization pass |
 | `--no-compare` | Skip comparison report generation |
@@ -519,16 +605,19 @@ BOToPowerBI/
 
 ## 🚀 Deployment
 
+The examples below describe optional single-file hooks, not verified deployment
+recipes. They need a separately approved identity, workspace, connection bindings,
+and the optional cloud dependencies. Read the [Fabric/MCP setup](docs/FABRIC_MCP_SETUP.md)
+and coordinate remote writes with Deployer. CLI exit 0 alone does not establish
+publication: deployment exceptions can be logged without a failing migration
+exit code. Inspect service results and refresh separately. Shared CLI deployment
+and standalone `--deploy-bundle` are not wired; Desktop/cloud checks are `not_run`.
+
 <details>
 <summary><b>Power BI Service</b></summary>
 
 ```bash
-# Set environment variables
-export PBI_TENANT_ID="your-tenant-guid"
-export PBI_CLIENT_ID="your-app-client-id"
-export PBI_CLIENT_SECRET="your-app-secret"
-
-# Migrate + deploy in one command
+# Optional single-file hook, only after environment/authorization checks
 python migrate.py report.wid --deploy WORKSPACE_ID --deploy-refresh
 ```
 </details>
@@ -540,7 +629,7 @@ python migrate.py report.wid --deploy WORKSPACE_ID --deploy-refresh
 # Fabric-native output (Lakehouse + Dataflow + Notebook + DirectLake)
 python migrate.py report.wid --output-format fabric
 
-# Deploy to Fabric workspace
+# Optional single-file hook; not evidence that the generated bundle runs
 python migrate.py report.wid --deploy WORKSPACE_ID
 ```
 </details>
@@ -561,47 +650,34 @@ The `tenants.json` file specifies per-tenant workspace IDs and connection string
 ## 🧪 Testing
 
 <p align="center">
-  <img src="https://img.shields.io/badge/tests-244%20passed-brightgreen?style=for-the-badge" alt="Tests"/>
-  <img src="https://img.shields.io/badge/test%20files-8-blue?style=for-the-badge" alt="Test Files"/>
+  <img src="https://img.shields.io/badge/tests-419%20passed-brightgreen?style=for-the-badge" alt="Tests"/>
 </p>
 
 ```bash
-python -m pytest tests/ -v               # Run all 244 tests
-python -m pytest tests/ --tb=short       # Compact output
+python -m pytest tests/ --tb=short -o addopts="" -q
 ```
 
-<details>
-<summary><b>📋 Test suite breakdown</b> (click to expand)</summary>
-
-| Test File | Tests | Coverage |
-|-----------|-------|----------|
-| `test_dax_converter.py` | 56 | 150+ DAX formula conversions |
-| `test_e2e_pipeline.py` | 47 | End-to-end .wid/.rpt → .pbip |
-| `test_assessment.py` | 46 | Assessment, validator, DAX optimizer |
-| `test_phase5_advanced.py` | 32 | @Aggregate_Aware, context ops, RLS, refresh, multi-tenant |
-| `test_crystal_pipeline.py` | 21 | Crystal formula extraction + conversion |
-| `test_cli.py` | 13 | CLI argument parsing + dispatch |
-| `test_biar_reader.py` | 12 | BIAR/LCMBIAR archive reading |
-| `test_webi_extractor.py` | 9 | WebI document extraction |
-| `test_extraction.py` | 8 | File validation + routing |
-
-</details>
+Measured locally on 2026-10-28: **419 passed, 242 subtests passed**. This is a
+dated suite result, not a feature-parity score or evidence of Desktop rendering,
+deployed refresh, or Fabric execution. See [Contributing](CONTRIBUTING.md) for
+test-tool installation. Coverage is a separate CI gate, not measured by this command.
 
 ### CI/CD Pipeline
 
 ```mermaid
 flowchart LR
-    L["🔍 Lint\nruff"] --> T["🧪 Test\n244 tests\nPy 3.12–3.14"]
-    T --> V["✅ Validate\n.wid/.rpt migrations"]
-    V --> S["📦 Staging\nFabric deploy"]
-    S --> P["🚀 Production\nManual approval"]
+    L["Lint and type checks\nflake8, ruff, pyright"] --> T["Tests and coverage\nPython 3.12 / 3.13\nLinux / Windows / macOS"]
+    T --> V["CLI help smoke\npython migrate.py --help"]
 
     style L fill:#6366f1,color:#fff
     style T fill:#22c55e,color:#fff
     style V fill:#3b82f6,color:#fff
-    style S fill:#f59e0b,color:#000
-    style P fill:#ef4444,color:#fff
 ```
+
+  This describes the [committed CI workflow](.github/workflows/ci.yml), not an
+  observed successful CI run. Its coverage threshold is 80%; its final validation
+  job only runs CLI help. It does not generate sample projects, deploy staging or
+  production, enforce a manual release approval, or test Python 3.14.
 
 ---
 
@@ -610,15 +686,19 @@ flowchart LR
 | Document | Description |
 |----------|-------------|
 | 🏗️ [Architecture](docs/ARCHITECTURE.md) | System design overview |
-| 🤖 [Agents](docs/AGENTS.md) | 8-agent specialization model |
-| 🗓️ [Development Plan](docs/DEVELOPMENT_PLAN.md) | 40-sprint development roadmap |
+| 🤖 [Agents](docs/AGENTS.md) | 22 specialist roles and tested ownership boundaries |
+| 🗓️ [Development Plan](docs/DEVELOPMENT_PLAN.md) | Current evidence/gates and dated historical roadmap |
 | 📋 [Gap Analysis](docs/GAP_ANALYSIS.md) | Known conversion gaps |
 | 🏢 [Enterprise Guide](docs/ENTERPRISE_GUIDE.md) | Enterprise migration planning |
+| [Fabric/MCP Setup](docs/FABRIC_MCP_SETUP.md) | Local engine, workload skills, and remote authorization |
 
 ---
 
 ## ⚠️ Known Limitations
 
+- Source-embedded credentials can be persisted in extraction JSON; review outputs before sharing
+- Server mode downloads/extracts even with assessment/dry-run flags; shared CLI deployment is not wired
+- Local tests and generated artifacts do not establish Desktop, refresh, security equivalence, or deployed execution
 - BO **Lumira Designer** applications have limited extraction (layout → stub visuals)
 - Data source connection strings must be reconfigured in Power Query after migration
 - **@Aggregate_Aware** with 5+ levels generates complex SWITCH — may need manual tuning
@@ -629,11 +709,12 @@ flowchart LR
 
 ## 🤝 Contributing
 
-Contributions are welcome! The project uses an 8-agent model — see [docs/AGENTS.md](docs/AGENTS.md) for scope ownership.
+Contributions use 22 specialist roles — see [docs/AGENTS.md](docs/AGENTS.md) for scope ownership and [CONTRIBUTING.md](CONTRIBUTING.md) for the development setup.
 
 ```bash
 git clone <repo-url>
 cd BOToPowerBI
+python -m pip install "pytest>=8.0" "pytest-cov>=5.0" "ruff>=0.3.0" "pyright>=1.1.350"
 python -m pytest tests/ -q   # Make sure tests pass
 ```
 

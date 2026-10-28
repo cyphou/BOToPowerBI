@@ -6,7 +6,9 @@
 
 **Objective**: Inventory all BO assets and understand the landscape.
 
-- Connect to BO CMS via REST API: `python migrate.py --server https://bo:6405 --user admin`
+- The CMS CLI path downloads and extracts artifacts; it is not a read-only
+	inventory command. Use it only with an approved local destination and access
+	scope, then inspect the downloaded sources before local migration.
 - List all documents, universes, and folders
 - Identify report owners, consumers, and refresh schedules
 - Catalog data sources (databases, SAP systems, files)
@@ -17,7 +19,9 @@
 
 **Objective**: Score each report for migration complexity and readiness.
 
-- Run portfolio assessment: `python migrate.py --server https://bo:6405 --global-assess`
+- Assess downloaded local sources: `python migrate.py examples/Enterprise_Sales.wid --assess`
+- The server path currently ignores `--global-assess` and still downloads/extracts;
+	a server portfolio-assessment workflow is not connected to this CLI path.
 - Review 9-category scoring per report (datasource, formula, visual, filter, model, interactivity, security, scope, crystal-specific)
 - Classify reports: GREEN (automated), YELLOW (semi-automated), RED (manual)
 - Estimate effort per report
@@ -78,7 +82,10 @@
 **Objective**: Deploy validated reports to Power BI Service / Fabric.
 
 - Deploy to workspace: `python migrate.py report.wid --deploy WORKSPACE_ID`
-- Deploy shared models: `python migrate.py --deploy-bundle WORKSPACE_ID`
+- Shared CLI generation does not invoke deployment: `--deploy` on that path is
+	ignored, and standalone `--deploy-bundle` has no source/project input and fails.
+	Do not use either as evidence of shared-bundle publication. Hand off validated
+	artifacts to Deployer for a separately authorized, environment-verified workflow.
 - Configure gateways for on-premises data sources
 - Set up refresh schedules (from BO schedule mapping)
 - Configure row-level security

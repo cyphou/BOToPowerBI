@@ -19,6 +19,8 @@ import re
 from datetime import datetime
 
 from .fabric_naming import sanitize_pipeline_name as _sanitize
+from .fabric_item import write_platform
+from .fabric_sources import datasource_has_connected_tables
 
 
 class PipelineGenerator:
@@ -42,7 +44,7 @@ class PipelineGenerator:
         """
         datasources = extracted.get('datasources', [])
 
-        activities = self._build_activities(datasources)
+        activities = self._build_activities(datasources, extracted.get('custom_sql', []))
         pipeline_def = self._build_pipeline_definition(activities)
 
         def_path = os.path.join(self.pipe_dir, 'pipeline_definition.json')
@@ -68,11 +70,11 @@ class PipelineGenerator:
             'stages': meta['stages'],
         }
 
-    def _build_activities(self, datasources):
+    def _build_activities(self, datasources, custom_sql=None):
         """Build the ordered list of pipeline activities."""
         activities = []
 
-        df_activities = self._dataflow_activities(datasources)
+        df_activities = self._dataflow_activities(datasources, custom_sql)
         activities.extend(df_activities)
 
         nb_activity = self._notebook_activity(
@@ -87,10 +89,12 @@ class PipelineGenerator:
 
         return activities
 
-    def _dataflow_activities(self, datasources):
-        """Create one Dataflow refresh activity per datasource."""
+    def _dataflow_activities(self, datasources, custom_sql=None):
+        """Refresh the single generated Dataflow once for all its source queries."""
         activities = []
-        for idx, ds in enumerate(datasources):
+        has_connected_sources = any(datasource_has_connected_tables(datasource) for datasource in datasources)
+        generated_dataflows = [{'name': f'{self.pipeline_name}_Dataflow'}] if has_connected_sources or custom_sql else []
+        for idx, ds in enumerate(generated_dataflows):
             ds_name = ds.get('name', f'Datasource_{idx + 1}')
             safe_name = _sanitize(ds_name)
             activity = {
@@ -184,20 +188,7 @@ class PipelineGenerator:
 
     def _write_platform_file(self):
         """Write .platform manifest for the Pipeline item."""
-        platform = {
-            "$schema": "https://developer.microsoft.com/json-schemas/fabric/gitIntegration/platformProperties/2.0.0/schema.json",
-            "metadata": {
-                "type": "DataPipeline",
-                "displayName": self.pipeline_name,
-            },
-            "config": {
-                "version": "2.0",
-                "logicalId": f"pipeline-{self.pipeline_name.lower().replace(' ', '-')}",
-            },
-        }
-        path = os.path.join(self.pipe_dir, '.platform')
-        with open(path, 'w', encoding='utf-8') as f:
-            json.dump(platform, f, indent=2)
+        write_platform(self.pipe_dir, 'DataPipeline', self.pipeline_name, self.pipeline_name)
 
     @staticmethod
     def _count_stages(activities):

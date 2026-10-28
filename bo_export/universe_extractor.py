@@ -167,32 +167,29 @@ def _parse_unv_file(input_path):
 def _extract_connections(metadata):
     """Extract datasource connections from universe metadata."""
     datasources = []
+    roots = list(metadata.get('connections', []))
+    data_foundation = metadata.get('data_foundation')
+    if data_foundation is not None:
+        roots.append(data_foundation)
+    seen = set()
 
-    for conn_root in metadata.get("connections", []):
+    for conn_root in roots:
         for conn in conn_root.iter():
             if "connection" in conn.tag.lower():
-                datasources.append({
+                datasource = {
                     "name": conn.get("name", ""),
                     "type": conn.get("type", conn.get("dbms", "")),
                     "server": conn.get("server", conn.get("host", "")),
                     "database": conn.get("database", conn.get("catalog", "")),
                     "universe": "",
                     "connection_string": conn.get("connectionString", ""),
-                })
-
-    # Also check data foundation for connection info
-    df = metadata.get("data_foundation")
-    if df is not None:
-        for conn in df.iter():
-            if "connection" in conn.tag.lower():
-                datasources.append({
-                    "name": conn.get("name", ""),
-                    "type": conn.get("type", ""),
-                    "server": conn.get("server", ""),
-                    "database": conn.get("database", ""),
-                    "universe": "",
-                    "connection_string": conn.get("connectionString", ""),
-                })
+                }
+                if not any(datasource[key] for key in ('type', 'server', 'database', 'connection_string')):
+                    continue
+                identity = tuple(sorted(datasource.items()))
+                if identity not in seen:
+                    seen.add(identity)
+                    datasources.append(datasource)
 
     return datasources
 

@@ -69,6 +69,10 @@ def _load_json(path):
 
 def _load_extracted(extract_dir):
     """Load all 16 extracted JSON files from the extraction directory."""
+    if os.path.isfile(os.path.join(extract_dir, 'reports.json')):
+        from bo_export.extract_bo_data import load_extracted_data
+        from bo_export.converted_objects_adapter import adapt_bo_to_converted_objects
+        return adapt_bo_to_converted_objects(load_extracted_data(extract_dir))
     data = {}
     names = [
         'worksheets', 'dashboards', 'datasources', 'calculations',

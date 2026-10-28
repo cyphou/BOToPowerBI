@@ -14,6 +14,7 @@ import os
 import json
 import re
 import sys
+import uuid
 from datetime import datetime
 
 from .calc_column_utils import (
@@ -22,6 +23,9 @@ from .calc_column_utils import (
     sanitize_calc_col_name,
 )
 from .fabric_naming import sanitize_query_name as _sanitize_query_name
+from .fabric_naming import sanitize_table_name, sanitize_column_name
+from .fabric_item import write_platform
+from .fabric_sources import table_connection, is_file_connection
 
 # Import M query builder from bo_export
 _parent = os.path.join(os.path.dirname(os.path.dirname(__file__)))
@@ -56,37 +60,22 @@ class DataflowGenerator:
         """
         datasources = extracted_data.get('datasources', [])
         custom_sql = extracted_data.get('custom_sql', [])
-        calculations = extracted_data.get('calculations', [])
-
-        calc_columns, _measures = classify_calculations(calculations)
-
         generate_power_query_m = _get_m_query_builder()
 
         queries = []
         seen_queries = set()
 
         for ds in datasources:
-            connection = ds.get('connection', {})
-            if not connection and ds.get('connections'):
-                connection = ds['connections'][0]
-            connection_map = ds.get('connection_map', {})
-
             for table in ds.get('tables', []):
                 table_name = table.get('name', '')
                 query_name = _sanitize_query_name(table_name)
+                conn = table_connection(ds, table)
+                if is_file_connection(conn):
+                    continue
 
                 if query_name in seen_queries:
                     continue
                 seen_queries.add(query_name)
-
-                # Use per-table connection if available
-                table_conn = table.get('connection_details', {})
-                if table_conn and table_conn.get('type'):
-                    conn = table_conn
-                elif table.get('connection') and table.get('connection') in connection_map:
-                    conn = connection_map[table['connection']]
-                else:
-                    conn = connection
 
                 # Check for M query override
                 m_query_overrides = ds.get('m_query_overrides', {})
@@ -99,7 +88,7 @@ class DataflowGenerator:
                 else:
                     m_query = generate_power_query_m(conn, table)
 
-                lh_table = re.sub(r'[^a-zA-Z0-9_]', '_', table_name).lower()
+                lh_table = sanitize_table_name(table_name)
 
                 queries.append({
                     'name': query_name,
@@ -110,6 +99,9 @@ class DataflowGenerator:
                     'source_details': conn.get('details', {}),
                     'result_type': 'Table',
                     'load_enabled': True,
+                    'column_count': len(table.get('columns', [])),
+                    'column_renames': [[column['name'], sanitize_column_name(column['name'])]
+                                       for column in table.get('columns', []) if column.get('name')],
                 })
 
         # Custom SQL queries
@@ -140,7 +132,7 @@ class DataflowGenerator:
                     '    Result'
                 )
 
-                lh_table = re.sub(r'[^a-zA-Z0-9_]', '_', sql_name).lower()
+                lh_table = sanitize_table_name(sql_entry.get('name', 'Custom_SQL'))
                 queries.append({
                     'name': sql_name,
                     'description': f'Custom SQL: {sql_name}',
@@ -151,16 +143,6 @@ class DataflowGenerator:
                     'load_enabled': True,
                 })
 
-        # Inject calculated columns into the main table query
-        if calc_columns and queries:
-            main_q = queries[0]
-            main_q['m_query'] = self._inject_calc_column_steps(
-                main_q['m_query'], calc_columns,
-            )
-            main_q['description'] += (
-                f' + {len(calc_columns)} calculated column(s)'
-            )
-
         dataflow_def = self._build_dataflow_definition(queries)
 
         def_path = os.path.join(self.dataflow_dir, 'dataflow_definition.json')
@@ -168,9 +150,9 @@ class DataflowGenerator:
             json.dump(dataflow_def, f, indent=2, ensure_ascii=False)
 
         self._write_m_query_files(queries)
-        self._write_mashup_document(queries)
+        self._write_mashup_document(queries, dataflow_def)
 
-        return {'queries': len(queries), 'calc_columns': len(calc_columns)}
+        return {'queries': len(queries), 'calc_columns': 0}
 
     def _inject_calc_column_steps(self, m_query, calc_columns):
         """Inject Table.AddColumn steps for calculated columns into an M query."""
@@ -200,7 +182,31 @@ class DataflowGenerator:
         """Build the Dataflow Gen2 JSON definition."""
         mashup_sections = []
         for q in queries:
-            mashup_sections.append(f'shared {q["name"]} = {q["m_query"]};')
+            query_name = q['name'].replace('"', '""')
+            destination_name = query_name + '_DataDestination'
+            table_name = q['lakehouse_table'].replace('"', '""')
+            query = q['m_query'].rstrip().rstrip(';')
+            renames = [[original, renamed] for original, renamed in q.get('column_renames', [])
+                       if original != renamed]
+            if renames:
+                rename_pairs = ', '.join('{' + ', '.join('"' + value.replace('"', '""') + '"'
+                                                         for value in pair) + '}' for pair in renames)
+                query = ('let\n    SourceTable = ' + query + ',\n'
+                         '    RenamedColumns = Table.RenameColumns(SourceTable, {' + rename_pairs + '}, MissingField.Ignore)\n'
+                         'in\n    RenamedColumns')
+            mashup_sections.append(
+                '[DataDestinations = {[\n'
+                f'    Definition = [Kind = "Reference", QueryName = "{destination_name}", IsNewTarget = true],\n'
+                '    Settings = [Kind = "Automatic", TypeSettings = [Kind = "Table"]]\n'
+                ']}]\n'
+                f'shared #"{query_name}" = {query};\n\n'
+                f'shared #"{destination_name}" = let\n'
+                '    Pattern = Lakehouse.Contents([HierarchicalNavigation = null, CreateNavigationProperties = false, EnableFolding = false]),\n'
+                '    Workspace = Pattern{[workspaceId = "{{WORKSPACE_ID}}"]}[Data],\n'
+                '    Lakehouse = Workspace{[lakehouseId = "{{LAKEHOUSE_ID}}"]}[Data],\n'
+                f'    Destination = Lakehouse{{[Id = "{table_name}", ItemKind = "Table"]}}?[Data]?\n'
+                'in\n    Destination;'
+            )
 
         mashup_document = '\nsection Section1;\n\n' + '\n\n'.join(mashup_sections)
 
@@ -209,7 +215,7 @@ class DataflowGenerator:
             query_groups.append({
                 'name': q['name'],
                 'description': q.get('description', ''),
-                'queryId': q['name'].lower().replace(' ', '_'),
+                'queryId': str(uuid.uuid5(uuid.NAMESPACE_URL, f'bo-to-powerbi/{self.project_name}/query/{q["name"]}')),
                 'resultType': q.get('result_type', 'Table'),
                 'loadEnabled': q.get('load_enabled', True),
                 'destination': {
@@ -247,15 +253,28 @@ class DataflowGenerator:
                 f.write(q['m_query'])
                 f.write('\n')
 
-    def _write_mashup_document(self, queries):
+    def _write_mashup_document(self, queries, definition=None):
         """Write the combined Power Query M mashup document."""
+        definition = definition or self._build_dataflow_definition(queries)
         mashup_path = os.path.join(self.dataflow_dir, 'mashup.pq')
         with open(mashup_path, 'w', encoding='utf-8') as f:
-            f.write('// Dataflow Gen2 Mashup Document\n')
-            f.write(f'// Generated: {datetime.now().isoformat()}\n\n')
-            f.write('section Section1;\n\n')
-            for q in queries:
-                f.write(f'shared {q["name"]} = {q["m_query"]};\n\n')
+            f.write(definition['mashupDocument'])
+        queries_metadata = {}
+        for query in definition['queries']:
+            name = query['name']
+            queries_metadata[name] = {'queryName': name, 'queryId': query['queryId'], 'loadEnabled': True}
+            destination = name + '_DataDestination'
+            queries_metadata[destination] = {
+                'queryName': destination,
+                'queryId': str(uuid.uuid5(uuid.NAMESPACE_URL, f'bo-to-powerbi/{self.project_name}/destination/{name}')),
+                'isHidden': True, 'loadEnabled': False,
+            }
+        metadata = {'formatVersion': '202502', 'name': f'{self.project_name}_Dataflow',
+                    'computeEngineSettings': {}, 'allowNativeQueries': False,
+                    'queriesMetadata': queries_metadata, 'connections': []}
+        with open(os.path.join(self.dataflow_dir, 'queryMetadata.json'), 'w', encoding='utf-8') as handle:
+            json.dump(metadata, handle, indent=2, ensure_ascii=False)
+        write_platform(self.dataflow_dir, 'Dataflow', f'{self.project_name}_Dataflow', self.project_name)
 
     # ════════════════════════════════════════════════════════════════
     #  PREP FLOW → DATAFLOW GEN2 DIRECT CONVERSION
@@ -344,7 +363,7 @@ class DataflowGenerator:
             json.dump(dataflow_def, f, indent=2, ensure_ascii=False)
 
         self._write_m_query_files(queries)
-        self._write_mashup_document(queries)
+        self._write_mashup_document(queries, dataflow_def)
 
         prep_count = sum(1 for q in queries if q.get('prep_source'))
         return {'queries': len(queries), 'prep_steps': prep_count}

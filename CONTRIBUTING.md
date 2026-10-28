@@ -24,12 +24,17 @@ python -m venv .venv
 .venv\Scripts\activate   # Windows
 # source .venv/bin/activate  # macOS/Linux
 
-# Install development dependencies
-pip install -r requirements.txt
+# Install development tools (same minimum versions as pyproject.toml's dev extra)
+python -m pip install "pytest>=8.0" "pytest-cov>=5.0" "ruff>=0.3.0" "pyright>=1.1.350"
 
 # Run tests
-pytest tests/ --tb=short -q
+python -m pytest tests/ --tb=short -o addopts="" -q
 ```
+
+Core migration uses the standard library. The requirements file installs optional
+cloud dependencies, not development tools; install it only when working on those
+integrations. Running from the source checkout avoids relying on package-install
+support. A clean-environment installation was not run for the 2026-10-28 doc review.
 
 ### Project Structure
 
@@ -56,14 +61,14 @@ docs/              → Documentation
 ### Testing
 
 - All new features MUST have tests
-- Run `pytest tests/ --tb=short -q` before committing
+- Run `python -m pytest tests/ --tb=short -q` after implementation changes and before committing
 - Never weaken assertions to make tests pass
 
 ## Contribution Workflow
 
 1. Create a feature branch: `git checkout -b feat/your-feature`
 2. Make changes and add tests
-3. Run the test suite: `pytest tests/ --tb=short -q`
+3. Run the test suite: `python -m pytest tests/ --tb=short -q`
 4. Commit with conventional messages: `feat:`, `fix:`, `test:`, `docs:`
 5. Push and create a pull request
 

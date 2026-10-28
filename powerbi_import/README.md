@@ -1,6 +1,9 @@
 # powerbi_import — Power BI Generation
 
-Generates complete Power BI projects (`.pbip`) from extracted Tableau data.
+Generates Power BI projects (`.pbip`) or Fabric artifact bundles from adapted
+SAP BusinessObjects metadata. Use the root CLI so extraction's 15 raw collections
+pass through the BO adapter before generation. Local generation is not proof of
+Desktop openability, visual equivalence, refresh, or deployed execution.
 
 ## Core Modules
 
@@ -9,8 +12,16 @@ Generates complete Power BI projects (`.pbip`) from extracted Tableau data.
 Main orchestrator. Reads extracted JSON and generates the `.pbip` project.
 
 ```bash
-python powerbi_import/import_to_powerbi.py
+# Run from the repository root with an explicit BO source
+python migrate.py examples/Enterprise_Sales.wid --assess
+python migrate.py examples/Enterprise_Sales.wid --output-dir artifacts/bo-sales
+python migrate.py --validate-project artifacts/bo-sales
 ```
+
+Do not run the importer file as a standalone script. Source extraction and output
+paths are controlled by the root CLI. Review [known gaps](../docs/GAP_ANALYSIS.md)
+and treat extracted connection metadata as sensitive: JSON export is not guaranteed
+to redact source-embedded credentials.
 
 ### `pbip_generator.py`
 
@@ -28,11 +39,16 @@ Converts extracted data into TMDL (Tabular Model Definition Language) files:
 - `database.tmdl` — compatibility
 - `model.tmdl` — culture, data source version
 - `relationships.tmdl` — relationships between tables
-- `tables/{Table}.tmdl` — physical columns, calculated columns, measures, M partitions
+- `tables/{Table}.tmdl` — columns, measures, and Import/M or Direct Lake entity partitions
+
+Direct Lake uses upstream Delta tables; automatic Import Calendar/date-part
+enrichments are deferred when absent upstream. Local Fabric quality blockers
+return exit 6 and preserve generated findings/artifacts for diagnosis.
 
 ### `visual_generator.py`
 
-Generates JSON visual definitions for the report. Maps 118+ Tableau visual types to Power BI.
+Generates JSON visual definitions for reports from the adapted BO worksheet/chart
+metadata. Conversion mappings do not establish visual fidelity without rendering checks.
 
 ### `m_query_generator.py`
 
@@ -57,6 +73,12 @@ Schema drift detection — compares extraction snapshots. Detects added/removed/
 ## Deployment Subpackage (`deploy/`)
 
 Fabric deployment is in the `deploy/` subpackage:
+
+These modules are separate from proven CLI integration. Single-file hooks require
+environment validation; shared-model CLI generation does not invoke deployment,
+and standalone `--deploy-bundle` is not wired. See [Fabric/MCP setup](../docs/FABRIC_MCP_SETUP.md)
+before separately authorized remote operations. No cloud execution was performed
+for this documentation update.
 
 | Module | Responsibility |
 |--------|---------------|

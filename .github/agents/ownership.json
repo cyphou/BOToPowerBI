@@ -1,0 +1,104 @@
+{
+  "schema_version": 1,
+  "reference_roles": {
+    "AI": "AI",
+    "Assessor": "Assessor",
+    "DAX": "Dax",
+    "Deployer": "Deployer",
+    "Evidence": "Evidence",
+    "Extractor": "Extractor",
+    "Fabric": "Fabric",
+    "Healing": "Healing",
+    "Merger": "Merger",
+    "Orchestrator": "Orchestrator",
+    "Documentation Guardian": "Documentation Guardian",
+    "Reviewer": "Reviewer",
+    "Roadmap Planner": "Roadmap Planner",
+    "Semantic": "Semantic",
+    "Tableau": "BusinessObjects",
+    "Tester": "Tester",
+    "Visual": "Visual",
+    "Web Designer": "Web Designer",
+    "Wiring": "Wiring"
+  },
+  "owners": {
+    "Orchestrator": [
+      "migrate.py", "generate_report.py", "powerbi_import/import_to_powerbi.py",
+      "powerbi_import/parallel_engine.py", "powerbi_import/progress.py",
+      "powerbi_import/incremental.py", "powerbi_import/wizard.py",
+      "powerbi_import/api_server.py", "powerbi_import/notebook_api.py",
+      "powerbi_import/plugins.py", "powerbi_import/__init__.py",
+      "powerbi_import/config/*.py"
+    ],
+    "Extractor": [
+      "bo_export/__init__.py", "bo_export/extract_bo_data.py",
+      "bo_export/webi_extractor.py", "bo_export/crystal_extractor.py",
+      "bo_export/universe_extractor.py", "bo_export/lumira_extractor.py",
+      "bo_export/biar_reader.py", "bo_export/batch_report.py",
+      "bo_export/converted_objects_adapter.py", "bo_export/compat.py"
+    ],
+    "BusinessObjects": ["bo_export/server_client.py"],
+    "Dax": ["bo_export/dax_converter.py", "powerbi_import/dax_optimizer.py", "powerbi_import/dax_recipes.py"],
+    "Wiring": ["bo_export/m_query_builder.py", "powerbi_import/m_query_generator.py", "powerbi_import/calc_column_utils.py"],
+    "Semantic": ["powerbi_import/tmdl_generator.py", "powerbi_import/semantic_intelligence.py", "powerbi_import/model_templates.py"],
+    "Visual": [
+      "powerbi_import/pbip_generator.py", "powerbi_import/visual_generator.py",
+      "powerbi_import/layout_engine.py", "powerbi_import/bookmark_generator.py",
+      "powerbi_import/theme_generator.py", "powerbi_import/paginated_generator.py",
+      "powerbi_import/alerts_generator.py", "powerbi_import/goals_generator.py",
+      "powerbi_import/geo_passthrough.py"
+    ],
+    "Fabric": [
+      "powerbi_import/fabric_project_generator.py", "powerbi_import/fabric_semantic_model_generator.py",
+      "powerbi_import/fabric_constants.py", "powerbi_import/fabric_naming.py",
+      "powerbi_import/fabric_item.py", "powerbi_import/fabric_validator.py",
+      "powerbi_import/fabric_sources.py",
+      "powerbi_import/lakehouse_generator.py", "powerbi_import/dataflow_generator.py",
+      "powerbi_import/notebook_generator.py", "powerbi_import/pipeline_generator.py"
+    ],
+    "Assessor": [
+      "powerbi_import/assessment.py", "powerbi_import/global_assessment.py",
+      "powerbi_import/server_assessment.py", "powerbi_import/strategy_advisor.py",
+      "powerbi_import/schema_drift.py", "powerbi_import/validator.py"
+    ],
+    "Evidence": [
+      "powerbi_import/migration_quality.py", "powerbi_import/migration_report.py",
+      "powerbi_import/comparison_report.py", "powerbi_import/equivalence_tester.py",
+      "powerbi_import/regression_suite.py", "powerbi_import/fidelity_scorer.py",
+      "powerbi_import/visual_diff.py", "powerbi_import/monitoring.py", "powerbi_import/sla_tracker.py"
+    ],
+    "Healing": ["powerbi_import/recovery_report.py"],
+    "AI": ["powerbi_import/llm_client.py", "powerbi_import/marketplace.py"],
+    "AgentTools": ["powerbi_import/mcp_server.py", ".vscode/mcp.json", "docs/FABRIC_MCP_SETUP.md"],
+    "Merger": [
+      "powerbi_import/shared_model.py", "powerbi_import/merge_config.py",
+      "powerbi_import/merge_assessment.py", "powerbi_import/merge_report_html.py",
+      "powerbi_import/thin_report_generator.py"
+    ],
+    "Deployer": [
+      "powerbi_import/deploy/**/*.py", "powerbi_import/gateway_config.py",
+      "powerbi_import/refresh_generator.py", "powerbi_import/permission_mapper.py",
+      "powerbi_import/security_validator.py", "powerbi_import/governance.py",
+      "powerbi_import/telemetry.py", "powerbi_import/telemetry_dashboard.py"
+    ],
+    "Web Designer": ["powerbi_import/html_template.py"],
+    "Roadmap Planner": ["docs/DEVELOPMENT_PLAN.md"],
+    "Documentation Guardian": [
+      "README.md", "CHANGELOG.md", "docs/AGENTS.md", "docs/GAP_ANALYSIS.md",
+      ".github/copilot-instructions.md", ".github/agent-instructions.md"
+    ],
+    "Tester": ["tests/**/*.py"],
+    "Converter": [],
+    "Generator": [],
+    "Reviewer": []
+  },
+  "collaboration": [
+    {"path": "powerbi_import/tmdl_generator.py", "primary": "Semantic", "collaborators": ["Healing", "Dax", "Wiring", "Fabric"], "boundary": "Repair helpers, conversion/writer integration, and Direct Lake; no whole-file ownership transfer."},
+    {"path": "powerbi_import/validator.py", "primary": "Assessor", "collaborators": ["Healing", "Dax"], "boundary": "Repair-only APIs and formula semantics; deterministic validation remains authoritative."},
+    {"path": "powerbi_import/calc_column_utils.py", "primary": "Wiring", "collaborators": ["Dax", "Fabric"], "boundary": "Classification and M/PySpark materialization contracts."},
+    {"path": "powerbi_import/comparison_report.py", "primary": "Evidence", "collaborators": ["Web Designer"], "boundary": "Presentation only; metrics and data behavior remain Evidence-owned."},
+    {"path": "powerbi_import/merge_report_html.py", "primary": "Merger", "collaborators": ["Evidence", "Web Designer"], "boundary": "Evidence interpretation and presentation, not merge decisions."},
+    {"path": "powerbi_import/thin_report_generator.py", "primary": "Merger", "collaborators": ["Visual"], "boundary": "PBIR layout changes coordinated with thin-report bindings."},
+    {"path": "docs/FABRIC_MCP_SETUP.md", "primary": "AgentTools", "collaborators": ["Documentation Guardian", "Fabric", "Deployer"], "boundary": "Docs verification and workload-specific guidance; no implicit cloud authorization."}
+  ]
+}

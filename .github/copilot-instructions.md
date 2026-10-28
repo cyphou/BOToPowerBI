@@ -14,7 +14,7 @@ BusinessObjects source → [bo_export] → Extraction → [migration_output, pow
 
 - **Source / Extraction**: `bo_export/`
 - **Target / Generation**: `migration_output/`, `powerbi_import/`
-- **Tests**: `tests/` (15 test files)
+- **Tests**: `tests/` (use collection/CI for the current count)
 - **Docs**: `docs/`
 
 ## Key Modules
@@ -64,6 +64,24 @@ BusinessObjects source → [bo_export] → Extraction → [migration_output, pow
 
 This project uses a specialized agent architecture. See `docs/AGENTS.md` for the full
 architecture diagram and `.github/agents/` for per-agent definitions.
+
+### Reapplied Specialist Roles
+
+- The TableauToPowerBI role model is adapted to BO, with **BusinessObjects** replacing the Tableau server role and **Dax** retaining its existing BO frontmatter name.
+- Use **Evidence** for deterministic reports, **Healing** for bounded repair/ledger work, **AI** for optional LLM/pattern work, and **AgentTools** for the local MCP protocol.
+- Use **Web Designer** for HTML presentation, **Visual** for PBIR, **Documentation Guardian** before/after capability or routing updates, and **Roadmap Planner** for the existing `docs/DEVELOPMENT_PLAN.md`.
+- Read `.github/agents/shared.instructions.md` and `.github/agents/ownership.json` before specialist edits. The ownership contract and `tests/test_agent_contracts.py` guard module coverage and exact delegation names.
+- These are Copilot development roles, not runtime stages automatically called by the migration CLI. Reapplying a role does not implement its missing Tableau counterpart modules.
+
+### Fabric, Skills, And MCP Routing
+
+- Use the repository skill `.github/skills/bo-to-powerbi/SKILL.md` for BO migration workflows.
+- Use **Fabric** for local Fabric artifact generators and **Deployer** for authorized remote operations.
+- Before using Fabric or Power BI MCP tools, read `.github/skills/fabric-mcp-routing/SKILL.md` and load the applicable installed workload skill.
+- Connect to the intended semantic model before model operations. Use one model-authoring MCP server per task; do not mix local-model and hosted authoring servers.
+- Discover available MCP tools instead of assuming server IDs or copying user-specific configuration. Never store tokens, tenant IDs, or customer workspace defaults in agent files.
+- Keep local generation/test evidence separate from Desktop rendering, refresh, and deployed Fabric execution. Unperformed checks remain `not_run`.
+- Coordinating agents must enable the `agent` tool when they delegate. Refer to agents by their exact frontmatter names.
 
 ## Workflow Rules
 

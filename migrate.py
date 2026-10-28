@@ -18,6 +18,7 @@ import json
 import logging
 import os
 import sys
+import tempfile
 import time
 
 # Exit codes
@@ -107,6 +108,12 @@ Examples:
     # Assessment
     parser.add_argument("--assess", action="store_true", help="Run migration readiness assessment")
     parser.add_argument("--global-assess", action="store_true", help="Run cross-report portfolio assessment")
+    parser.add_argument("--validate-project", metavar="DIRECTORY",
+                        help="Read-only local validation of generated PBIP projects or Fabric bundles")
+    parser.add_argument("--quality-output", metavar="JSON_FILE",
+                        help="Save the local quality report (requires --validate-project)")
+    parser.add_argument("--quality-strict", action="store_true",
+                        help="Fail project validation on warnings as well as errors")
 
     # Deployment
     parser.add_argument("--deploy", metavar="WORKSPACE_ID", help="Deploy to Fabric workspace")
@@ -170,6 +177,18 @@ def main(argv=None):
 
     try:
         # Determine migration mode
+        if args.validate_project:
+            from powerbi_import.migration_quality import build_quality_report, save_quality_report
+            if args.input or args.batch or args.biar or args.server or args.shared_model:
+                raise ValueError("Project validation cannot be combined with a migration source")
+            report = build_quality_report(args.validate_project)
+            print(json.dumps(report, indent=2, ensure_ascii=False))
+            if args.quality_output:
+                save_quality_report(report, args.quality_output)
+            failed = report['status'] == 'FAIL' or (args.quality_strict and report['status'] == 'WARN')
+            return EXIT_VALIDATION_ERROR if failed else EXIT_SUCCESS
+        if args.quality_output or args.quality_strict:
+            raise ValueError("Quality options require --validate-project")
         if args.server:
             return _run_server_migration(args, stats)
         elif args.biar:
@@ -209,26 +228,38 @@ def _run_single_migration(args, stats):
 
     logger.info("Starting migration: %s", input_path)
 
+    report_name = os.path.splitext(os.path.basename(input_path))[0]
+    if args.dry_run or args.assess:
+        from bo_export.converted_objects_adapter import adapt_bo_to_converted_objects
+        from powerbi_import.assessment import run_assessment, print_assessment_report, save_assessment_report
+
+        t0 = time.time()
+        with tempfile.TemporaryDirectory(prefix="bo_inspect_") as temporary_dir:
+            extracted = extract_bo_data(input_path, output_dir=temporary_dir, verbose=args.verbose)
+            converted = adapt_bo_to_converted_objects(extracted)
+            report = run_assessment(converted, workbook_name=report_name)
+        stats.extraction_time = time.time() - t0
+        stats.reports_processed = len(extracted.get("reports", []))
+        stats.formulas_converted = len(extracted.get("formulas", []))
+        print_assessment_report(report)
+        if args.assess and args.output_dir and not args.dry_run:
+            save_assessment_report(report, output_dir=args.output_dir)
+        return EXIT_SUCCESS
+
     # Step 1: Extraction
     t0 = time.time()
-    extracted = extract_bo_data(input_path, output_dir=args.output_dir, verbose=args.verbose)
+    output_dir = args.output_dir or os.path.splitext(input_path)[0] + "_pbi"
+    extracted = extract_bo_data(input_path, output_dir=output_dir, verbose=args.verbose)
     stats.extraction_time = time.time() - t0
     stats.reports_processed = len(extracted.get("reports", []))
     stats.formulas_converted = len(extracted.get("formulas", []))
 
-    if args.dry_run:
-        logger.info("Dry run complete. Extraction results available.")
-        return EXIT_SUCCESS
-
     # Step 2: Generation
     t1 = time.time()
-    output_dir = args.output_dir or os.path.splitext(input_path)[0] + "_pbi"
-    report_name = os.path.splitext(os.path.basename(input_path))[0]
 
     from powerbi_import.import_to_powerbi import PowerBIImporter
-    extract_dir = args.output_dir or os.path.dirname(os.path.abspath(input_path))
-    importer = PowerBIImporter(source_dir=extract_dir)
-    importer.import_all(
+    importer = PowerBIImporter(source_dir=output_dir)
+    project_path = importer.import_all(
         report_name=report_name,
         output_dir=output_dir,
         calendar_start=getattr(args, "calendar_start", None),
@@ -241,24 +272,21 @@ def _run_single_migration(args, stats):
     logger.info("Generation pipeline: output → %s", output_dir)
     stats.generation_time = time.time() - t1
 
-    # Step 3: Assessment (optional)
-    if args.assess:
-        logger.info("Running migration readiness assessment...")
-        from powerbi_import.assessment import run_assessment, print_assessment_report, save_assessment_report
-        report = run_assessment(extracted, workbook_name=report_name)
-        print_assessment_report(report)
-        save_assessment_report(report, output_dir=output_dir)
-        logger.info("Assessment score: %s", report.overall_score)
+    if not args.no_compare and args.output_format == 'pbip':
+        from powerbi_import.comparison_report import generate_comparison_report
+        generate_comparison_report(output_dir, project_path,
+                                   output_path=os.path.join(output_dir, 'comparison_report.html'))
 
     # Step 3b: DAX optimization (always runs after generation)
-    try:
-        from powerbi_import.dax_optimizer import optimize_dax_project
-        opt_result = optimize_dax_project(output_dir)
-        if opt_result.get("total_optimizations", 0) > 0:
-            logger.info("DAX optimizer: %d optimization(s) applied",
-                        opt_result["total_optimizations"])
-    except (ImportError, Exception) as e:
-        logger.debug("DAX optimization skipped: %s", e)
+    if not args.no_optimize_dax:
+        try:
+            from powerbi_import.dax_optimizer import optimize_dax_project
+            opt_result = optimize_dax_project(output_dir)
+            if opt_result.get("total_optimizations", 0) > 0:
+                logger.info("DAX optimizer: %d optimization(s) applied",
+                            opt_result["total_optimizations"])
+        except (ImportError, Exception) as e:
+            logger.debug("DAX optimization skipped: %s", e)
 
     # Step 3c: Refresh config from BO schedules (Sprint 31)
     if getattr(args, 'refresh_config', False):
@@ -287,6 +315,10 @@ def _run_single_migration(args, stats):
             logger.info("Schema drift report: %s", drift_path)
         except (ImportError, Exception) as e:
             logger.debug("Schema drift detection skipped: %s", e)
+
+    quality_code = _validate_fabric_output(project_path, args.output_format, stats)
+    if quality_code != EXIT_SUCCESS:
+        return quality_code
 
     # Step 4: Deployment (optional)
     if args.deploy:
@@ -328,19 +360,37 @@ def _run_single_migration(args, stats):
     return EXIT_SUCCESS
 
 
+def _validate_fabric_output(project_path, output_format, stats):
+    if output_format != 'fabric':
+        return EXIT_SUCCESS
+    from powerbi_import.migration_quality import build_quality_report, save_quality_report
+
+    report = build_quality_report(project_path)
+    report_path = os.path.join(project_path, 'quality_report.json')
+    save_quality_report(report, report_path)
+    if report['status'] != 'FAIL':
+        return EXIT_SUCCESS
+    findings = [item['message'] for item in report['priorities'] if item['severity'] == 'error']
+    stats.errors.extend(findings)
+    logger.error('Fabric generation blocked by %d quality finding(s); report: %s', len(findings), report_path)
+    return EXIT_VALIDATION_ERROR
+
+
 def _run_biar_migration(args, stats):
     """Run batch migration from a BIAR archive.
 
     Full pipeline per artifact: extract → adapter → generation → .pbip
     Each artifact is isolated: failures don't block others.
     """
-    from bo_export.biar_reader import read_biar_archive
-    from bo_export.extract_bo_data import _route_extraction, _write_json_outputs
+    from bo_export.biar_reader import read_biar_archive, extract_artifact_from_biar
+    from bo_export.extract_bo_data import extract_bo_data, _write_json_outputs
     from bo_export.converted_objects_adapter import adapt_bo_to_converted_objects
 
     biar_path = os.path.abspath(args.biar)
     output_dir = args.output_dir or os.path.splitext(biar_path)[0] + "_pbi"
-    os.makedirs(output_dir, exist_ok=True)
+    inspect_only = args.dry_run or args.assess
+    if not inspect_only:
+        os.makedirs(output_dir, exist_ok=True)
 
     logger.info("Starting BIAR migration: %s", biar_path)
     artifacts = read_biar_archive(biar_path)
@@ -351,7 +401,8 @@ def _run_biar_migration(args, stats):
         artifact_name = artifact.get("name", "unknown")
         ext_type = artifact.get("type", "webi")
         artifact_dir = os.path.join(output_dir, artifact_name)
-        os.makedirs(artifact_dir, exist_ok=True)
+        if not inspect_only:
+            os.makedirs(artifact_dir, exist_ok=True)
 
         result = {
             "name": artifact_name,
@@ -359,25 +410,33 @@ def _run_biar_migration(args, stats):
             "status": "pending",
             "error": None,
             "output_dir": artifact_dir,
+            "exit_code": EXIT_SUCCESS,
         }
 
         logger.info("[%d/%d] Processing %s (%s)", idx, total, artifact_name, ext_type)
 
         try:
             # Step 1: Extract
-            extracted = _route_extraction(
-                ext_type, artifact.get("path", ""), args.verbose,
-                artifact_data=artifact,
-            )
-            _write_json_outputs(extracted, artifact_dir)
-
+            with tempfile.TemporaryDirectory(prefix="bo_biar_") as temporary_dir:
+                source = extract_artifact_from_biar(biar_path, artifact['path'], temporary_dir)
+                extracted = extract_bo_data(source, output_dir=os.path.join(temporary_dir, "extracted"),
+                                            verbose=args.verbose)
             # Step 2: Adapt
             converted = adapt_bo_to_converted_objects(extracted)
 
-            # Step 3: Generate .pbip
-            _generate_pbip_for_artifact(
-                converted, artifact_name, artifact_dir, args,
-            )
+            if inspect_only:
+                from powerbi_import.assessment import run_assessment, print_assessment_report
+                print_assessment_report(run_assessment(converted, workbook_name=artifact_name))
+            else:
+                _write_json_outputs(extracted, artifact_dir)
+                project_path = _generate_pbip_for_artifact(converted, artifact_name, artifact_dir, args)
+                quality_code = _validate_fabric_output(project_path, args.output_format, stats)
+                if quality_code != EXIT_SUCCESS:
+                    result['exit_code'] = quality_code
+                    result['status'] = 'failed'
+                    result['error'] = 'Blocking Fabric quality findings; see the generated quality_report.json'
+                    batch_results.append(result)
+                    continue
 
             result["status"] = "success"
             stats.reports_processed += 1
@@ -385,10 +444,14 @@ def _run_biar_migration(args, stats):
         except Exception as e:
             result["status"] = "failed"
             result["error"] = str(e)
+            result['exit_code'] = EXIT_GENERAL_ERROR
             stats.errors.append(f"{artifact_name}: {e}")
             logger.warning("[%d/%d] Failed: %s — %s", idx, total, artifact_name, e)
 
         batch_results.append(result)
+
+    if inspect_only:
+        return EXIT_SUCCESS if batch_results and not any(result['status'] == 'failed' for result in batch_results) else EXIT_GENERAL_ERROR
 
     # Write batch summary
     summary_path = os.path.join(output_dir, "batch_summary.json")
@@ -416,62 +479,87 @@ def _run_biar_migration(args, stats):
     except Exception as e:
         logger.warning("Could not generate batch report: %s", e)
 
-    return EXIT_SUCCESS
+    if any(result['exit_code'] == EXIT_VALIDATION_ERROR for result in batch_results):
+        return EXIT_VALIDATION_ERROR
+    return EXIT_SUCCESS if total and succeeded == total else EXIT_GENERAL_ERROR
 
 
 def _generate_pbip_for_artifact(converted, artifact_name, artifact_dir, args):
     """Generate .pbip project from converted objects for a single artifact."""
-    try:
-        from powerbi_import.pbip_generator import PowerBIProjectGenerator
-        generator = PowerBIProjectGenerator(
-            converted_objects=converted,
-            project_name=artifact_name,
-            output_dir=artifact_dir,
-        )
-        generator.generate_project()
-    except ImportError:
-        # Fallback: write converted_objects.json for manual generation
-        import json as _json
-        co_path = os.path.join(artifact_dir, "converted_objects.json")
-        with open(co_path, "w", encoding="utf-8") as f:
-            _json.dump(converted, f, indent=2, default=str)
-        logger.info("Wrote converted_objects.json (generator not available)")
-    except Exception as e:
-        # Generator failure: write the converted objects as fallback
-        import json as _json
-        co_path = os.path.join(artifact_dir, "converted_objects.json")
-        with open(co_path, "w", encoding="utf-8") as f:
-            _json.dump(converted, f, indent=2, default=str)
-        logger.warning("Generation failed for %s, wrote converted_objects.json: %s",
-                        artifact_name, e)
+    from powerbi_import.import_to_powerbi import PowerBIImporter
+    return PowerBIImporter().generate_powerbi_project(
+        artifact_name, converted, output_dir=artifact_dir,
+        calendar_start=args.calendar_start, calendar_end=args.calendar_end,
+        culture=args.culture, output_format=args.output_format,
+    )
 
 
 def _run_batch_migration(args, stats):
     """Run batch migration from a directory of BO artifacts."""
-    from bo_export.extract_bo_data import extract_bo_data, SUPPORTED_EXTENSIONS
+    from bo_export.extract_bo_data import SUPPORTED_EXTENSIONS
 
     batch_dir = os.path.abspath(args.batch)
-    output_dir = args.output_dir or batch_dir + "_pbi"
+    if not os.path.isdir(batch_dir):
+        raise FileNotFoundError(f"Batch directory not found: {batch_dir}")
+    output_dir = os.path.abspath(args.output_dir or batch_dir + "_pbi")
+    if os.path.normcase(batch_dir) == os.path.normcase(output_dir):
+        raise ValueError("Batch output must differ from the source directory")
 
     artifacts = []
     for root, dirs, files in os.walk(batch_dir):
-        for fname in files:
+        dirs[:] = sorted(directory for directory in dirs
+                         if os.path.normcase(os.path.abspath(os.path.join(root, directory)))
+                         != os.path.normcase(output_dir))
+        for fname in sorted(files):
             ext = os.path.splitext(fname)[1].lower()
             if ext in SUPPORTED_EXTENSIONS:
                 artifacts.append(os.path.join(root, fname))
 
     logger.info("Batch migration: %d artifacts found in %s", len(artifacts), batch_dir)
+    if not artifacts:
+        raise ValueError("No supported BO artifacts found in the batch directory")
 
+    results = []
     for artifact_path in artifacts:
+        relative_path = os.path.relpath(artifact_path, batch_dir)
+        item_output = os.path.join(output_dir, relative_path)
+        item_args = argparse.Namespace(**vars(args))
+        item_args.input = artifact_path
+        item_args.output_dir = item_output
+        item_stats = MigrationStats()
+        error_message = None
         try:
-            extract_bo_data(artifact_path, output_dir=output_dir, verbose=args.verbose)
-            stats.reports_processed += 1
+            if SUPPORTED_EXTENSIONS[os.path.splitext(artifact_path)[1].lower()] == 'biar':
+                item_args.biar = artifact_path
+                exit_code = _run_biar_migration(item_args, item_stats)
+            else:
+                exit_code = _run_single_migration(item_args, item_stats)
         except Exception as e:
             logger.warning("Failed to migrate %s: %s", artifact_path, e)
+            exit_code = EXIT_GENERAL_ERROR
+            error_message = str(e)
             stats.errors.append(str(e))
+        stats.reports_processed += item_stats.reports_processed
+        stats.formulas_converted += item_stats.formulas_converted
+        stats.extraction_time += item_stats.extraction_time
+        stats.generation_time += item_stats.generation_time
+        stats.errors.extend(item_stats.errors)
+        if exit_code == EXIT_VALIDATION_ERROR:
+            error_message = 'Blocking Fabric quality findings; see per-project quality_report.json'
+        results.append({"source": relative_path, "output_dir": item_output,
+                        "exit_code": exit_code,
+                        "error": error_message,
+                        "status": "success" if exit_code == EXIT_SUCCESS else "failed"})
 
-    logger.info("Batch migration complete: %d/%d succeeded", stats.reports_processed, len(artifacts))
-    return EXIT_SUCCESS
+    if not args.dry_run:
+        os.makedirs(output_dir, exist_ok=True)
+        with open(os.path.join(output_dir, "batch_manifest.json"), "w", encoding="utf-8") as handle:
+            json.dump({"artifacts": results}, handle, indent=2, ensure_ascii=False)
+    succeeded = sum(result["exit_code"] == EXIT_SUCCESS for result in results)
+    logger.info("Batch migration complete: %d/%d succeeded", succeeded, len(artifacts))
+    if any(result['exit_code'] == EXIT_VALIDATION_ERROR for result in results):
+        return EXIT_VALIDATION_ERROR
+    return EXIT_SUCCESS if succeeded == len(artifacts) else EXIT_GENERAL_ERROR
 
 
 def _run_server_migration(args, stats):
@@ -498,23 +586,41 @@ def _run_server_migration(args, stats):
 def _run_shared_model_migration(args, stats):
     """Run shared semantic model migration from multiple reports."""
     from bo_export.extract_bo_data import extract_bo_data
+    from bo_export.converted_objects_adapter import adapt_bo_to_converted_objects
+    from powerbi_import.import_to_powerbi import PowerBIImporter
+    from powerbi_import.shared_model import assess_merge
 
     output_dir = args.output_dir or "shared_model_output"
     model_name = args.model_name or "SharedModel"
+    if len(args.shared_model) < 2:
+        raise ValueError("A shared model requires at least two source files")
 
-    all_extracted = []
-    for input_path in args.shared_model:
-        extracted = extract_bo_data(os.path.abspath(input_path), verbose=args.verbose)
-        all_extracted.append(extracted)
-        stats.reports_processed += 1
+    all_converted = []
+    report_names = []
+    with tempfile.TemporaryDirectory(prefix="bo_merge_") as temporary_dir:
+        for index, input_path in enumerate(args.shared_model):
+            extracted = extract_bo_data(os.path.abspath(input_path),
+                                        output_dir=os.path.join(temporary_dir, str(index)),
+                                        verbose=args.verbose)
+            all_converted.append(adapt_bo_to_converted_objects(extracted))
+            report_names.append(os.path.splitext(os.path.basename(input_path))[0])
+            stats.reports_processed += 1
 
-    logger.info("Shared model: %d reports extracted, model name: %s", len(all_extracted), model_name)
+    if args.assess_merge or args.assess or args.dry_run:
+        from powerbi_import.merge_assessment import print_merge_summary
+        print_merge_summary(assess_merge(all_converted, report_names))
+        return EXIT_SUCCESS
 
-    # Merge engine will be implemented using powerbi_import.shared_model
-    # from powerbi_import.shared_model import merge_models
-    # merged = merge_models(all_extracted, model_name)
-
-    return EXIT_SUCCESS
+    result = PowerBIImporter().import_shared_model(
+        model_name, all_converted, report_names, output_dir=output_dir,
+        calendar_start=args.calendar_start, calendar_end=args.calendar_end,
+        culture=args.culture, force_merge=args.force_merge,
+        workbook_paths=[os.path.abspath(path) for path in args.shared_model],
+        output_format=args.output_format,
+    )
+    if not result.get('model_path'):
+        return EXIT_GENERATION_ERROR
+    return _validate_fabric_output(os.path.dirname(result['model_path']), args.output_format, stats)
 
 
 def _load_previous_extraction(prev_dir):

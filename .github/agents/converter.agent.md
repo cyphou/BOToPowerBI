@@ -1,7 +1,8 @@
 ---
 name: "Converter"
 description: "Coordination layer for cross-cutting conversion tasks. Delegates to @dax (formulas) and @wiring (M queries)."
-tools: [read, edit, search, execute, todo]
+tools: [read, edit, search, execute, todo, agent]
+agents: [Dax, Wiring, Extractor, Semantic, Visual, Tester]
 user-invocable: true
 ---
 

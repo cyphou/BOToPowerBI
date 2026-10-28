@@ -167,6 +167,8 @@ def _build_tables(ds_name: str, bo_tables: list, columns_by_table: dict,
             "name": tname,
             "columns": pbi_columns,
         }
+        if tbl.get('schema'):
+            table_dict['schema'] = tbl['schema']
 
         # Check if this table has a custom SQL definition
         if tbl.get("type") == "derived" and tbl.get("sql"):
@@ -194,10 +196,16 @@ def _adapt_column(bo_col: dict) -> dict:
     """Convert a BO column dict to the generation-expected column shape."""
     qualification = bo_col.get("qualification", "dimension")
     role = "measure" if qualification == "measure" else "dimension"
+    data_type = map_bo_to_powerbi_type(bo_col.get('data_type', 'string'))
+    source_type = {'int64': 'integer', 'double': 'real', 'decimal': 'currency',
+                   'dateTime': 'datetime'}.get(data_type, data_type)
+    if str(bo_col.get('data_type', '')).strip().lower() == 'date':
+        source_type = 'date'
 
     return {
         "name": bo_col.get("name", ""),
-        "dataType": map_bo_to_powerbi_type(bo_col.get("data_type", "string")),
+        "dataType": data_type,
+        "datatype": source_type,
         "role": role,
         "caption": bo_col.get("description", bo_col.get("name", "")),
         "hidden": False,

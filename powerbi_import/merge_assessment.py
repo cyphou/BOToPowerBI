@@ -132,12 +132,12 @@ def print_merge_summary(assessment: MergeAssessment):
                     print(f"    ✓ {t:<25} — only in {wb}, but linked to shared tables")
             print()
 
-        # Show isolated tables (will NOT be included in merged model)
+        # Isolation is a relationship finding, not permission to discard a table.
         if assessment.isolated_tables:
-            print("  ISOLATED TABLES (excluded from shared model — no links):")
+            print("  ISOLATED TABLES (retained with source provenance; no links inferred):")
             for wb, tables in assessment.isolated_tables.items():
                 for t in tables:
-                    print(f"    ✗ {t:<25} — only in {wb}, no relationships to other tables")
+                    print(f"    [keep] {t:<25} — only in {wb}, no relationships to other tables")
             print()
 
     # Stats
