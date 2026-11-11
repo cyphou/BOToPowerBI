@@ -1,0 +1,177 @@
+{
+  "schema_version": "1.0",
+  "wave_id": "synthetic-wave-01",
+  "inventory_scope": {
+    "inventory_id": "SYNTHETIC-BW-01",
+    "inventory_run_id": "synthetic-run-2026-11-11",
+    "object_ids": [
+      "SYNTHETIC-BW-01:DS:VENTES",
+      "SYNTHETIC-BW-01:TRANSFORMATION:STANDARDISATION",
+      "SYNTHETIC-BW-01:BEX:VENTES-MENSUELLES"
+    ]
+  },
+  "traceability": {
+    "source_version_reference": "synthetic-source-version-ref",
+    "target_version_reference": "synthetic-target-version-ref",
+    "extract_boundary_reference": "synthetic-extract-boundary-ref",
+    "grain_reference": "synthetic-grain-ref"
+  },
+  "object_evidence": [
+    {
+      "object_id": "SYNTHETIC-BW-01:DS:VENTES",
+      "layers": [
+        {
+          "kind": "bw2_reconciliation",
+          "applicability": "applicable",
+          "status": "not_run",
+          "evidence_reference": "synthetic-bw2-datasource-report",
+          "owner_reference": "synthetic-reconciliation-owner",
+          "exception_ids": ["synthetic-open-reconciliation-gap"]
+        },
+        {
+          "kind": "bw3_handoff",
+          "applicability": "not_applicable",
+          "status": "not_applicable",
+          "evidence_reference": null,
+          "owner_reference": null,
+          "exception_ids": []
+        },
+        {
+          "kind": "bw4_transform",
+          "applicability": "not_applicable",
+          "status": "not_applicable",
+          "evidence_reference": null,
+          "owner_reference": null,
+          "exception_ids": []
+        },
+        {
+          "kind": "bw5_bex",
+          "applicability": "not_applicable",
+          "status": "not_applicable",
+          "evidence_reference": null,
+          "owner_reference": null,
+          "exception_ids": []
+        },
+        {
+          "kind": "bw6_controls",
+          "applicability": "not_applicable",
+          "status": "not_applicable",
+          "evidence_reference": null,
+          "owner_reference": null,
+          "exception_ids": []
+        }
+      ]
+    },
+    {
+      "object_id": "SYNTHETIC-BW-01:TRANSFORMATION:STANDARDISATION",
+      "layers": [
+        {
+          "kind": "bw2_reconciliation",
+          "applicability": "applicable",
+          "status": "not_run",
+          "evidence_reference": "synthetic-bw2-transformation-report",
+          "owner_reference": "synthetic-reconciliation-owner",
+          "exception_ids": []
+        },
+        {
+          "kind": "bw3_handoff",
+          "applicability": "not_applicable",
+          "status": "not_applicable",
+          "evidence_reference": null,
+          "owner_reference": null,
+          "exception_ids": []
+        },
+        {
+          "kind": "bw4_transform",
+          "applicability": "applicable",
+          "status": "pass",
+          "evidence_reference": "synthetic-bw4-transform-report",
+          "owner_reference": "synthetic-transform-owner",
+          "exception_ids": []
+        },
+        {
+          "kind": "bw5_bex",
+          "applicability": "not_applicable",
+          "status": "not_applicable",
+          "evidence_reference": null,
+          "owner_reference": null,
+          "exception_ids": []
+        },
+        {
+          "kind": "bw6_controls",
+          "applicability": "not_applicable",
+          "status": "not_applicable",
+          "evidence_reference": null,
+          "owner_reference": null,
+          "exception_ids": []
+        }
+      ]
+    },
+    {
+      "object_id": "SYNTHETIC-BW-01:BEX:VENTES-MENSUELLES",
+      "layers": [
+        {
+          "kind": "bw2_reconciliation",
+          "applicability": "applicable",
+          "status": "not_run",
+          "evidence_reference": "synthetic-bw2-bex-report",
+          "owner_reference": "synthetic-reconciliation-owner",
+          "exception_ids": []
+        },
+        {
+          "kind": "bw3_handoff",
+          "applicability": "not_applicable",
+          "status": "not_applicable",
+          "evidence_reference": null,
+          "owner_reference": null,
+          "exception_ids": []
+        },
+        {
+          "kind": "bw4_transform",
+          "applicability": "not_applicable",
+          "status": "not_applicable",
+          "evidence_reference": null,
+          "owner_reference": null,
+          "exception_ids": []
+        },
+        {
+          "kind": "bw5_bex",
+          "applicability": "applicable",
+          "status": "pass",
+          "evidence_reference": "synthetic-bw5-bex-report",
+          "owner_reference": "synthetic-bex-owner",
+          "exception_ids": []
+        },
+        {
+          "kind": "bw6_controls",
+          "applicability": "not_applicable",
+          "status": "not_applicable",
+          "evidence_reference": null,
+          "owner_reference": null,
+          "exception_ids": []
+        }
+      ]
+    }
+  ],
+  "operational_evidence": [
+    {"kind": "freshness_target", "status": "not_run", "evidence_reference": "synthetic-freshness-target-ref", "owner_reference": "synthetic-operations-owner"},
+    {"kind": "latency_target", "status": "not_run", "evidence_reference": "synthetic-latency-target-ref", "owner_reference": "synthetic-operations-owner"},
+    {"kind": "availability_target", "status": "not_run", "evidence_reference": "synthetic-availability-target-ref", "owner_reference": "synthetic-operations-owner"},
+    {"kind": "cost_target", "status": "not_run", "evidence_reference": "synthetic-cost-target-ref", "owner_reference": "synthetic-operations-owner"},
+    {"kind": "monitoring_alerting", "status": "not_run", "evidence_reference": "synthetic-monitoring-alerting-ref", "owner_reference": "synthetic-operations-owner"},
+    {"kind": "failure_replay", "status": "not_run", "evidence_reference": "synthetic-failure-replay-ref", "owner_reference": "synthetic-operations-owner"},
+    {"kind": "schema_drift", "status": "not_run", "evidence_reference": "synthetic-schema-drift-ref", "owner_reference": "synthetic-operations-owner"},
+    {"kind": "restore", "status": "not_run", "evidence_reference": "synthetic-restore-ref", "owner_reference": "synthetic-operations-owner"},
+    {"kind": "rpo_rto", "status": "not_run", "evidence_reference": "synthetic-rpo-rto-ref", "owner_reference": "synthetic-operations-owner"}
+  ],
+  "exceptions": [
+    {
+      "id": "synthetic-open-reconciliation-gap",
+      "object_id": "SYNTHETIC-BW-01:DS:VENTES",
+      "layer": "bw2_reconciliation",
+      "owner_reference": "synthetic-reconciliation-owner",
+      "disposition": "unresolved",
+      "approval_reference": null
+    }
+  ]
+}

@@ -1,0 +1,53 @@
+{
+  "schema_version": "1.0",
+  "comparison_id": "synthetic-sales-reconciliation-001",
+  "scope": {
+    "snapshot_id": "synthetic-sales-history-001",
+    "snapshot_cutoff_utc": "2026-10-31T23:59:59Z",
+    "grain": "one row per sales item",
+    "filter_id": "synthetic-sales-history-full"
+  },
+  "source": {
+    "system_id": "SYNTHETIC-BW-01",
+    "object_id": "SYNTHETIC-BW-01:ADSO:VENTES-BRUTES",
+    "run_id": "synthetic-bw-export-001",
+    "evidence_ref": "synthetic-control-record-source-001",
+    "scope": {
+      "snapshot_id": "synthetic-sales-history-001",
+      "snapshot_cutoff_utc": "2026-10-31T23:59:59Z",
+      "grain": "one row per sales item",
+      "filter_id": "synthetic-sales-history-full"
+    },
+    "metrics": {
+      "row_count": {"value": 3, "unit": "rows"},
+      "distinct_key_count": {"value": 3, "unit": "keys"},
+      "net_sales_eur": {"value": "1250.00", "unit": "EUR"}
+    }
+  },
+  "target": {
+    "system_id": "SYNTHETIC-FABRIC-01",
+    "object_id": "bronze.synthetic_sales_history",
+    "run_id": "synthetic-fabric-load-001",
+    "evidence_ref": "synthetic-control-record-target-001",
+    "scope": {
+      "snapshot_id": "synthetic-sales-history-001",
+      "snapshot_cutoff_utc": "2026-10-31T23:59:59Z",
+      "grain": "one row per sales item",
+      "filter_id": "synthetic-sales-history-full"
+    },
+    "metrics": {
+      "row_count": {"value": 3, "unit": "rows"},
+      "distinct_key_count": {"value": 3, "unit": "keys"},
+      "net_sales_eur": {"value": "1250.01", "unit": "EUR"}
+    }
+  },
+  "rules": {
+    "row_count": {"mode": "exact"},
+    "distinct_key_count": {"mode": "exact"},
+    "net_sales_eur": {
+      "mode": "tolerance",
+      "absolute_tolerance": "0.02",
+      "relative_tolerance": "0"
+    }
+  }
+}

@@ -1,0 +1,128 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:bo-to-powerbi:schema:sap-bw-wave-evidence:1.0",
+  "title": "SAP BW wave evidence index",
+  "description": "Versioned local evidence declarations only; operational targets are references, not numeric thresholds. The evaluator does not dereference or verify report bytes, establish freshness or correctness, execute SAP/Fabric controls, certify operations, or approve retirement. SAP/Fabric runtime evidence remains not_run.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "wave_id", "inventory_scope", "traceability", "object_evidence", "operational_evidence", "exceptions"],
+  "properties": {
+    "schema_version": {"const": "1.0"},
+    "wave_id": {"$ref": "#/$defs/reference"},
+    "inventory_scope": {"$ref": "#/$defs/inventoryScope"},
+    "traceability": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source_version_reference", "target_version_reference", "extract_boundary_reference", "grain_reference"],
+      "properties": {
+        "source_version_reference": {"$ref": "#/$defs/reference"},
+        "target_version_reference": {"$ref": "#/$defs/reference"},
+        "extract_boundary_reference": {"$ref": "#/$defs/reference"},
+        "grain_reference": {"$ref": "#/$defs/reference"}
+      }
+    },
+    "object_evidence": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/objectEvidence"},
+      "minItems": 1
+    },
+    "operational_evidence": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/operationalEvidence"},
+      "minItems": 9,
+      "maxItems": 9
+    },
+    "exceptions": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/exception"}
+    }
+  },
+  "$defs": {
+    "reference": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256,
+      "pattern": "^[^\\u0000-\\u0020\\u007F]{1,256}$"
+    },
+    "inventoryIdentifier": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^[^\\u0000-\\u001F\\u007F]+$"
+    },
+    "inventoryScope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["inventory_id", "inventory_run_id", "object_ids"],
+      "properties": {
+        "inventory_id": {"$ref": "#/$defs/inventoryIdentifier"},
+        "inventory_run_id": {"$ref": "#/$defs/inventoryIdentifier"},
+        "object_ids": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/inventoryIdentifier"}
+        }
+      }
+    },
+    "layer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "applicability", "status", "evidence_reference", "owner_reference", "exception_ids"],
+      "properties": {
+        "kind": {"enum": ["bw2_reconciliation", "bw3_handoff", "bw4_transform", "bw5_bex", "bw6_controls"]},
+        "applicability": {"enum": ["applicable", "not_applicable"]},
+        "status": {"enum": ["pass", "fail", "not_run", "not_applicable"]},
+        "evidence_reference": {"oneOf": [{"$ref": "#/$defs/reference"}, {"type": "null"}]},
+        "owner_reference": {"oneOf": [{"$ref": "#/$defs/reference"}, {"type": "null"}]},
+        "exception_ids": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/reference"}
+        }
+      }
+    },
+    "objectEvidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["object_id", "layers"],
+      "properties": {
+        "object_id": {"$ref": "#/$defs/inventoryIdentifier"},
+        "layers": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/layer"},
+          "minItems": 5,
+          "maxItems": 5
+        }
+      }
+    },
+    "operationalEvidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "status", "evidence_reference", "owner_reference"],
+      "properties": {
+        "kind": {
+          "enum": [
+            "freshness_target", "latency_target", "availability_target", "cost_target",
+            "monitoring_alerting", "failure_replay", "schema_drift", "restore", "rpo_rto"
+          ]
+        },
+        "status": {"enum": ["pass", "fail", "not_run"]},
+        "evidence_reference": {"$ref": "#/$defs/reference"},
+        "owner_reference": {"$ref": "#/$defs/reference"}
+      }
+    },
+    "exception": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "object_id", "layer", "owner_reference", "disposition", "approval_reference"],
+      "properties": {
+        "id": {"$ref": "#/$defs/reference"},
+        "object_id": {"$ref": "#/$defs/inventoryIdentifier"},
+        "layer": {"enum": ["bw2_reconciliation", "bw3_handoff", "bw4_transform", "bw5_bex", "bw6_controls"]},
+        "owner_reference": {"$ref": "#/$defs/reference"},
+        "disposition": {"enum": ["unresolved", "resolved", "accepted"]},
+        "approval_reference": {"oneOf": [{"$ref": "#/$defs/reference"}, {"type": "null"}]}
+      }
+    }
+  }
+}

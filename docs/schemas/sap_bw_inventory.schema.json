@@ -1,0 +1,321 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:bo-to-powerbi:schema:sap-bw-inventory:1.0",
+  "title": "SAP BW inventory snapshot",
+  "description": "Strict, sanitized offline BW inventory contract. This is not a SAP connector or conversion contract.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version", "run_id", "captured_at", "source_system", "provenance",
+    "discovery", "extraction_access", "scope", "objects", "dependencies",
+    "errors", "unknowns", "unsupported_features"
+  ],
+  "properties": {
+    "schema_version": { "const": "1.0" },
+    "run_id": { "$ref": "#/$defs/nonEmptyString" },
+    "captured_at": { "type": "string", "format": "date-time" },
+    "source_system": { "$ref": "#/$defs/sourceSystem" },
+    "provenance": { "$ref": "#/$defs/provenance" },
+    "discovery": { "$ref": "#/$defs/discovery" },
+    "extraction_access": { "$ref": "#/$defs/extractionAccess" },
+    "scope": { "$ref": "#/$defs/scope" },
+    "objects": {
+      "type": "array", "minItems": 1,
+      "items": { "$ref": "#/$defs/inventoryObject" }
+    },
+    "dependencies": {
+      "type": "array", "items": { "$ref": "#/$defs/dependency" }
+    },
+    "errors": {
+      "type": "array", "items": { "$ref": "#/$defs/discoveryError" }
+    },
+    "unknowns": {
+      "type": "array", "items": { "$ref": "#/$defs/unknown" }
+    },
+    "unsupported_features": {
+      "type": "array", "items": { "$ref": "#/$defs/unsupportedFeature" }
+    }
+  },
+  "$defs": {
+    "nonEmptyString": { "type": "string", "minLength": 1 },
+    "nullableString": { "type": ["string", "null"], "minLength": 1 },
+    "assessmentStatus": {
+      "enum": ["observed", "inferred", "unknown", "not_assessed", "not_applicable"]
+    },
+    "coverageStatus": {
+      "enum": ["complete", "partial", "not_assessed", "not_applicable"]
+    },
+    "sourceSystem": {
+      "type": "object", "additionalProperties": false,
+      "required": ["id", "product", "version", "client", "landscape"],
+      "properties": {
+        "id": { "$ref": "#/$defs/nonEmptyString" },
+        "product": { "enum": ["SAP BW", "SAP BW/4HANA"] },
+        "version": { "$ref": "#/$defs/nonEmptyString" },
+        "client": { "$ref": "#/$defs/nonEmptyString" },
+        "landscape": {
+          "type": "object", "additionalProperties": false,
+          "required": ["id", "name", "status"],
+          "properties": {
+            "id": { "$ref": "#/$defs/nullableString" },
+            "name": { "$ref": "#/$defs/nullableString" },
+            "status": { "$ref": "#/$defs/assessmentStatus" }
+          }
+        }
+      }
+    },
+    "provenance": {
+      "type": "object", "additionalProperties": false,
+      "required": [
+        "discovery_method", "extraction_method", "extractor_name",
+        "extractor_version", "evidence_reference"
+      ],
+      "properties": {
+        "discovery_method": {
+          "enum": ["manual", "source_export", "metadata_api", "usage_report", "unknown"]
+        },
+        "extraction_method": {
+          "enum": ["manual", "source_export", "metadata_api", "usage_report", "unknown"]
+        },
+        "extractor_name": { "$ref": "#/$defs/nullableString" },
+        "extractor_version": { "$ref": "#/$defs/nullableString" },
+        "evidence_reference": { "$ref": "#/$defs/nullableString" }
+      }
+    },
+    "discovery": {
+      "type": "object", "additionalProperties": false,
+      "required": ["method", "evidence_reference"],
+      "properties": {
+        "method": {
+          "enum": ["manual", "source_export", "metadata_api", "usage_report", "unknown"]
+        },
+        "evidence_reference": { "$ref": "#/$defs/nullableString" }
+      }
+    },
+    "extractionAccess": {
+      "type": "object", "additionalProperties": false,
+      "required": ["status", "approval_reference", "credential_material_included"],
+      "properties": {
+        "status": { "enum": ["granted", "pending", "denied", "unknown", "not_applicable"] },
+        "approval_reference": { "$ref": "#/$defs/nullableString" },
+        "credential_material_included": { "const": false }
+      }
+    },
+    "scope": {
+      "type": "object", "additionalProperties": false,
+      "required": [
+        "included_domains", "excluded_domains", "completeness", "owner_signoff",
+        "coverage", "known_gaps"
+      ],
+      "properties": {
+        "included_domains": { "type": "array", "items": { "$ref": "#/$defs/nonEmptyString" } },
+        "excluded_domains": { "type": "array", "items": { "$ref": "#/$defs/nonEmptyString" } },
+        "completeness": { "$ref": "#/$defs/coverageStatus" },
+        "owner_signoff": { "enum": ["pending", "accepted", "rejected", "not_requested"] },
+        "coverage": {
+          "type": "object", "additionalProperties": false,
+          "required": [
+            "systems", "sources", "providers", "transformations", "process_chains",
+            "consumers", "usage", "data_volume_history_retention", "delta_mechanisms",
+            "authorizations", "planning_writeback"
+          ],
+          "properties": {
+            "systems": { "$ref": "#/$defs/coverageStatus" },
+            "sources": { "$ref": "#/$defs/coverageStatus" },
+            "providers": { "$ref": "#/$defs/coverageStatus" },
+            "transformations": { "$ref": "#/$defs/coverageStatus" },
+            "process_chains": { "$ref": "#/$defs/coverageStatus" },
+            "consumers": { "$ref": "#/$defs/coverageStatus" },
+            "usage": { "$ref": "#/$defs/coverageStatus" },
+            "data_volume_history_retention": { "$ref": "#/$defs/coverageStatus" },
+            "delta_mechanisms": { "$ref": "#/$defs/coverageStatus" },
+            "authorizations": { "$ref": "#/$defs/coverageStatus" },
+            "planning_writeback": { "$ref": "#/$defs/coverageStatus" }
+          }
+        },
+        "known_gaps": { "type": "array", "items": { "$ref": "#/$defs/nonEmptyString" } }
+      }
+    },
+    "usageProfile": {
+      "type": "object", "additionalProperties": false,
+      "required": ["status", "observation_window_start", "observation_window_end", "last_used_at", "access_count"],
+      "properties": {
+        "status": { "$ref": "#/$defs/assessmentStatus" },
+        "observation_window_start": { "type": ["string", "null"], "format": "date-time" },
+        "observation_window_end": { "type": ["string", "null"], "format": "date-time" },
+        "last_used_at": { "type": ["string", "null"], "format": "date-time" },
+        "access_count": { "type": ["integer", "null"], "minimum": 0 }
+      }
+    },
+    "dataProfile": {
+      "type": "object", "additionalProperties": false,
+      "required": ["status", "estimated_rows", "estimated_bytes", "history_start", "history_end", "retention_policy"],
+      "properties": {
+        "status": { "$ref": "#/$defs/assessmentStatus" },
+        "estimated_rows": { "type": ["integer", "null"], "minimum": 0 },
+        "estimated_bytes": { "type": ["integer", "null"], "minimum": 0 },
+        "history_start": { "type": ["string", "null"], "format": "date" },
+        "history_end": { "type": ["string", "null"], "format": "date" },
+        "retention_policy": { "$ref": "#/$defs/nullableString" }
+      }
+    },
+    "deltaProfile": {
+      "type": "object", "additionalProperties": false,
+      "required": ["status", "mechanism", "delete_capture"],
+      "properties": {
+        "status": { "$ref": "#/$defs/assessmentStatus" },
+        "mechanism": { "enum": ["full", "watermark", "cdc", "open_hub", "other", "unknown", "not_applicable"] },
+        "delete_capture": { "type": ["boolean", "null"] }
+      }
+    },
+    "validation": {
+      "type": "object", "additionalProperties": false,
+      "required": ["status", "justification"],
+      "properties": {
+        "status": { "enum": ["not_run", "pass", "fail", "not_applicable"] },
+        "justification": { "$ref": "#/$defs/nullableString" }
+      }
+    },
+    "migrationDecision": {
+      "type": "object", "additionalProperties": false,
+      "required": ["classification", "target_candidate", "rationale", "decision_owner", "route", "prerequisites", "validation"],
+      "properties": {
+        "classification": { "enum": ["automatic_candidate", "manual_redesign", "blocked", "unknown", "not_assessed"] },
+        "target_candidate": { "$ref": "#/$defs/nullableString" },
+        "rationale": { "$ref": "#/$defs/nullableString" },
+        "decision_owner": { "$ref": "#/$defs/nullableString" },
+        "route": { "$ref": "#/$defs/nullableString" },
+        "prerequisites": { "type": "array", "items": { "$ref": "#/$defs/nonEmptyString" } },
+        "validation": { "$ref": "#/$defs/validation" }
+      }
+    },
+    "definition": {
+      "type": "object", "additionalProperties": false,
+      "required": ["status", "reference", "hash_algorithm", "hash"],
+      "properties": {
+        "status": { "$ref": "#/$defs/assessmentStatus" },
+        "reference": { "$ref": "#/$defs/nullableString" },
+        "hash_algorithm": { "enum": ["sha256", null] },
+        "hash": { "type": ["string", "null"], "pattern": "^[a-fA-F0-9]{64}$" }
+      }
+    },
+    "typedKey": {
+      "type": "object", "additionalProperties": false,
+      "required": ["name", "data_type", "nullable", "role"],
+      "properties": {
+        "name": { "$ref": "#/$defs/nonEmptyString" },
+        "data_type": { "$ref": "#/$defs/nonEmptyString" },
+        "nullable": { "type": "boolean" },
+        "role": { "enum": ["business", "technical", "surrogate", "partition", "unknown"] }
+      }
+    },
+    "semanticEntry": {
+      "type": "object", "additionalProperties": false,
+      "required": ["name", "data_type", "status", "details"],
+      "properties": {
+        "name": { "$ref": "#/$defs/nonEmptyString" },
+        "data_type": { "$ref": "#/$defs/nonEmptyString" },
+        "status": { "$ref": "#/$defs/assessmentStatus" },
+        "details": { "$ref": "#/$defs/nullableString" }
+      }
+    },
+    "semantics": {
+      "type": "object", "additionalProperties": false,
+      "required": ["status", "measures", "dimensions", "functions"],
+      "properties": {
+        "status": { "$ref": "#/$defs/assessmentStatus" },
+        "measures": { "type": "array", "items": { "$ref": "#/$defs/semanticEntry" } },
+        "dimensions": { "type": "array", "items": { "$ref": "#/$defs/semanticEntry" } },
+        "functions": { "type": "array", "items": { "$ref": "#/$defs/semanticEntry" } }
+      }
+    },
+    "inventoryObject": {
+      "type": "object", "additionalProperties": false,
+      "required": [
+        "id", "type", "name", "discovery_status", "disposition", "criticality",
+        "business_owner", "location", "usage_profile", "data_profile", "delta_profile",
+        "migration_decision", "metadata_status", "definition", "keys_status", "keys", "semantics"
+      ],
+      "properties": {
+        "id": { "$ref": "#/$defs/nonEmptyString" },
+        "type": {
+          "enum": [
+            "source", "datasource", "infoprovider", "adso", "infocube",
+            "composite_provider", "transformation", "dtp", "process_chain",
+            "bex_query", "consumer", "authorization", "planning_process"
+          ]
+        },
+        "name": { "$ref": "#/$defs/nonEmptyString" },
+        "discovery_status": { "enum": ["observed", "inferred", "unknown"] },
+        "disposition": { "enum": ["in_scope", "out_of_scope", "unknown"] },
+        "criticality": { "enum": ["low", "medium", "high", "critical", "unknown"] },
+        "business_owner": { "$ref": "#/$defs/nullableString" },
+        "source_reference": { "$ref": "#/$defs/nullableString" },
+        "location": { "$ref": "#/$defs/nullableString" },
+        "usage_profile": { "$ref": "#/$defs/usageProfile" },
+        "data_profile": { "$ref": "#/$defs/dataProfile" },
+        "delta_profile": { "$ref": "#/$defs/deltaProfile" },
+        "migration_decision": { "$ref": "#/$defs/migrationDecision" },
+        "metadata_status": { "$ref": "#/$defs/assessmentStatus" },
+        "definition": { "$ref": "#/$defs/definition" },
+        "keys_status": { "$ref": "#/$defs/assessmentStatus" },
+        "keys": { "type": "array", "items": { "$ref": "#/$defs/typedKey" } },
+        "semantics": { "$ref": "#/$defs/semantics" }
+      }
+    },
+    "dependency": {
+      "type": "object", "additionalProperties": false,
+      "required": ["source_id", "target_id", "kind", "evidence_status", "resolution_status", "evidence_reference"],
+      "properties": {
+        "source_id": { "$ref": "#/$defs/nonEmptyString" },
+        "target_id": { "$ref": "#/$defs/nonEmptyString" },
+        "kind": { "enum": ["feeds", "transforms", "scheduled_by", "queries", "consumes", "secured_by", "plans", "other"] },
+        "evidence_status": { "$ref": "#/$defs/assessmentStatus" },
+        "resolution_status": { "enum": ["resolved", "unresolved", "unknown"] },
+        "evidence_reference": { "$ref": "#/$defs/nullableString" }
+      }
+    },
+    "discoveryError": {
+      "type": "object", "additionalProperties": false,
+      "required": ["code", "category", "status", "message", "evidence_reference"],
+      "properties": {
+        "code": { "$ref": "#/$defs/nonEmptyString" },
+        "category": { "enum": ["discovery", "permission", "parse", "coverage", "other"] },
+        "status": { "$ref": "#/$defs/assessmentStatus" },
+        "message": { "$ref": "#/$defs/nonEmptyString" },
+        "evidence_reference": { "$ref": "#/$defs/nullableString" }
+      }
+    },
+    "unknown": {
+      "type": "object", "additionalProperties": false,
+      "required": ["id", "path", "reason", "status", "owner"],
+      "properties": {
+        "id": { "$ref": "#/$defs/nonEmptyString" },
+        "path": { "$ref": "#/$defs/nonEmptyString" },
+        "reason": { "$ref": "#/$defs/nonEmptyString" },
+        "status": { "$ref": "#/$defs/assessmentStatus" },
+        "owner": { "$ref": "#/$defs/nullableString" }
+      }
+    },
+    "unsupportedFeature": {
+      "type": "object", "additionalProperties": false,
+      "required": [
+        "id", "object_id", "category", "name", "support_status", "impact",
+        "description", "conversion_status", "evidence_reference"
+      ],
+      "properties": {
+        "id": { "$ref": "#/$defs/nonEmptyString" },
+        "object_id": { "$ref": "#/$defs/nonEmptyString" },
+        "category": {
+          "enum": ["abap_routine", "bex_semantic", "planning_writeback", "authorization", "bw_object_type", "custom_function", "other"]
+        },
+        "name": { "$ref": "#/$defs/nonEmptyString" },
+        "support_status": { "enum": ["supported", "unsupported", "unknown"] },
+        "impact": { "enum": ["low", "medium", "high", "critical", "unknown"] },
+        "description": { "$ref": "#/$defs/nullableString" },
+        "conversion_status": { "enum": ["not_run", "pass", "fail", "not_applicable"] },
+        "evidence_reference": { "$ref": "#/$defs/nullableString" }
+      }
+    }
+  }
+}

@@ -1,6 +1,6 @@
 ---
 name: "Fabric"
-description: "Use when: generating or debugging BusinessObjects to Fabric artifacts, Lakehouse schemas, Dataflow Gen2, PySpark notebooks, Direct Lake semantic models, and Data Pipelines. Remote deployment belongs to Deployer."
+description: "Use when: generating or debugging BO or staged BW to Fabric artifacts, Lakehouse schemas, Dataflow Gen2, PySpark notebooks, Direct Lake semantic models, and Data Pipelines. Remote deployment belongs to Deployer."
 tools: [read, edit, search, execute, todo, agent]
 agents: [Semantic, Wiring, Deployer, Tester]
 user-invocable: true
@@ -23,6 +23,7 @@ You own the local `--output-format fabric` generation path, not remote operation
 - `powerbi_import/fabric_validator.py` - read-only checks of the five local artifacts
 - `powerbi_import/fabric_item.py` - deterministic logical UUIDs and shared manifests
 - `powerbi_import/fabric_sources.py` - effective connections and exclusive ingestion ownership
+- `powerbi_import/bw_bronze_generator.py` and `docs/fixtures/sap_bw_bronze_plan.example.json` - separate, offline BW historical landing notebook and synthetic plan
 
 ## Workflow
 
@@ -45,6 +46,7 @@ You own the local `--output-format fabric` generation path, not remote operation
 ## Evidence And Boundaries
 
 - Local artifact generation and local tests are not proof of upload, refresh, Direct Lake binding, or Pipeline execution.
+- The BW Bronze path accepts explicitly staged Parquet; it is not SAP extraction, BW transformation, business reconciliation, or retirement.
 - Report remote checks as `not_run` unless performed against an explicitly identified, authorized workspace.
 - Do not import Tableau-specific ingestion rules or claim validators that this repository does not implement.
 - Delegate workspace writes, deployment, authentication, and gateway work to Deployer.

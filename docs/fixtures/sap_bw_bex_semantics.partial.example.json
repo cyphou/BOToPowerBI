@@ -1,0 +1,91 @@
+{
+  "schema_version": "1.0",
+  "query": {
+    "object_id": "SYNTHETIC-BW-01:BEX:VENTES-MENSUELLES",
+    "definition_reference": "synthetic://bw/bex/ventes-mensuelles",
+    "definition_sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+  },
+  "coverage": {
+    "variables": "partial",
+    "filters": "complete",
+    "hierarchies": "partial",
+    "master_data": "not_assessed",
+    "key_figures": "complete",
+    "exception_aggregation": "not_assessed",
+    "units_currencies": "complete",
+    "authorization_contexts": "partial",
+    "consumers": "partial"
+  },
+  "variables": [
+    {
+      "id": "synthetic-month-prompt",
+      "name": "Fiscal period prompt",
+      "kind": "characteristic",
+      "required": true,
+      "default_behavior_reference": null,
+      "status": "observed",
+      "evidence_reference": "synthetic fixture only"
+    }
+  ],
+  "filters": [
+    {
+      "id": "synthetic-sales-filter",
+      "name": "Sales organization restriction",
+      "target": "Synthetic sales organization",
+      "operator": "selection",
+      "selection_reference": "synthetic fixture only; no selected values",
+      "status": "observed",
+      "evidence_reference": "synthetic fixture only"
+    }
+  ],
+  "hierarchies": [
+    {
+      "id": "synthetic-region-hierarchy",
+      "characteristic": "Synthetic region",
+      "hierarchy_reference": "synthetic://bw/hierarchy/region",
+      "versioning": "unknown",
+      "selection_behavior_reference": null,
+      "status": "unknown",
+      "evidence_reference": "synthetic fixture only"
+    }
+  ],
+  "master_data": [],
+  "key_figures": [
+    {
+      "id": "synthetic-net-sales",
+      "name": "Synthetic net sales",
+      "aggregation": "SUM",
+      "exception_aggregation": {
+        "status": "not_assessed",
+        "method": null,
+        "reference_characteristic": null
+      },
+      "unit_currency": {
+        "status": "observed",
+        "unit": null,
+        "currency": "EUR",
+        "conversion_reference": "synthetic fixture only"
+      },
+      "status": "observed",
+      "evidence_reference": "synthetic fixture only"
+    }
+  ],
+  "authorization_contexts": [
+    {
+      "id": "synthetic-sales-role",
+      "authorization_reference": null,
+      "role_reference": "synthetic-role",
+      "data_scope_reference": null,
+      "status": "unknown",
+      "evidence_reference": "synthetic fixture only"
+    }
+  ],
+  "consumers": [
+    {
+      "inventory_object_id": "SYNTHETIC-BW-01:CONSUMER:RAPPORT-VENTES",
+      "target_candidate_reference": null,
+      "acceptance_status": "not_run",
+      "evidence_reference": null
+    }
+  ]
+}

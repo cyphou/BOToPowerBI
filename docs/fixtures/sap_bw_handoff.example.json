@@ -1,0 +1,120 @@
+{
+  "schema_version": "1.0",
+  "feed_id": "synthetic-sales-feed",
+  "source_contract": {
+    "position_semantics": "contiguous_integer",
+    "evidence_ref": "synthetic-owner-contract",
+    "schema_version": "sales-v1",
+    "schema_fields": [
+      "amount",
+      "customer"
+    ]
+  },
+  "snapshot": {
+    "watermark": 10,
+    "cutoff_utc": "2026-10-31T12:00:00Z",
+    "records": [
+      {
+        "key": "sale-1",
+        "values": {
+          "amount": 100,
+          "customer": "customer-a"
+        }
+      },
+      {
+        "key": "sale-2",
+        "values": {
+          "amount": 20,
+          "customer": "customer-b"
+        }
+      }
+    ]
+  },
+  "events": [
+    {
+      "event_id": "event-11",
+      "position": 11,
+      "event_time_utc": "2026-10-31T12:05:00Z",
+      "operation": "upsert",
+      "key": "sale-1",
+      "schema_version": "sales-v1",
+      "values": {
+        "amount": 110,
+        "customer": "customer-a"
+      }
+    },
+    {
+      "event_id": "event-13",
+      "position": 13,
+      "event_time_utc": "2026-10-31T12:04:00Z",
+      "operation": "upsert",
+      "key": "sale-3",
+      "schema_version": "sales-v1",
+      "values": {
+        "amount": 7,
+        "customer": "customer-c"
+      }
+    },
+    {
+      "event_id": "event-12",
+      "position": 12,
+      "event_time_utc": "2026-10-31T12:06:00Z",
+      "operation": "delete",
+      "key": "sale-2",
+      "schema_version": "sales-v1",
+      "values": null
+    },
+    {
+      "event_id": "event-12",
+      "position": 12,
+      "event_time_utc": "2026-10-31T12:06:00Z",
+      "operation": "delete",
+      "key": "sale-2",
+      "schema_version": "sales-v1",
+      "values": null
+    },
+    {
+      "event_id": "overlap-10",
+      "position": 10,
+      "event_time_utc": "2026-10-31T11:59:00Z",
+      "operation": "upsert",
+      "key": "sale-2",
+      "schema_version": "sales-v1",
+      "values": {
+        "amount": 20,
+        "customer": "customer-b"
+      }
+    },
+    {
+      "event_id": "event-14",
+      "position": 14,
+      "event_time_utc": "2026-10-31T12:10:00Z",
+      "operation": "upsert",
+      "key": "sale-1",
+      "schema_version": "sales-v1",
+      "values": {
+        "amount": 115,
+        "customer": "customer-a"
+      }
+    }
+  ],
+  "target": {
+    "watermark": 14,
+    "records": [
+      {
+        "key": "sale-1",
+        "values": {
+          "amount": 115,
+          "customer": "customer-a"
+        }
+      },
+      {
+        "key": "sale-3",
+        "values": {
+          "amount": 7,
+          "customer": "customer-c"
+        }
+      }
+    ]
+  }
+}

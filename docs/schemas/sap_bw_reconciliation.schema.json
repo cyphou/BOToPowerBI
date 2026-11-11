@@ -1,0 +1,121 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:bo-to-powerbi:schema:sap-bw-reconciliation:1.0",
+  "title": "SAP BW to Fabric snapshot control comparison",
+  "description": "Strict local control manifest. It does not collect or attest to SAP or Fabric execution.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "comparison_id", "scope", "source", "target", "rules"],
+  "properties": {
+    "schema_version": {"const": "1.0"},
+    "comparison_id": {"$ref": "#/$defs/text"},
+    "scope": {"$ref": "#/$defs/scope"},
+    "source": {"$ref": "#/$defs/side"},
+    "target": {"$ref": "#/$defs/side"},
+    "rules": {
+      "type": "object",
+      "minProperties": 2,
+      "required": ["row_count", "distinct_key_count"],
+      "properties": {
+        "row_count": {"$ref": "#/$defs/exactRule"},
+        "distinct_key_count": {"$ref": "#/$defs/exactRule"}
+      },
+      "additionalProperties": {
+        "oneOf": [
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["mode"],
+            "properties": {"mode": {"const": "exact"}}
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["mode", "absolute_tolerance", "relative_tolerance"],
+            "properties": {
+              "mode": {"const": "tolerance"},
+              "absolute_tolerance": {"$ref": "#/$defs/nonNegativeDecimal"},
+              "relative_tolerance": {"$ref": "#/$defs/nonNegativeDecimal"}
+            }
+          }
+        ]
+      }
+    }
+  },
+  "$defs": {
+    "text": {"type": "string", "minLength": 1},
+    "exactRule": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mode"],
+      "properties": {"mode": {"const": "exact"}}
+    },
+    "nonNegativeDecimal": {
+      "oneOf": [
+        {"type": "number", "minimum": 0},
+        {"type": "string", "pattern": "^(?:0|[1-9][0-9]*)(?:\\.[0-9]+)?$"}
+      ]
+    },
+    "scope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["snapshot_id", "snapshot_cutoff_utc", "grain", "filter_id"],
+      "properties": {
+        "snapshot_id": {"$ref": "#/$defs/text"},
+        "snapshot_cutoff_utc": {"type": "string", "format": "date-time"},
+        "grain": {"$ref": "#/$defs/text"},
+        "filter_id": {"$ref": "#/$defs/text"}
+      }
+    },
+    "metric": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["value", "unit"],
+      "properties": {
+        "value": {
+          "oneOf": [
+            {"type": "number"},
+            {"type": "string", "pattern": "^-?(?:0|[1-9][0-9]*)(?:\\.[0-9]+)?$"}
+          ]
+        },
+        "unit": {"$ref": "#/$defs/text"}
+      }
+    },
+    "side": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["system_id", "object_id", "run_id", "evidence_ref", "scope", "metrics"],
+      "properties": {
+        "system_id": {"$ref": "#/$defs/text"},
+        "object_id": {"$ref": "#/$defs/text"},
+        "run_id": {"$ref": "#/$defs/text"},
+        "evidence_ref": {"$ref": "#/$defs/text"},
+        "scope": {"$ref": "#/$defs/scope"},
+        "metrics": {
+          "type": "object",
+          "minProperties": 2,
+          "required": ["row_count", "distinct_key_count"],
+          "properties": {
+            "row_count": {
+              "allOf": [
+                {"$ref": "#/$defs/metric"},
+                {"properties": {"unit": {"const": "rows"}}, "required": ["unit"]}
+              ]
+            },
+            "distinct_key_count": {
+              "allOf": [
+                {"$ref": "#/$defs/metric"},
+                {"properties": {"unit": {"const": "keys"}}, "required": ["unit"]}
+              ]
+            }
+          },
+          "propertyNames": {
+            "maxLength": 128,
+            "pattern": "^[^\\u0000-\\u0020\\u007f]+$"
+          },
+          "additionalProperties": {"$ref": "#/$defs/metric"}
+        }
+      }
+    }
+  }
+}

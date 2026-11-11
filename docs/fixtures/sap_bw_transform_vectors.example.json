@@ -1,0 +1,60 @@
+{
+  "schema_version": "1.0",
+  "suite_id": "synthetic-standardization-vectors",
+  "transformation": {
+    "object_id": "SYNTHETIC-BW-01:TRANSFORMATION:STANDARDISATION",
+    "definition_reference": "synthetic://bw/transformation/standardisation",
+    "definition_sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+  },
+  "rules": {
+    "amount": {
+      "mode": "tolerance",
+      "absolute_tolerance": "0.01",
+      "relative_tolerance": "0.0001"
+    },
+    "region": {
+      "mode": "exact"
+    },
+    "optional_text": {
+      "mode": "exact"
+    }
+  },
+  "cases": [
+    {
+      "case_id": "gross-sales-with-rounding",
+      "input": {
+        "gross_amount": "120.00",
+        "region_code": "FR",
+        "optional_text": null
+      },
+      "expected_output": {
+        "amount": "120.00",
+        "region": "FR",
+        "optional_text": null
+      },
+      "target_output": {
+        "amount": "120.005",
+        "region": "FR",
+        "optional_text": null
+      }
+    },
+    {
+      "case_id": "null-and-negative-case",
+      "input": {
+        "gross_amount": "-5.25",
+        "region_code": "BE",
+        "optional_text": null
+      },
+      "expected_output": {
+        "amount": "-5.25",
+        "region": "BE",
+        "optional_text": null
+      },
+      "target_output": {
+        "amount": "-5.25",
+        "region": "BE",
+        "optional_text": null
+      }
+    }
+  ]
+}

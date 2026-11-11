@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/tests-419%20passed-brightgreen?style=flat-square" alt="Tests"/>
+  <img src="https://img.shields.io/badge/tests-497%20passed-brightgreen?style=flat-square" alt="Tests"/>
   <img src="https://img.shields.io/badge/python-3.12%2B-3776AB?style=flat-square&logo=python&logoColor=white" alt="Python"/>
   <img src="https://img.shields.io/badge/license-MIT-green?style=flat-square" alt="License"/>
   <img src="https://img.shields.io/badge/deps-zero-orange?style=flat-square" alt="Zero Dependencies"/>
@@ -112,6 +112,142 @@ with `--assess` or `--dry-run` for those contracts. Deployment flags below are
 single-file hooks, not verified cloud outcomes; inspect service results separately.
 
 ---
+
+## SAP BW to Fabric: staged historical landing
+
+The full BW warehouse migration has a separate source contract, an offline
+BW-0 inventory review, and an initial Bronze notebook generator. Assess a local
+inventory snapshot with:
+
+```powershell
+python migrate_bw_assess.py --inventory "docs\fixtures\sap_bw_inventory.partial.example.json" `
+    --output "bw0_assessment.json"
+```
+
+The report lists blockers and review items. `candidate_for_owner_review` does
+not close BW-0 or verify live discovery or owner attestation; the sample
+inventory is intentionally partial.
+
+Given a BW inventory and an explicit plan
+for one already-exported Parquet snapshot, it creates an **unbound** Fabric
+notebook; it does not connect to SAP or Fabric. The following example is
+synthetic: the Parquet file named in the plan is not included.
+
+```powershell
+python migrate_bw.py --inventory "docs\fixtures\sap_bw_inventory.partial.example.json" `
+    --plan "docs\fixtures\sap_bw_bronze_plan.example.json" --output "bw_history.ipynb"
+```
+
+The generated code checks the declared columns and row count and requests a
+new Delta table without overwriting an existing table. Execution requires an authorized
+lakehouse binding and explicitly staged, immutable files. A row-count match is
+not independent reconciliation with BW. The tool does not yet extract SAP
+data, migrate BW transformations/BEx, establish upstream feeds, or retire BW;
+Fabric execution remains `not_run`. The BO CLI, local MCP tools and bundle
+quality gate do not dispatch this separate BW path.
+See the [BW design](docs/SAP_BW_TO_FABRIC_DESIGN.md) and
+[development plan](docs/DEVELOPMENT_PLAN.md#separate-roadmap-sap-bwbw4hana-to-fabric-and-bw-retirement).
+
+An offline comparator can evaluate explicitly supplied source/target snapshot
+controls against declared exact or numeric tolerances:
+
+```powershell
+python migrate_bw_reconcile.py --comparison "docs\fixtures\sap_bw_reconciliation.example.json" `
+    --output "bw_reconciliation.json"
+```
+
+The sample is synthetic. A passing comparison means only that the supplied
+control declarations match within their declared rules; the comparator does
+not collect or attest to SAP/Fabric measurements, compare sampled rows, or
+approve business equivalence. SAP extraction, Fabric execution and approval
+remain `not_run`.
+
+The BW-3 offline handoff evaluator checks a **normalized** snapshot/event
+manifest against an explicitly declared contiguous integer position contract:
+
+```powershell
+python migrate_bw_handoff.py --handoff "docs\fixtures\sap_bw_handoff.example.json" `
+    --output "bw_handoff_report.json"
+```
+
+Its synthetic example exercises snapshot overlap, replay deduplication,
+out-of-order and late events, a delete, and final-state comparison. A pass only
+validates the supplied local declarations and evaluator logic. The real source
+must guarantee the normalized position semantics; this tool does not verify
+that guarantee, extract SAP, connect to Fabric, prove restart recovery in a
+running pipeline, or establish BW-independent operation. Source extraction,
+Fabric execution, BW-unavailable operation and business approval remain
+`not_run`.
+
+The BW-4 transformation-vector evaluator compares an owner-provided golden
+output with a separately declared target result using exact or explicitly
+toleranced field rules:
+
+```powershell
+python migrate_bw_transform_validate.py `
+    --vectors "docs\fixtures\sap_bw_transform_vectors.example.json" `
+    --output "bw_transform_report.json"
+```
+
+The fixture is synthetic. The evaluator does not parse ABAP, run Spark/SQL,
+verify the provenance of the supplied outputs, or establish semantic
+equivalence. Source golden-case execution, target transformation execution and
+business approval remain `not_run`.
+
+The BW-5 BEx capture contract and gap assessment are separate from conversion.
+They compare declared query semantics and inventory-linked consumers only:
+
+```powershell
+python migrate_bw_bex_assess.py `
+    --inventory "docs\fixtures\sap_bw_inventory.partial.example.json" `
+    --semantics "docs\fixtures\sap_bw_bex_semantics.partial.example.json" `
+    --output "bw_bex_assessment.json"
+```
+
+The sample is synthetic and deliberately incomplete. A
+`candidate_for_owner_review` is not migration acceptance; source/target query
+execution, result comparison, consumer sign-off and Desktop/Service rendering
+remain `not_run`. See the [BW design](docs/SAP_BW_TO_FABRIC_DESIGN.md#bw-5-offline-bex-semantic-capture).
+
+The BW-6 security, planning and compliance review is another separate offline
+assessment. It checks declared inventory-linked authorization contexts,
+allow/deny scenarios, planning control coverage and audit/retention/privacy/
+legal-hold obligations:
+
+```powershell
+python migrate_bw_controls_assess.py `
+    --inventory "docs\fixtures\sap_bw_inventory.partial.example.json" `
+    --controls "docs\fixtures\sap_bw_controls.partial.example.json" `
+    --output "bw_controls_assessment.json"
+```
+
+See the [BW-6 schema](docs/schemas/sap_bw_controls.schema.json), [synthetic
+partial fixture](docs/fixtures/sap_bw_controls.partial.example.json) and
+[design boundaries](docs/SAP_BW_TO_FABRIC_DESIGN.md#bw-6-offline-security-planning-and-compliance-controls).
+Exit code 1 means the declaration has blockers; 0 means only
+`candidate_for_owner_review`; 2 reports invalid input or output. The tool does
+not run security tests, planning workflows, identity/binding checks or
+compliance verification. `gate_closed` remains false and runtime checks remain
+`not_run`.
+
+The BW-7 wave evidence index links declared BW-2 through BW-6 per-object
+evidence and operational references to an explicit inventory scope:
+
+```powershell
+python migrate_bw_wave_assess.py `
+    --inventory "docs\fixtures\sap_bw_inventory.partial.example.json" `
+    --evidence "docs\fixtures\sap_bw_wave_evidence.partial.example.json" `
+    --output "bw_wave_assessment.json"
+```
+
+See the [BW-7 schema](docs/schemas/sap_bw_wave_evidence.schema.json), [synthetic
+partial fixture](docs/fixtures/sap_bw_wave_evidence.partial.example.json) and
+[design boundaries](docs/SAP_BW_TO_FABRIC_DESIGN.md#bw-7-offline-wave-evidence-index).
+The evaluator blocks an open BW-0 gate and applicable `not_run`/failed checks.
+It preserves declarations but does not open referenced reports or validate
+their freshness or correctness. `candidate_for_owner_review` is not acceptance;
+the gate stays open for runtime/owner approval, with SAP/Fabric execution
+remaining `not_run`.
 
 ## Local Quality And MCP
 
@@ -650,17 +786,18 @@ The `tenants.json` file specifies per-tenant workspace IDs and connection string
 ## 🧪 Testing
 
 <p align="center">
-  <img src="https://img.shields.io/badge/tests-419%20passed-brightgreen?style=for-the-badge" alt="Tests"/>
+  <img src="https://img.shields.io/badge/tests-497%20passed-brightgreen?style=for-the-badge" alt="Tests"/>
 </p>
 
 ```bash
 python -m pytest tests/ --tb=short -o addopts="" -q
 ```
 
-Measured locally on 2026-10-28: **419 passed, 242 subtests passed**. This is a
-dated suite result, not a feature-parity score or evidence of Desktop rendering,
-deployed refresh, or Fabric execution. See [Contributing](CONTRIBUTING.md) for
-test-tool installation. Coverage is a separate CI gate, not measured by this command.
+Latest local measurement on 2026-11-11: **497 passed, 365 subtests passed**.
+A prior run on 2026-10-28 recorded 419 tests and 242 subtests. Neither result is
+a feature-parity score or evidence of Desktop rendering, deployed refresh, or
+Fabric execution. See [Contributing](CONTRIBUTING.md) for test-tool installation.
+Coverage is a separate CI gate, not measured by this command.
 
 ### CI/CD Pipeline
 
@@ -688,6 +825,7 @@ flowchart LR
 | 🏗️ [Architecture](docs/ARCHITECTURE.md) | System design overview |
 | 🤖 [Agents](docs/AGENTS.md) | 22 specialist roles and tested ownership boundaries |
 | 🗓️ [Development Plan](docs/DEVELOPMENT_PLAN.md) | Current evidence/gates and dated historical roadmap |
+| [SAP BW to Fabric Design](docs/SAP_BW_TO_FABRIC_DESIGN.md) | Proposed full-warehouse migration architecture and acceptance criteria; not implemented |
 | 📋 [Gap Analysis](docs/GAP_ANALYSIS.md) | Known conversion gaps |
 | 🏢 [Enterprise Guide](docs/ENTERPRISE_GUIDE.md) | Enterprise migration planning |
 | [Fabric/MCP Setup](docs/FABRIC_MCP_SETUP.md) | Local engine, workload skills, and remote authorization |

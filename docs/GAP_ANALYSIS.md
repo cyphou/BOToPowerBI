@@ -198,7 +198,19 @@ blocking source/model findings.
 | **Crystal formula timing** | `WhilePrintingRecords` / `WhileReadingRecords` evaluation | DAX is declarative — evaluation timing handled by engine |
 | **Crystal Page N of M** | Crystal-specific pagination | PBI handles pagination differently (paginated reports for exact) |
 | **Lumira Designer apps** | Custom SDK-based applications | Rebuild as Power BI embedded / Power Apps |
-| **OLAP universes (BW)** | SAP BW-specific OLAP queries | Use PBI SAP BW connector directly |
+| **OLAP universes (BW)** | SAP BW-specific OLAP queries | A direct BW connector can support coexistence; it does not migrate BW semantics or enable warehouse retirement |
+
+### Full SAP BW warehouse migration
+
+The repository has a local, versioned BW inventory snapshot contract and
+validator/upgrader (`powerbi_import/bw_inventory.py`), plus a separate generator
+for an unbound Bronze notebook that reads explicitly staged Parquet. This is
+not a BW extractor, transformation/BEx conversion engine, direct-upstream
+ingestion pipeline, reconciliation service, or retirement workflow.
+See the [BW-to-Fabric design](SAP_BW_TO_FABRIC_DESIGN.md) and
+[development plan](DEVELOPMENT_PLAN.md#separate-roadmap-sap-bwbw4hana-to-fabric-and-bw-retirement)
+for remaining scope and evidence gates. SAP/Fabric runtime checks remain
+`not_run`.
 
 ## Formula Gap Summary
 

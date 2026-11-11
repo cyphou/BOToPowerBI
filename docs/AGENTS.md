@@ -13,7 +13,7 @@ The authoritative, machine-checked ownership map is
 
 | Agent | Invoke When | Owns |
 |-------|-------------|------|
-| **@orchestrator** | Pipeline coordination, CLI, batch | `migrate.py`, orchestration modules |
+| **@orchestrator** | Pipeline coordination, CLI, batch | `migrate.py`, `migrate_bw.py`, `migrate_bw_assess.py`, `migrate_bw_reconcile.py`, `migrate_bw_handoff.py`, `migrate_bw_transform_validate.py`, `migrate_bw_bex_assess.py`, `migrate_bw_controls_assess.py`, `migrate_bw_wave_assess.py`, orchestration modules |
 | **@extractor** | Parsing BusinessObjects source artifacts | `bo_export/` extraction modules |
 | **BusinessObjects** | Live CMS/BI platform client, auth, inventory, download | `bo_export/server_client.py` |
 | **@converter** | Formula/expression conversion (coordination layer) | Delegates to @dax and @wiring |
@@ -22,10 +22,10 @@ The authoritative, machine-checked ownership map is
 | **@semantic** | Semantic model (TMDL), relationships, RLS | Semantic model generators |
 | **@visual** | Report layout, visual containers, filters | Report/visual generators |
 | **@generator** | Cross-cutting generation coordination | Delegates to Semantic, Visual, and Fabric; no blanket module ownership |
-| **@fabric** | Local Fabric artifacts: Lakehouse, Dataflow Gen2, Notebook, Direct Lake, Pipeline | `fabric_project_generator.py`, its five sub-generators, `fabric_constants.py`, `fabric_naming.py` |
+| **@fabric** | Local Fabric artifacts and staged BW Bronze notebooks | `fabric_project_generator.py`, its five sub-generators, `bw_bronze_generator.py`, `fabric_constants.py`, `fabric_naming.py` |
 | **@agent-tools** (`AgentTools`) | Local MCP tools, protocol, write guards, workspace launch | `powerbi_import/mcp_server.py`, `.vscode/mcp.json` |
-| **@assessor** | Migration readiness, scoring, strategy, validation | Assessment modules |
-| **Evidence** | Deterministic quality/comparison reports and fidelity evidence | `migration_quality.py`, report/comparison/equivalence/regression modules |
+| **@assessor** | Migration readiness, scoring, strategy, validation, offline BW inventory, BEx semantics, and BW-6 controls declarations | Assessment modules; `powerbi_import/bw_inventory.py` and BW-0 gap assessment; BW-5 BEx and BW-6 security/planning/compliance declarations; respective schemas/fixtures |
+| **Evidence** | Deterministic quality/comparison reports and fidelity evidence | `migration_quality.py`, report/comparison/equivalence/regression modules, BW reconciliation, handoff, transformation-vector and wave evidence index |
 | **Healing** | Bounded repairs and recovery ledger | `recovery_report.py`; repair-only collaboration with Semantic/Assessor |
 | **AI** | Optional LLM advisory and migration patterns | `llm_client.py`, `marketplace.py`; not MCP transport |
 | **Web Designer** | HTML presentation, theme, readability, accessibility | `html_template.py`; presentation-only collaboration with report owners |
@@ -66,6 +66,15 @@ See [setup and verification](FABRIC_MCP_SETUP.md) for external prerequisites.
 in `powerbi_import/`. **Fabric** owns local Fabric artifact generation, while
 **Deployer** owns authorized remote delivery. Local file extraction stays with
 Extractor; the CMS client belongs to BusinessObjects.
+The BW inventory-assessment, historical-landing, reconciliation, handoff,
+transformation-vector, BEx semantic-capture, BW-6 controls-assessment and
+BW-7 wave-evidence CLIs are separate from the BO pipeline: Assessor owns the
+inventory, BEx and security/planning/compliance contracts and offline gap
+assessments, Fabric owns notebook generation, and Evidence owns offline
+reconciliation, normalized handoff, golden-vector comparisons and the wave
+evidence index. The index checks local declarations and does not verify report
+bytes or runtime outcomes. None implies ownership of live SAP discovery or
+authorization to deploy.
 **AgentTools** owns the six-tool local MCP surface; **Evidence** owns the unified
 local quality report. The MCP server does not invoke Copilot agents: handoffs
 return findings for an external operator/agent to act on.

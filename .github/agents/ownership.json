@@ -23,7 +23,10 @@
   },
   "owners": {
     "Orchestrator": [
-      "migrate.py", "generate_report.py", "powerbi_import/import_to_powerbi.py",
+      "migrate.py", "migrate_bw.py", "migrate_bw_assess.py", "migrate_bw_reconcile.py",
+      "migrate_bw_handoff.py", "migrate_bw_transform_validate.py", "migrate_bw_bex_assess.py",
+      "migrate_bw_controls_assess.py", "migrate_bw_wave_assess.py",
+      "generate_report.py", "powerbi_import/import_to_powerbi.py",
       "powerbi_import/parallel_engine.py", "powerbi_import/progress.py",
       "powerbi_import/incremental.py", "powerbi_import/wizard.py",
       "powerbi_import/api_server.py", "powerbi_import/notebook_api.py",
@@ -52,17 +55,35 @@
       "powerbi_import/fabric_project_generator.py", "powerbi_import/fabric_semantic_model_generator.py",
       "powerbi_import/fabric_constants.py", "powerbi_import/fabric_naming.py",
       "powerbi_import/fabric_item.py", "powerbi_import/fabric_validator.py",
-      "powerbi_import/fabric_sources.py",
+      "powerbi_import/fabric_sources.py", "powerbi_import/bw_bronze_generator.py",
       "powerbi_import/lakehouse_generator.py", "powerbi_import/dataflow_generator.py",
-      "powerbi_import/notebook_generator.py", "powerbi_import/pipeline_generator.py"
+      "powerbi_import/notebook_generator.py", "powerbi_import/pipeline_generator.py",
+      "docs/fixtures/sap_bw_bronze_plan.example.json"
     ],
     "Assessor": [
       "powerbi_import/assessment.py", "powerbi_import/global_assessment.py",
       "powerbi_import/server_assessment.py", "powerbi_import/strategy_advisor.py",
-      "powerbi_import/schema_drift.py", "powerbi_import/validator.py"
+      "powerbi_import/schema_drift.py", "powerbi_import/validator.py",
+      "powerbi_import/bw_inventory.py",
+      "docs/schemas/sap_bw_inventory.schema.json",
+      "docs/fixtures/sap_bw_inventory.partial.example.json",
+      "powerbi_import/bw_bex_assessment.py",
+      "docs/schemas/sap_bw_bex_semantics.schema.json",
+      "docs/fixtures/sap_bw_bex_semantics.partial.example.json",
+      "powerbi_import/bw_controls_assessment.py",
+      "docs/schemas/sap_bw_controls.schema.json",
+      "docs/fixtures/sap_bw_controls.partial.example.json"
     ],
     "Evidence": [
       "powerbi_import/migration_quality.py", "powerbi_import/migration_report.py",
+      "powerbi_import/bw_reconciliation.py", "docs/schemas/sap_bw_reconciliation.schema.json",
+      "docs/fixtures/sap_bw_reconciliation.example.json",
+      "powerbi_import/bw_handoff.py", "docs/fixtures/sap_bw_handoff.example.json",
+      "powerbi_import/bw_transform_validation.py",
+      "docs/fixtures/sap_bw_transform_vectors.example.json",
+      "powerbi_import/bw_wave_evidence_index.py",
+      "docs/schemas/sap_bw_wave_evidence.schema.json",
+      "docs/fixtures/sap_bw_wave_evidence.partial.example.json",
       "powerbi_import/comparison_report.py", "powerbi_import/equivalence_tester.py",
       "powerbi_import/regression_suite.py", "powerbi_import/fidelity_scorer.py",
       "powerbi_import/visual_diff.py", "powerbi_import/monitoring.py", "powerbi_import/sla_tracker.py"
@@ -84,7 +105,8 @@
     "Web Designer": ["powerbi_import/html_template.py"],
     "Roadmap Planner": ["docs/DEVELOPMENT_PLAN.md"],
     "Documentation Guardian": [
-      "README.md", "CHANGELOG.md", "docs/AGENTS.md", "docs/GAP_ANALYSIS.md",
+      "README.md", "CHANGELOG.md", "docs/AGENTS.md", "docs/ARCHITECTURE.md", "docs/GAP_ANALYSIS.md",
+      "docs/SAP_BW_TO_FABRIC_DESIGN.md",
       ".github/copilot-instructions.md", ".github/agent-instructions.md"
     ],
     "Tester": ["tests/**/*.py"],

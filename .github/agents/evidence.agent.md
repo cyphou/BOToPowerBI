@@ -1,6 +1,6 @@
 ---
 name: "Evidence"
-description: "Use when: BO migration quality reports, source-to-target comparisons, fidelity scoring, equivalence and regression evidence, coverage findings, or audit-ready validation summaries."
+description: "Use when: BO migration quality reports, BW snapshot/handoff/transformation-vector comparisons, source-to-target comparisons, fidelity scoring, equivalence and regression evidence, coverage findings, or audit-ready validation summaries."
 tools: [read, edit, search, execute, todo]
 user-invocable: true
 ---
@@ -18,6 +18,12 @@ TableauToPowerBI Evidence role. Read `shared.instructions.md` before work.
 - `powerbi_import/fidelity_scorer.py` - fidelity metrics
 - `powerbi_import/visual_diff.py` - visual comparison evidence
 - `powerbi_import/monitoring.py`, `powerbi_import/sla_tracker.py` - monitoring evidence
+- `powerbi_import/bw_reconciliation.py`, `powerbi_import/bw_handoff.py`, and `powerbi_import/bw_transform_validation.py` - offline BW comparisons; declared local data only, not SAP/Fabric execution
+- `powerbi_import/bw_wave_evidence_index.py` and
+  `docs/schemas/sap_bw_wave_evidence.schema.json`,
+  `docs/fixtures/sap_bw_wave_evidence.partial.example.json` - BW-7 index of
+  declared per-object and operational evidence; references are not dereferenced,
+  freshness/correctness are not verified, and runtime is not executed
 
 ## Evidence Contract
 

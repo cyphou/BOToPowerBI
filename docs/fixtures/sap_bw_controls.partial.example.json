@@ -1,0 +1,28 @@
+{
+  "schema_version": "1.0",
+  "scope_id": "SYNTHETIC-BW-01",
+  "coverage": {
+    "authorization_contexts": "not_assessed",
+    "access_matrix": "not_assessed",
+    "planning_writeback": "not_assessed",
+    "audit": "partial",
+    "retention": "not_assessed",
+    "privacy": "not_assessed",
+    "legal_hold": "not_assessed"
+  },
+  "authorization_contexts": [],
+  "access_scenarios": [],
+  "planning_processes": [],
+  "obligations": [
+    {
+      "id": "synthetic-audit-obligation",
+      "category": "audit",
+      "inventory_object_id": null,
+      "source_control_reference": "synthetic-source-audit-reference",
+      "target_control_reference": null,
+      "owner_reference": null,
+      "status": "not_assessed",
+      "evidence_reference": "synthetic fixture only"
+    }
+  ]
+}

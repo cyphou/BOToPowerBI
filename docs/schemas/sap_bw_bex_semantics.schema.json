@@ -1,0 +1,195 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:bo-to-powerbi:schema:sap-bw-bex-semantics:1.0",
+  "title": "SAP BW BEx semantic capture",
+  "description": "Strict offline declaration of selected BEx query semantics; not a query parser or conversion contract.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version", "query", "coverage", "variables", "filters",
+    "hierarchies", "master_data", "key_figures", "authorization_contexts",
+    "consumers"
+  ],
+  "properties": {
+    "schema_version": { "const": "1.0" },
+    "query": { "$ref": "#/$defs/query" },
+    "coverage": { "$ref": "#/$defs/coverage" },
+    "variables": { "type": "array", "items": { "$ref": "#/$defs/variable" } },
+    "filters": { "type": "array", "items": { "$ref": "#/$defs/filter" } },
+    "hierarchies": { "type": "array", "items": { "$ref": "#/$defs/hierarchy" } },
+    "master_data": { "type": "array", "items": { "$ref": "#/$defs/masterData" } },
+    "key_figures": { "type": "array", "items": { "$ref": "#/$defs/keyFigure" } },
+    "authorization_contexts": {
+      "type": "array", "items": { "$ref": "#/$defs/authorizationContext" }
+    },
+    "consumers": { "type": "array", "items": { "$ref": "#/$defs/consumer" } }
+  },
+  "$defs": {
+    "text": { "type": "string", "minLength": 1 },
+    "nullableText": { "type": ["string", "null"], "minLength": 1 },
+    "assessmentStatus": {
+      "enum": ["observed", "inferred", "unknown", "not_assessed", "not_applicable"]
+    },
+    "query": {
+      "type": "object", "additionalProperties": false,
+      "required": ["object_id", "definition_reference", "definition_sha256"],
+      "properties": {
+        "object_id": { "$ref": "#/$defs/text" },
+        "definition_reference": { "$ref": "#/$defs/text" },
+        "definition_sha256": { "type": "string", "pattern": "^[0-9a-fA-F]{64}$" }
+      }
+    },
+    "coverage": {
+      "type": "object", "additionalProperties": false,
+      "required": [
+        "variables", "filters", "hierarchies", "master_data", "key_figures",
+        "exception_aggregation", "units_currencies", "authorization_contexts",
+        "consumers"
+      ],
+      "properties": {
+        "variables": { "$ref": "#/$defs/coverageStatus" },
+        "filters": { "$ref": "#/$defs/coverageStatus" },
+        "hierarchies": { "$ref": "#/$defs/coverageStatus" },
+        "master_data": { "$ref": "#/$defs/coverageStatus" },
+        "key_figures": { "$ref": "#/$defs/coverageStatus" },
+        "exception_aggregation": { "$ref": "#/$defs/coverageStatus" },
+        "units_currencies": { "$ref": "#/$defs/coverageStatus" },
+        "authorization_contexts": { "$ref": "#/$defs/coverageStatus" },
+        "consumers": { "$ref": "#/$defs/coverageStatus" }
+      }
+    },
+    "coverageStatus": {
+      "enum": ["complete", "partial", "not_assessed", "not_applicable"]
+    },
+    "variable": {
+      "type": "object", "additionalProperties": false,
+      "required": [
+        "id", "name", "kind", "required", "default_behavior_reference",
+        "status", "evidence_reference"
+      ],
+      "properties": {
+        "id": { "$ref": "#/$defs/text" },
+        "name": { "$ref": "#/$defs/text" },
+        "kind": {
+          "enum": ["characteristic", "hierarchy", "key_figure", "formula_variable", "unknown"]
+        },
+        "required": { "type": ["boolean", "null"] },
+        "default_behavior_reference": { "$ref": "#/$defs/nullableText" },
+        "status": { "$ref": "#/$defs/assessmentStatus" },
+        "evidence_reference": { "$ref": "#/$defs/nullableText" }
+      }
+    },
+    "filter": {
+      "type": "object", "additionalProperties": false,
+      "required": [
+        "id", "name", "target", "operator", "selection_reference", "status",
+        "evidence_reference"
+      ],
+      "properties": {
+        "id": { "$ref": "#/$defs/text" },
+        "name": { "$ref": "#/$defs/text" },
+        "target": { "$ref": "#/$defs/text" },
+        "operator": { "$ref": "#/$defs/text" },
+        "selection_reference": { "$ref": "#/$defs/nullableText" },
+        "status": { "$ref": "#/$defs/assessmentStatus" },
+        "evidence_reference": { "$ref": "#/$defs/nullableText" }
+      }
+    },
+    "hierarchy": {
+      "type": "object", "additionalProperties": false,
+      "required": [
+        "id", "characteristic", "hierarchy_reference", "versioning",
+        "selection_behavior_reference", "status", "evidence_reference"
+      ],
+      "properties": {
+        "id": { "$ref": "#/$defs/text" },
+        "characteristic": { "$ref": "#/$defs/text" },
+        "hierarchy_reference": { "$ref": "#/$defs/text" },
+        "versioning": { "enum": ["static", "time_dependent", "unknown"] },
+        "selection_behavior_reference": { "$ref": "#/$defs/nullableText" },
+        "status": { "$ref": "#/$defs/assessmentStatus" },
+        "evidence_reference": { "$ref": "#/$defs/nullableText" }
+      }
+    },
+    "masterData": {
+      "type": "object", "additionalProperties": false,
+      "required": [
+        "id", "characteristic", "validity_status", "time_dependent",
+        "text_languages", "evidence_reference"
+      ],
+      "properties": {
+        "id": { "$ref": "#/$defs/text" },
+        "characteristic": { "$ref": "#/$defs/text" },
+        "validity_status": { "$ref": "#/$defs/assessmentStatus" },
+        "time_dependent": { "type": ["boolean", "null"] },
+        "text_languages": { "type": "array", "items": { "$ref": "#/$defs/text" } },
+        "evidence_reference": { "$ref": "#/$defs/nullableText" }
+      }
+    },
+    "exceptionAggregation": {
+      "type": "object", "additionalProperties": false,
+      "required": ["status", "method", "reference_characteristic"],
+      "properties": {
+        "status": { "$ref": "#/$defs/assessmentStatus" },
+        "method": { "$ref": "#/$defs/nullableText" },
+        "reference_characteristic": { "$ref": "#/$defs/nullableText" }
+      }
+    },
+    "unitCurrency": {
+      "type": "object", "additionalProperties": false,
+      "required": ["status", "unit", "currency", "conversion_reference"],
+      "properties": {
+        "status": { "$ref": "#/$defs/assessmentStatus" },
+        "unit": { "$ref": "#/$defs/nullableText" },
+        "currency": { "$ref": "#/$defs/nullableText" },
+        "conversion_reference": { "$ref": "#/$defs/nullableText" }
+      }
+    },
+    "keyFigure": {
+      "type": "object", "additionalProperties": false,
+      "required": [
+        "id", "name", "aggregation", "exception_aggregation",
+        "unit_currency", "status", "evidence_reference"
+      ],
+      "properties": {
+        "id": { "$ref": "#/$defs/text" },
+        "name": { "$ref": "#/$defs/text" },
+        "aggregation": { "$ref": "#/$defs/nullableText" },
+        "exception_aggregation": { "$ref": "#/$defs/exceptionAggregation" },
+        "unit_currency": { "$ref": "#/$defs/unitCurrency" },
+        "status": { "$ref": "#/$defs/assessmentStatus" },
+        "evidence_reference": { "$ref": "#/$defs/nullableText" }
+      }
+    },
+    "authorizationContext": {
+      "type": "object", "additionalProperties": false,
+      "required": [
+        "id", "authorization_reference", "role_reference",
+        "data_scope_reference", "status", "evidence_reference"
+      ],
+      "properties": {
+        "id": { "$ref": "#/$defs/text" },
+        "authorization_reference": { "$ref": "#/$defs/nullableText" },
+        "role_reference": { "$ref": "#/$defs/nullableText" },
+        "data_scope_reference": { "$ref": "#/$defs/nullableText" },
+        "status": { "$ref": "#/$defs/assessmentStatus" },
+        "evidence_reference": { "$ref": "#/$defs/nullableText" }
+      }
+    },
+    "consumer": {
+      "type": "object", "additionalProperties": false,
+      "required": [
+        "inventory_object_id", "target_candidate_reference",
+        "acceptance_status", "evidence_reference"
+      ],
+      "properties": {
+        "inventory_object_id": { "$ref": "#/$defs/text" },
+        "target_candidate_reference": { "$ref": "#/$defs/nullableText" },
+        "acceptance_status": {
+          "enum": ["not_run", "pass", "fail", "not_applicable"]
+        },
+        "evidence_reference": { "$ref": "#/$defs/nullableText" }
+      }
+    }
+  }
+}

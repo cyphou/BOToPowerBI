@@ -35,6 +35,431 @@ See [current gaps](GAP_ANALYSIS.md), [workflow boundaries](ENTERPRISE_GUIDE.md),
 and [unreleased changes](../CHANGELOG.md). Keep this document canonical; do not
 copy Tableau release numbers or create a competing roadmap.
 
+## Separate roadmap: SAP BW/BW/4HANA to Fabric and BW retirement
+
+**Planning baseline, 2026-11-10; local BW-1 and limited BW-2 slices added
+2026-11-11.** Remaining capabilities and runtime validation are planned.
+This is a distinct source migration and retirement program, not an extension of
+the BO extraction contract or a claim that the BO pipeline migrates BW. The
+historical SAP BW plugin entry below is a limited idea, not this program or
+evidence of delivery. The existing BO backlog and gates remain unchanged.
+
+### Evidence, boundary and decision rules
+
+- The concrete source-feature gap is end-to-end BW retirement: no evidence in
+  the current plan or gap analysis establishes BW inventory, historical
+  extraction, direct upstream replacement, BEx conversion, or retirement.
+  `bo_export/m_query_builder.py` contains a `sap_bw` M connector template;
+  `powerbi_import/assessment.py` classifies it as partial, with a corresponding
+  local test in `tests/test_assessment.py`. That is not BW metadata extraction
+  or a retirement path. `GAP_ANALYSIS.md` lists BW OLAP universes as unsupported
+  and suggests a direct BW connector; it is at best a transitional dependency
+  on BW, not a way to turn BW off. Existing Fabric artifact checks are local BO
+  evidence only, not evidence of BW behavior in Fabric.
+- Outcome: for an **approved, bounded BW estate**, reproduce agreed data,
+  semantics, security, planning and operational obligations in accepted target
+  services; switch all in-scope consumers to independently sustained upstream
+  feeds; then retire BW only after explicit business, technical and compliance
+  approval. Full retirement is blocked by any unaddressed dependency, including
+  consumers, source feeds, write-back, audit and retention obligations.
+- Falsifiable program hypothesis: a representative vertical slice can capture
+  its BW dependencies and semantics, reconcile a frozen historical baseline,
+  continue from independently sourced incremental changes, and serve authorized
+  consumers within agreed tolerances without querying BW. A missing dependency,
+  irreconcilable result, or unproven incremental handoff falsifies the slice;
+  no object-count or static-artifact score overrides that result.
+- Priorities below order risk reduction, not calendar commitments. **P0** is a
+  prerequisite for a credible scope; **P1** proves a representative end-to-end
+  slice; **P2** expands by wave; **P3** authorizes transition and retirement.
+  Inventory, governance and security start early and are refined each wave.
+- The source-of-truth boundary is a **new, versioned BW source contract**,
+  separate from BO's 15 raw collections and `converted_objects`. Define its
+  own schema, versioning, lineage, provenance, redaction, unsupported features
+  and evolution rules. Any explicit adapter to shared target generators must
+  preserve both contracts and existing BO behavior; it cannot silently coerce
+  BW semantics into BO defaults. `Assessor` is the assigned owner in
+  `ownership.json` of the draft inventory schema, synthetic fixture and local
+  offline contract module. This ownership does not imply ownership of live
+  SAP/BW discovery, SAP connectivity or durable upstream-feed components;
+  those remain **unassigned**. Assign owners and update that contract before
+  implementing those components. `BusinessObjects` owns BO CMS, not SAP BW
+  connectivity; `Extractor` is a proposed local parsing collaborator, not an
+  implicit owner of live BW access.
+- The customer program must designate a BW/source-system owner, business data
+  owners, security/privacy and retention authorities, and operations and
+  application owners. Repository role names below are implementation
+  coordinators/collaborators, not substitutes for those approvals. Unsupported
+  or unknown behavior is recorded and blocks the relevant gate; manual
+  replacements require owners and acceptance evidence.
+- The [BW-to-Fabric design](SAP_BW_TO_FABRIC_DESIGN.md) is an input to review,
+  not evidence of delivered capability. This roadmap does not prescribe an
+  unverified SAP connector, entitlement, licensing position, API, or Fabric workload. Select
+  supported extraction and upstream patterns per source and version with SAP
+  and Microsoft documentation, source owners and explicit authorization.
+
+### Increment BW-0 — inventory and scope (P0)
+
+- **Outcome:** a complete, reviewable baseline of the scoped estate and its
+  upstream/downstream dependencies, including a retirement disposition.
+- **Evidence / hypothesis:** BO assessment and BW connector labels are not a BW
+  inventory. Hypothesis: source-owner exports and usage evidence can be joined
+  to a dependency graph without inferring identity from names.
+- **First change and scope:** `Assessor` coordinates an inventory schema and
+  one representative, read-only fixture; proposed BW source owner plus
+  `Extractor` provide local input parsing. Include systems/versions, clients,
+  InfoProviders/ADSOs, transformations, process chains, sources and delta
+  mechanisms, BEx queries, consumers and schedules, data volumes/retention,
+  authorizations, planning/write-back, owners and criticality. Distinguish
+  observed, inferred and unknown relationships; record extraction permissions.
+  Live SAP discovery ownership and interfaces must be agreed first.
+- **Dependencies:** approved scope, source-owner-provided metadata and access;
+  BW source ownership decision. No remote scan is implied.
+- **Validation / exit:** fixture covers one connected chain and an orphan or
+  unknown consumer; identifiers and lineage remain stable and unknowns visible.
+  For each wave, reconcile the inventory against source-owner baselines; 100%
+  of in-scope objects and known consumers have owner and disposition or a
+  documented blocker. Agree freshness and usage-observation windows with
+  owners before closure; sign off coverage rather than infer it from counts.
+- **Risks / non-goals:** stale metadata and unobserved periodic consumers;
+  no source changes, deployment or assumption that inactive means disposable.
+- **Local increment delivered (2026-11-11):** Assessor owns a draft snapshot
+  schema and synthetic partial fixture in `docs/schemas/` and `docs/fixtures/`.
+  The schema explicitly captures discovery method, extraction-access status,
+  scope coverage, object location/owner/criticality, usage windows, volume and
+  history/retention, delta/delete behavior, and preliminary migration
+  disposition. It is a minimal draft, not the full BW-1 source/evidence
+  contract. The fixture leaves customer-dependent measures unknown, shows an
+  observed dependency chain and an unresolved orphan candidate without
+  inventing edges, and contains no customer data. No SAP export parser, live discovery,
+  owner attestation, source baseline, completeness proof, or retirement
+  disposition has been delivered; the BW-0 exit gate remains open. The
+  `assess_bw0` function and `migrate_bw_assess.py` now report declared coverage,
+  ownership, unknowns, and unresolved edges as blockers or review items. A
+  `candidate_for_owner_review` is not an exit approval; live SAP discovery,
+  source-owner evidence and attestation remain `not_run`.
+
+### Increment BW-1 — isolated source contract and assessment (P0; local contract slice delivered)
+
+- **Outcome:** loss-aware BW metadata and evidence contract, independently
+  versioned and testable without BO input.
+- **Evidence / hypothesis:** the existing BO adapter is BO-specific. Hypothesis:
+  a source-neutral boundary with explicit BW types can preserve a small BW
+  graph and round-trip unsupported semantics without changing BO output.
+- **First change and scope:** the assigned `Assessor` owner delivered the
+  offline contract module `powerbi_import/bw_inventory.py`, schema
+  `docs/schemas/sap_bw_inventory.schema.json`, and sanitized synthetic partial
+  fixture `docs/fixtures/sap_bw_inventory.partial.example.json`. The module
+  sanitizes/redacts, validates, and loads local JSON snapshots under schema
+  **1.0**; it deterministically upgrades the documented draft **0.1 → 1.0**,
+  retaining known fields and marking absent information unknown or
+  not-assessed rather than inferring it. Local checks cover version/malformed
+  input rejection, Unicode identifiers and dependency lineage, credential
+  redaction, and unsupported-feature findings. `Extractor` remains a proposed
+  collaborator on future local parsing; `Assessor` owns this contract and
+  readiness/blocker work. `Orchestrator` owns the separate local BW-2 CLI below;
+  broader BW pipeline dispatch remains future work. `Fabric`, `Semantic` and
+  `Evidence` may review consumer requirements.
+- **Dependencies:** BW-0 representative metadata and source owner; design
+  review and compatibility/version policy remain program dependencies. The
+  local module was validated against a synthetic partial snapshot; this does
+  not close BW-0 or substitute for source-owner evidence.
+- **Validation / local exit evidence (2026-11-11):** `pytest
+  tests/test_bw_inventory_contract.py --tb=short -q` — **8 passed**;
+  `pytest tests/test_e2e_pipeline.py tests/test_crystal_pipeline.py
+  tests/test_shared_model.py --tb=short -q` — **79 passed**;
+  `python -m pytest tests\ --tb=short -q` — **exit 0** (full suite);
+  `git diff --check` — **OK**. These are local contract/regression checks,
+  not runtime evidence. Unsupported features remain findings and cannot be
+  represented as converted or passing.
+- **Limitations / remaining gate:** BW-0 remains open: there is no complete
+  source-owner inventory, attestation, authoritative baseline, coverage proof
+  or retirement disposition. BW-1 itself performs no SAP/Fabric scan, live
+  parsing, BW conversion, target generation, source-to-target reconciliation
+  or retirement. The separate BW-2 slice below generates a local notebook only;
+  runtime checks remain `not_run`. BW-1 is not BW readiness assessment or
+  end-to-end BW-1 completion.
+- **Risks / non-goals:** lossy type or identity normalization; no direct
+  import into the BO contract, no claims of live extraction, conversion,
+  parity or retirement.
+
+### Increment BW-2 — frozen history and reconciled landing (P1)
+
+- **Outcome:** reproducible extraction and loading of the agreed historical
+  horizon, separately from future direct-source feeds.
+- **Evidence / hypothesis:** the M template does not demonstrate historical
+  extraction, snapshot consistency or Fabric loading. Hypothesis: an approved
+  snapshot with source-side controls can land one provider and reconcile at its
+  business grain, including changes and deleted records where applicable.
+- **First change and scope:** proposed BW source owner specifies a supported,
+  authorized extraction method for one provider; `Extractor` handles only
+  agreed local metadata/file parsing; `Fabric` designs a local landing artifact
+  slice with lineage, partitioning and replay metadata. `Evidence` specifies
+  independent source/target controls. Record snapshot watermark/time zone,
+  fiscal calendar, keys, units/currency, duplicates, nulls, history/SCD,
+  deletion and late-arrival handling, and privacy/retention requirements.
+- **Dependencies:** BW-0/1, source snapshot and access permissions, target
+  design, business-approved history horizon and source extraction capacity.
+- **Validation / exit:** synthetic fixtures exercise replay, duplicates, empty
+  partitions and failure recovery; source/target row and distinct-key counts,
+  totals by period and relevant dimensions, and sampled records reconcile at
+  agreed tolerances and snapshot boundary. Exceptions have owned dispositions;
+  no unexplained differences at gate. Authorized source and Fabric execution
+  are separate evidence and otherwise `not_run`.
+- **Risks / non-goals:** source load, restricted access, incompatible snapshot
+  or unavailable history; a successful snapshot is not a sustainable feed.
+- **Local slice delivered (2026-11-11):** `migrate_bw.py` and
+  `powerbi_import/bw_bronze_generator.py` take the BW 1.0 inventory plus a
+  separate explicit plan and generate one unbound notebook for an observed,
+  in-scope, unblocked provider. It reads specified pre-staged Parquet files,
+  checks each declared schema and the declared total, preserves rows and
+  lineage metadata in the generated logic, and requests creation of a new Delta
+  table with `errorifexists`. Existing targets are refused; automatic replay,
+  partition management and cleanup are not implemented. The synthetic plan
+  does not include Parquet data. Local tests exercise generation, CLI safety
+  and simulated notebook branches, including duplicate/empty input and write
+  failures; the full pytest suite exits 0. No Spark/Delta or Fabric runtime,
+  source-side reconciliation, SAP extraction or customer approval has been
+  performed. A declared count is not evidence that the BW export is complete.
+  A separate offline comparator now evaluates supplied source/target controls
+  under an explicit snapshot scope and per-metric rules. It does not collect or
+  attest to measurements, sample rows, execute on SAP/Fabric, or establish
+  business acceptance. This partial slice does not close BW-0 or the BW-2 exit
+  gate. Focused comparator and CLI tests, the agent ownership contract, the
+  full `python -m pytest tests\ --tb=short -q` suite, and `git diff --check`
+  pass locally; these remain static/test evidence only.
+
+### Increment BW-3 — durable direct upstream feeds and handoff (P1)
+
+- **Outcome:** continuously maintained target data after the snapshot, without
+  a production dependency on BW.
+- **Evidence / hypothesis:** querying BW is transitional only. Hypothesis: for
+  one selected source, a supported direct upstream feed plus a controlled
+  snapshot-to-delta handoff reproduces inserts, updates and deletes without gaps
+  or duplicates and can recover after interruption.
+- **First change and scope:** source-system owner and newly assigned integration
+  owner select and document a supported source-specific interface, permissions,
+  subscription/CDC semantics and operational limits; `Fabric` plans the target
+  ingestion artifact, `Deployer` only authorized bindings/operations, and
+  `Evidence` the handoff proof. Specify cutover watermark, overlap/deduplication,
+  ordering, replay, deletes, schema drift and monitoring. Source systems may
+  include SAP and non-SAP; interfaces and availability are to be verified.
+- **Dependencies:** BW-2 snapshot controls, BW-0 upstream lineage, source-system
+  access and business-approved latency, recovery and retention objectives.
+- **Validation / exit:** synthetic snapshot-plus-delta tests cover overlap,
+  gaps, out-of-order and late changes, duplicates, delete, restart and drift;
+  authorized integration must demonstrate these against the chosen source and
+  target. Reconcile the handoff and demonstrate operation with BW unavailable;
+  agree measurable freshness, RPO/RTO and reconciliation thresholds before
+  running. No BW connector or BW-managed delta queue may remain a hidden
+  steady-state dependency.
+- **Risks / non-goals:** upstream data may not contain BW-only enrichments,
+  history, deletes or licensed interfaces; no claim that a particular CDC
+  technology is supported until verified.
+- **Local slice delivered (2026-11-11):** `migrate_bw_handoff.py` and
+  `powerbi_import/bw_handoff.py` evaluate a synthetic, normalized feed with an
+  explicit contiguous-integer position contract. The local evaluator exercises
+  snapshot overlap, duplicate replay, out-of-order and late events, deletes,
+  sequence gaps, schema drift, deterministic re-evaluation and final-state
+  comparison. It rejects conflicting event IDs/positions and records source
+  extraction, Fabric execution, business approval and BW-unavailable operation
+  as `not_run`. The sample proves only local evaluator behavior; source owners
+  have not established that an actual feed offers these semantics. This does
+  not close BW-0/2/3, provide a connector or durable checkpoint, or establish
+  production recovery, feed freshness, Fabric operation, or BW independence.
+
+### Increment BW-4 — transformation and ABAP semantics (P1, then P2)
+
+- **Outcome:** lineage-backed recreation of the selected transformation chain
+  with explicit handling of ABAP routines and unsupported semantics.
+- **Evidence / hypothesis:** no BW/ABAP conversion is established by the BO
+  DAX/M converters. Hypothesis: one bounded deterministic routine can be
+  reimplemented from approved source and test vectors without assuming ABAP
+  and Spark/SQL semantics are identical.
+- **First change and scope:** proposed BW source owner inventories routine
+  versions and inputs/outputs; `Fabric` builds a local target transformation
+  slice, with `Wiring` and `Dax` only where their actual M/DAX ownership
+  applies. Classify start/end/expert and field routines, lookup dependencies,
+  state, errors and side effects; use manual redesign or explicit blockers for
+  dynamic code, external calls or unsupported behavior, not invented output.
+- **Dependencies:** BW-1 contract, BW-2 baseline and BW-3 source mapping;
+  approved access to code and business test cases.
+- **Validation / exit:** golden input/output cases compare source and target,
+  including nulls, types, rounding, date/fiscal logic, ordering, duplicates,
+  lookups and failure paths. Reconcile all critical calculations at agreed
+  tolerances; every routine is converted with evidence, manually accepted or
+  blocks the wave. Generator errors are fixed at source, not hidden by metrics.
+- **Risks / non-goals:** side effects and undocumented dependencies; no promise
+  of automatic or complete ABAP translation.
+- **Local slice delivered (2026-11-11):** `migrate_bw_transform_validate.py`
+  and `powerbi_import/bw_transform_validation.py` compare supplied expected
+  outputs and target outputs for explicit vectors, with exact type/value checks
+  or declared decimal tolerances. The synthetic suite covers rounding, nulls,
+  missing/extra fields and mismatches. It neither parses ABAP nor executes
+  either the source routine or a target transformation; source vector
+  provenance, target runtime, semantic equivalence and business acceptance
+  remain `not_run`. This does not close BW-4 or provide an automatic converter.
+
+### Increment BW-5 — BEx semantics and consumer replacement (P1, then P2)
+
+- **Outcome:** replace selected BEx/OLAP consumer behavior with accepted target
+  models and reports, without treating connectivity as semantic migration.
+- **Evidence / hypothesis:** BW OLAP universes are listed as unsupported; no
+  BEx converter is evidenced. Hypothesis: a query with agreed restrictions,
+  variables and hierarchy can be recreated and independently reconciled.
+- **First change and scope:** source owner supplies one BEx query definition
+  and result vectors; `Semantic` owns target model design, `Dax` formulas,
+  `Visual` report behavior where applicable, `Evidence` comparisons, and
+  `Extractor` local parsing of an approved fixture. Inventory variables,
+  filters, hierarchies, key figures, exception aggregation, units/currencies,
+  time-dependent master data, prompts and authorization context.
+- **Dependencies:** BW-1, BW-2 and BW-4; BW-3 before retirement; business
+  owners and representative consumers.
+- **Validation / exit:** compare query results by role, prompt, hierarchy level,
+  period and aggregation at agreed tolerances, including edge cases and
+  performance budgets agreed per query. Consumers accept replacement and
+  lineage; each unmapped semantic or consumer is an explicit wave blocker.
+  Desktop/Service rendering and refresh are `not_run` until actually tested.
+- **Risks / non-goals:** totals, exception aggregation and authorization can
+  differ despite matching detail rows; no blanket claim of BEx parity.
+- **Local slice delivered (2026-11-11):** the separate versioned BEx semantic
+  contract, synthetic partial example and `migrate_bw_bex_assess.py` capture
+  declarations for variables/prompts, filters, hierarchies, master-data
+  validity, key-figure aggregation, exception aggregation, units/currencies,
+  authorization contexts and inventory-linked consumers. The local report
+  flags incomplete or unknown semantics, unresolved query-to-consumer coverage
+  and BW inventory BEx blockers; an open BW-0 inventory review also blocks
+  the BW-5 candidate. It does not parse a BW query, generate a target
+  model/report, execute source or target queries, compare result vectors,
+  measure performance, or establish consumer acceptance; those checks remain
+  `not_run`. The sample is synthetic, and this slice does not close BW-5 or
+  authorize retirement.
+
+### Increment BW-6 — security, planning and compliance (P1, then P2)
+
+#### Local slice delivered
+
+- `powerbi_import/bw_controls_assessment.py` and
+  `migrate_bw_controls_assess.py` provide an offline controls manifest
+  assessment. It captures inventory-linked authorization contexts and declared
+  allow/deny scenarios whose `execution_status` is fixed to `not_run`; BW
+  planning/write-back dispositions and coverage for write-back, locking,
+  approvals, separation of duties, audit and recovery; and audit, retention,
+  privacy and legal-hold obligations. The versioned [controls schema](schemas/sap_bw_controls.schema.json)
+  and synthetic partial [example](fixtures/sap_bw_controls.partial.example.json)
+  define the offline declaration contract.
+- Validation is limited to local declarations and source-inventory references.
+  It does not execute target access tests, verify runtime identity/binding, run
+  planning/write-back, certify compliance, close a gate or authorize retirement.
+  `candidate_for_owner_review` is not acceptance; `gate_closed` remains `false`.
+  All unperformed runtime evidence, including SAP BW and Fabric runtime checks,
+  remains `not_run`.
+- **Focused validation (2026-11-11):**
+  `pytest tests/test_bw_controls_assessment.py --tb=short -q -o addopts=''`
+  passed 10 tests and 6 subtests. This is focused validation, not the full suite.
+
+- **Outcome:** accepted replacement of data access, planning and compliance
+  obligations, or a documented retirement blocker.
+- **Evidence / hypothesis:** local BO security or model artifacts do not prove
+  BW analysis authorization equivalence or planning/write-back capability.
+  Hypothesis: one role and one planning process can be mapped to an approved
+  target control/workflow and tested for both permitted and denied actions.
+- **First change and scope:** security and business owners inventory BW
+  analysis authorizations, identities, row/column restrictions, separation of
+  duties, planning functions, locks, write-back, audit and retention.
+  `Semantic` designs applicable model restrictions; `Deployer` coordinates
+  authorized identity/binding controls; `Evidence` captures results. Planning
+  replacement product and responsible owner are **to be decided**; do not
+  assume a Fabric semantic model provides transactional planning/write-back.
+- **Dependencies:** BW-0/1, BW-5 semantics, identity and privacy design,
+  chosen planning solution and regulatory decisions.
+- **Validation / exit:** role-by-data positive and negative access matrix,
+  impersonation/identity checks and leak tests; planning scenario tests include
+  concurrency, locks, approvals, write-back and recovery where applicable.
+  Security, business and compliance owners sign off coverage and retained
+  records; missing controls or undecided planning block retirement.
+- **Risks / non-goals:** overprivilege, lost audit/retention and unsupported
+  write-back; local RLS definitions are not deployed security proof.
+
+### Increment BW-7 — reconciliation, operations and scaled waves (P2)
+
+- **Outcome:** independently auditable functional and operational acceptance
+  for each wave, not a single aggregate parity score.
+- **Evidence / hypothesis:** existing BO quality reports are local checks, not
+  BW runtime equivalence. Hypothesis: independent controls at snapshot, delta,
+  transformation and consumer layers expose loss and semantic discrepancies.
+- **Local slice delivered — 2026-11-11:** `powerbi_import/bw_wave_evidence_index.py`
+  and `migrate_bw_wave_assess.py` index per-object BW-2..6 references/statuses,
+  explicit applicability, traceability, wave operational checks and exceptions.
+  The index gates on BW-0 and applicable `not_run`/`fail` evidence or unresolved
+  exceptions; `candidate_for_owner_review` never closes the gate. See the
+  [schema](schemas/sap_bw_wave_evidence.schema.json) and
+  [partial example](fixtures/sap_bw_wave_evidence.partial.example.json).
+  It preserves declarations but does not dereference or verify report bytes,
+  freshness/correctness, SAP/Fabric runtime, operations certification or
+  retirement. Focused validation: `pytest tests/test_bw_wave_evidence_index.py --tb=short -q -o addopts=''`
+  passed 9 tests and 3 subtests on 2026-11-11.
+- **First change and scope:** `Evidence` defines a per-object control ledger:
+  source/target versions, extract boundaries, grain, counts, totals, sampled
+  rows, query results, authorization cases, exceptions and approvals.
+  `Fabric` designs operational artifacts; `Deployer` coordinates authorized
+  scheduling, alerts, access, capacity, backup/restore and runbooks.
+  `Assessor` prioritizes subsequent waves by criticality and dependencies.
+- **Dependencies:** BW-2 through BW-6 for the wave; agreed data-quality,
+  performance, freshness, availability, cost, recovery and retention targets.
+- **Validation / exit:** repeatable independent reconciliations with agreed
+  per-measure absolute/relative tolerances and ownership for exceptions; zero
+  unexplained critical discrepancies; failure, replay, drift, alerting and
+  restore drills meet agreed RPO/RTO and latency. Record evidence per layer and
+  consumer; unrun runtime checks and open operational risks remain visible.
+- **Risks / non-goals:** counts can match while amounts, access or semantics
+  differ; no waiver by lowering a fidelity metric or ignoring missing records.
+
+### Increment BW-8 — cutover and controlled retirement (P3)
+
+- **Outcome:** switch the approved estate, demonstrate independent operation,
+  then retire BW under separately authorized change control.
+- **Evidence / hypothesis:** no cutover or retirement is established by local
+  generation. Hypothesis: consumers and feeds remain correct and recoverable
+  during an agreed parallel-run and a BW-independent observation period.
+- **First change and scope:** `Orchestrator` coordinates a wave runbook with
+  `Evidence`, `Fabric`, `Deployer` and named customer owners: freeze and
+  watermarks, parallel run, consumer switching, communications, go/no-go,
+  rollback triggers and time limit, escalation and post-cutover monitoring.
+  Maintain an explicit register of BO and non-BO consumers, upstream queues,
+  jobs, accounts, integrations and retained audit/legal records.
+- **Dependencies:** all BW-0 through BW-7 wave gates; every consumer and
+  upstream dependency migrated or dispositioned, planning and retention signed
+  off, operational ownership and rollback funded. Enterprise retirement follows
+  completion of all waves, not just the pilot.
+- **Validation / exit:** agree and record parallel-run duration, observation
+  window, reconciliation thresholds and rollback/recovery objectives before
+  cutover. Exercise rollback before the irreversible step; verify consumers,
+  feeds and controls while BW is unavailable. Business, source, security,
+  compliance and operations owners explicitly approve go/no-go and separately
+  approve decommission; preserve required archives and demonstrate restore.
+  Verify no remaining live dependencies and record deactivation evidence.
+- **Risks / non-goals:** rollback may become impossible after source shutdown
+  or data divergence; no implicit cloud writes, switch, deletion, license
+  cancellation or release approval follows from this roadmap.
+
+### Cross-cutting validation and evidence gates
+
+- Each increment starts with a minimal synthetic fixture and focused local
+  tests for its contract, failure paths and compatibility. Future implementation
+  requires its owning specialist and `Tester` to run focused tests plus
+  `python -m pytest tests/ --tb=short -q`; report commands, results and any
+  failures. Preserve the existing BO suites and do not weaken assertions.
+- Test coverage, object counts and generated artifacts are not proof of
+  completeness, semantic equivalence, security, recoverability or retirement
+  readiness. Store evidence and exception dispositions per source, version,
+  wave, layer and consumer; business owners agree thresholds before execution.
+- **Fabric runtime: `not_run`** for BW ingestion, authentication/binding,
+  orchestration, transformations, semantic refresh/query, security, recovery
+  and cutover. SAP source access/extraction, upstream CDC, Desktop/Service
+  rendering, operational drills and BW shutdown are also **`not_run`**.
+  Only an explicitly authorized target and performed check can change a status;
+  local static validation and existing BO tests cannot do so.
+
 ## Historical State Assessment - 2026-03-26
 
 The remaining reuse analysis and sprint roadmap are the original planning

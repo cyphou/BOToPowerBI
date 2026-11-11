@@ -1,0 +1,138 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:bo-to-powerbi:schema:sap-bw-controls:1.0",
+  "title": "SAP BW security, planning, and compliance controls",
+  "description": "Strict offline declaration of BW-6 controls; not runtime validation or approval.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version", "scope_id", "coverage", "authorization_contexts",
+    "access_scenarios", "planning_processes", "obligations"
+  ],
+  "properties": {
+    "schema_version": { "const": "1.0" },
+    "scope_id": { "$ref": "#/$defs/text" },
+    "coverage": { "$ref": "#/$defs/coverage" },
+    "authorization_contexts": {
+      "type": "array", "items": { "$ref": "#/$defs/authorizationContext" }
+    },
+    "access_scenarios": {
+      "type": "array", "items": { "$ref": "#/$defs/accessScenario" }
+    },
+    "planning_processes": {
+      "type": "array", "items": { "$ref": "#/$defs/planningProcess" }
+    },
+    "obligations": {
+      "type": "array", "items": { "$ref": "#/$defs/obligation" }
+    }
+  },
+  "$defs": {
+    "text": { "type": "string", "minLength": 1 },
+    "nullableText": { "type": ["string", "null"], "minLength": 1 },
+    "assessmentStatus": {
+      "enum": ["observed", "inferred", "unknown", "not_assessed"]
+    },
+    "coverageStatus": {
+      "enum": ["complete", "partial", "not_assessed", "not_applicable"]
+    },
+    "coverage": {
+      "type": "object", "additionalProperties": false,
+      "required": [
+        "authorization_contexts", "access_matrix", "planning_writeback",
+        "audit", "retention", "privacy", "legal_hold"
+      ],
+      "properties": {
+        "authorization_contexts": { "$ref": "#/$defs/coverageStatus" },
+        "access_matrix": { "$ref": "#/$defs/coverageStatus" },
+        "planning_writeback": { "$ref": "#/$defs/coverageStatus" },
+        "audit": { "$ref": "#/$defs/coverageStatus" },
+        "retention": { "$ref": "#/$defs/coverageStatus" },
+        "privacy": { "$ref": "#/$defs/coverageStatus" },
+        "legal_hold": { "$ref": "#/$defs/coverageStatus" }
+      }
+    },
+    "authorizationContext": {
+      "type": "object", "additionalProperties": false,
+      "required": [
+        "id", "inventory_object_id", "role_reference", "data_scope_reference",
+        "target_control_reference", "status", "evidence_reference"
+      ],
+      "properties": {
+        "id": { "$ref": "#/$defs/text" },
+        "inventory_object_id": { "$ref": "#/$defs/text" },
+        "role_reference": { "$ref": "#/$defs/text" },
+        "data_scope_reference": { "$ref": "#/$defs/text" },
+        "target_control_reference": { "$ref": "#/$defs/text" },
+        "status": { "$ref": "#/$defs/assessmentStatus" },
+        "evidence_reference": { "$ref": "#/$defs/nullableText" }
+      }
+    },
+    "accessScenario": {
+      "type": "object", "additionalProperties": false,
+      "required": [
+        "id", "authorization_context_id", "expectation", "action_reference",
+        "target_control_reference", "execution_status"
+      ],
+      "properties": {
+        "id": { "$ref": "#/$defs/text" },
+        "authorization_context_id": { "$ref": "#/$defs/text" },
+        "expectation": { "enum": ["allow", "deny"] },
+        "action_reference": { "$ref": "#/$defs/text" },
+        "target_control_reference": { "$ref": "#/$defs/text" },
+        "execution_status": { "const": "not_run" }
+      }
+    },
+    "planningProcess": {
+      "type": "object", "additionalProperties": false,
+      "required": [
+        "inventory_object_id", "disposition", "owner_reference",
+        "target_solution_reference", "control_coverage", "evidence_reference"
+      ],
+      "properties": {
+        "inventory_object_id": { "$ref": "#/$defs/text" },
+        "disposition": {
+          "enum": ["replacement_selected", "manual_redesign", "blocked"]
+        },
+        "owner_reference": { "$ref": "#/$defs/nullableText" },
+        "target_solution_reference": { "$ref": "#/$defs/nullableText" },
+        "control_coverage": { "$ref": "#/$defs/planningControls" },
+        "evidence_reference": { "$ref": "#/$defs/nullableText" }
+      }
+    },
+    "planningControls": {
+      "type": "object", "additionalProperties": false,
+      "required": [
+        "write_back", "locking", "approval_workflow", "separation_of_duties",
+        "audit", "recovery"
+      ],
+      "properties": {
+        "write_back": { "$ref": "#/$defs/controlStatus" },
+        "locking": { "$ref": "#/$defs/controlStatus" },
+        "approval_workflow": { "$ref": "#/$defs/controlStatus" },
+        "separation_of_duties": { "$ref": "#/$defs/controlStatus" },
+        "audit": { "$ref": "#/$defs/controlStatus" },
+        "recovery": { "$ref": "#/$defs/controlStatus" }
+      }
+    },
+    "controlStatus": {
+      "enum": ["observed", "inferred", "unknown", "not_assessed", "not_applicable"]
+    },
+    "obligation": {
+      "type": "object", "additionalProperties": false,
+      "required": [
+        "id", "category", "inventory_object_id", "source_control_reference",
+        "target_control_reference", "owner_reference", "status", "evidence_reference"
+      ],
+      "properties": {
+        "id": { "$ref": "#/$defs/text" },
+        "category": { "enum": ["audit", "retention", "privacy", "legal_hold"] },
+        "inventory_object_id": { "$ref": "#/$defs/nullableText" },
+        "source_control_reference": { "$ref": "#/$defs/nullableText" },
+        "target_control_reference": { "$ref": "#/$defs/nullableText" },
+        "owner_reference": { "$ref": "#/$defs/nullableText" },
+        "status": { "$ref": "#/$defs/assessmentStatus" },
+        "evidence_reference": { "$ref": "#/$defs/nullableText" }
+      }
+    }
+  }
+}

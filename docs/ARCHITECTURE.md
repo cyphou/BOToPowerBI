@@ -64,8 +64,17 @@ custom_sql.json  — Freehand SQL / derived table queries
 
 ## Generation Layer (powerbi_import/)
 
-**Reused from TableauToPowerBI** — the generation layer is source-agnostic and consumes
-the intermediate JSON format to produce Power BI artifacts.
+The existing BO generation path consumes BO's intermediate and adapted
+objects to produce Power BI artifacts. Its Fabric generators do not accept a
+complete BW warehouse contract merely because they share target technologies.
+
+### Separate BW historical landing
+
+`migrate_bw.py` uses a versioned BW inventory and an explicit staged-Parquet
+plan to generate one unbound Fabric Bronze notebook, independently of BO's 15
+collections. It does not discover or extract SAP data, deploy or execute the
+notebook, convert BW semantics, or establish source-to-target equivalence.
+See [the BW design](SAP_BW_TO_FABRIC_DESIGN.md) for its controls and limitations.
 
 ### Output: PBIP (Default)
 ```
