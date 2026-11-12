@@ -424,6 +424,10 @@ flowchart LR
 
 ### 🏭 Fabric-Native Output Mode
 
+For target-selection diagrams and migration steps for report-level models, shared
+semantic models, and Lakehouse architectures, see the
+[BO architecture and migration guide](docs/BO_ARCHITECTURES_MIGRATION.md).
+
 Use `--output-format fabric` to generate a **full Microsoft Fabric project**:
 
 ```mermaid

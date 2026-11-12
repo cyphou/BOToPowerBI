@@ -4,6 +4,10 @@
 
 This system performs automated migration of SAP BusinessObjects (BO) reports to Power BI projects (.pbip) in PBIR v4.0 format with TMDL semantic model.
 
+For BO source-to-target diagrams, target selection and practical migration
+steps for semantic models and Lakehouse, see the
+[BO architecture and migration guide](BO_ARCHITECTURES_MIGRATION.md).
+
 ## Two-Step Pipeline
 
 ```
