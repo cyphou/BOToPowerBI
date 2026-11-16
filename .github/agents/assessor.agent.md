@@ -20,6 +20,8 @@ You are the **Assessor** agent for the BusinessObjects to Power BI migration pro
 - `docs/schemas/sap_bw_inventory.schema.json` and
   `docs/fixtures/sap_bw_inventory.partial.example.json` - offline BW inventory
   snapshot schema and synthetic fixture; no SAP discovery or source access
+- `docs/schemas/sap_bw_source_rules.schema.json` and the synthetic source-rule
+  ledger and definition fixtures - declared mappings, not verified SAP exports
 - `powerbi_import/bw_bex_assessment.py` - offline BEx semantic-capture validation
   and inventory-linked gap assessment; no query parsing or execution
 - `docs/schemas/sap_bw_bex_semantics.schema.json` and

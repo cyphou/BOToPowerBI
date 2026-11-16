@@ -1,0 +1,229 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:bo-to-powerbi:schema:sap-bw-cutover:1.0",
+  "title": "SAP BW cutover and retirement declarations",
+  "description": "Strict local BW-8 declarations only. The assessor checks declared inventory and BW-7 linkage, periods, dependencies and owner references. It does not authenticate or dereference evidence, execute cutover or rollback, switch consumers, shut down BW, or authorize retirement. Runtime evidence remains not_run.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "wave_id",
+    "inventory_scope",
+    "dependency_dispositions",
+    "cutover_plan",
+    "parallel_run",
+    "independent_observation",
+    "rollback",
+    "checks"
+  ],
+  "properties": {
+    "schema_version": {"const": "1.0"},
+    "wave_id": {"$ref": "#/$defs/reference"},
+    "inventory_scope": {"$ref": "#/$defs/inventoryScope"},
+    "dependency_dispositions": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/dependencyDisposition"}
+    },
+    "cutover_plan": {"$ref": "#/$defs/cutoverPlan"},
+    "parallel_run": {"$ref": "#/$defs/period"},
+    "independent_observation": {"$ref": "#/$defs/period"},
+    "rollback": {"$ref": "#/$defs/rollback"},
+    "checks": {
+      "type": "array",
+      "minItems": 16,
+      "maxItems": 16,
+      "items": {"$ref": "#/$defs/check"}
+    }
+  },
+  "$defs": {
+    "reference": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256,
+      "pattern": "^[^\\u0000-\\u0020\\u007F]{1,256}$"
+    },
+    "identifier": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^[^\\u0000-\\u001F\\u007F]+$"
+    },
+    "nullableReference": {
+      "oneOf": [
+        {"$ref": "#/$defs/reference"},
+        {"type": "null"}
+      ]
+    },
+    "inventoryScope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["inventory_id", "inventory_run_id", "dependency_coverage"],
+      "properties": {
+        "inventory_id": {"$ref": "#/$defs/identifier"},
+        "inventory_run_id": {"$ref": "#/$defs/identifier"},
+        "dependency_coverage": {"enum": ["complete", "partial", "not_assessed"]}
+      }
+    },
+    "inventoryEdge": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source_id", "target_id", "kind"],
+      "properties": {
+        "source_id": {"$ref": "#/$defs/identifier"},
+        "target_id": {"$ref": "#/$defs/identifier"},
+        "kind": {"$ref": "#/$defs/identifier"}
+      }
+    },
+    "dependencyDisposition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "category",
+        "inventory_object_id",
+        "inventory_edge",
+        "disposition",
+        "owner_reference",
+        "evidence_reference",
+        "approval_reference"
+      ],
+      "properties": {
+        "id": {"$ref": "#/$defs/reference"},
+        "category": {
+          "enum": [
+            "bo_consumer",
+            "non_bo_consumer",
+            "upstream_feed",
+            "queue",
+            "job",
+            "account",
+            "integration",
+            "audit_record",
+            "legal_record",
+            "other"
+          ]
+        },
+        "inventory_object_id": {"$ref": "#/$defs/nullableReference"},
+        "inventory_edge": {
+          "oneOf": [
+            {"$ref": "#/$defs/inventoryEdge"},
+            {"type": "null"}
+          ]
+        },
+        "disposition": {
+          "enum": [
+            "migrated",
+            "removed",
+            "retained_outside_bw",
+            "accepted_residual",
+            "unresolved",
+            "not_run"
+          ]
+        },
+        "owner_reference": {"$ref": "#/$defs/nullableReference"},
+        "evidence_reference": {"$ref": "#/$defs/nullableReference"},
+        "approval_reference": {"$ref": "#/$defs/nullableReference"}
+      }
+    },
+    "cutoverPlan": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "runbook_reference",
+        "freeze_checkpoint_reference",
+        "watermark_catchup_reference",
+        "reconciliation_threshold_reference",
+        "consumer_switch_plan_reference",
+        "communications_plan_reference",
+        "monitoring_plan_reference",
+        "escalation_plan_reference"
+      ],
+      "properties": {
+        "runbook_reference": {"$ref": "#/$defs/nullableReference"},
+        "freeze_checkpoint_reference": {"$ref": "#/$defs/nullableReference"},
+        "watermark_catchup_reference": {"$ref": "#/$defs/nullableReference"},
+        "reconciliation_threshold_reference": {"$ref": "#/$defs/nullableReference"},
+        "consumer_switch_plan_reference": {"$ref": "#/$defs/nullableReference"},
+        "communications_plan_reference": {"$ref": "#/$defs/nullableReference"},
+        "monitoring_plan_reference": {"$ref": "#/$defs/nullableReference"},
+        "escalation_plan_reference": {"$ref": "#/$defs/nullableReference"}
+      }
+    },
+    "period": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "minimum_days",
+        "completed_days",
+        "evidence_reference",
+        "owner_reference"
+      ],
+      "properties": {
+        "minimum_days": {"type": "integer", "minimum": 1},
+        "completed_days": {"type": "integer", "minimum": 0},
+        "evidence_reference": {"$ref": "#/$defs/nullableReference"},
+        "owner_reference": {"$ref": "#/$defs/nullableReference"}
+      }
+    },
+    "rollback": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "trigger_reference",
+        "time_limit_minutes",
+        "recovery_objective_reference",
+        "divergence_handling_reference",
+        "runbook_reference",
+        "exercise_status",
+        "exercise_evidence_reference",
+        "owner_reference"
+      ],
+      "properties": {
+        "trigger_reference": {"$ref": "#/$defs/nullableReference"},
+        "time_limit_minutes": {"type": "integer", "minimum": 1},
+        "recovery_objective_reference": {"$ref": "#/$defs/nullableReference"},
+        "divergence_handling_reference": {"$ref": "#/$defs/nullableReference"},
+        "runbook_reference": {"$ref": "#/$defs/nullableReference"},
+        "exercise_status": {"enum": ["pass", "fail", "not_run"]},
+        "exercise_evidence_reference": {"$ref": "#/$defs/nullableReference"},
+        "owner_reference": {"$ref": "#/$defs/nullableReference"}
+      }
+    },
+    "check": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "status",
+        "evidence_reference",
+        "owner_reference",
+        "approval_reference"
+      ],
+      "properties": {
+        "kind": {
+          "enum": [
+            "bw0_to_bw7_owner_acceptance",
+            "upstream_feeds_operational",
+            "planning_retention_signed_off",
+            "reconciliation_thresholds_met",
+            "consumer_security_tests",
+            "post_cutover_monitoring",
+            "business_go_no_go",
+            "source_owner_go_no_go",
+            "security_go_no_go",
+            "compliance_go_no_go",
+            "operations_go_no_go",
+            "archives_and_restore",
+            "bw_unavailable_independence",
+            "no_remaining_live_dependencies",
+            "decommission_approval",
+            "deactivation_evidence"
+          ]
+        },
+        "status": {"enum": ["pass", "fail", "not_run"]},
+        "evidence_reference": {"$ref": "#/$defs/nullableReference"},
+        "owner_reference": {"$ref": "#/$defs/nullableReference"},
+        "approval_reference": {"$ref": "#/$defs/nullableReference"}
+      }
+    }
+  }
+}

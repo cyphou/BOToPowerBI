@@ -1,0 +1,71 @@
+{
+  "schema_version": "1.0",
+  "wave_id": "synthetic-wave-01",
+  "inventory_scope": {
+    "inventory_id": "SYNTHETIC-BW-01",
+    "inventory_run_id": "synthetic-run-2026-11-11",
+    "dependency_coverage": "partial"
+  },
+  "dependency_dispositions": [
+    {
+      "id": "synthetic-sales-report",
+      "category": "bo_consumer",
+      "inventory_object_id": "SYNTHETIC-BW-01:CONSUMER:RAPPORT-VENTES",
+      "inventory_edge": null,
+      "disposition": "not_run",
+      "owner_reference": "synthetic-consumer-owner",
+      "evidence_reference": null,
+      "approval_reference": null
+    }
+  ],
+  "cutover_plan": {
+    "runbook_reference": null,
+    "freeze_checkpoint_reference": null,
+    "watermark_catchup_reference": null,
+    "reconciliation_threshold_reference": null,
+    "consumer_switch_plan_reference": null,
+    "communications_plan_reference": null,
+    "monitoring_plan_reference": null,
+    "escalation_plan_reference": null
+  },
+  "parallel_run": {
+    "minimum_days": 30,
+    "completed_days": 0,
+    "evidence_reference": null,
+    "owner_reference": "synthetic-operations-owner"
+  },
+  "independent_observation": {
+    "minimum_days": 14,
+    "completed_days": 0,
+    "evidence_reference": null,
+    "owner_reference": "synthetic-operations-owner"
+  },
+  "rollback": {
+    "trigger_reference": null,
+    "time_limit_minutes": 60,
+    "recovery_objective_reference": null,
+    "divergence_handling_reference": null,
+    "runbook_reference": null,
+    "exercise_status": "not_run",
+    "exercise_evidence_reference": null,
+    "owner_reference": "synthetic-operations-owner"
+  },
+  "checks": [
+    {"kind": "bw0_to_bw7_owner_acceptance", "status": "not_run", "evidence_reference": null, "owner_reference": "synthetic-program-owner", "approval_reference": null},
+    {"kind": "upstream_feeds_operational", "status": "not_run", "evidence_reference": null, "owner_reference": "synthetic-source-owner", "approval_reference": null},
+    {"kind": "planning_retention_signed_off", "status": "not_run", "evidence_reference": null, "owner_reference": "synthetic-compliance-owner", "approval_reference": null},
+    {"kind": "reconciliation_thresholds_met", "status": "not_run", "evidence_reference": null, "owner_reference": "synthetic-data-owner", "approval_reference": null},
+    {"kind": "consumer_security_tests", "status": "not_run", "evidence_reference": null, "owner_reference": "synthetic-security-owner", "approval_reference": null},
+    {"kind": "post_cutover_monitoring", "status": "not_run", "evidence_reference": null, "owner_reference": "synthetic-operations-owner", "approval_reference": null},
+    {"kind": "business_go_no_go", "status": "not_run", "evidence_reference": null, "owner_reference": "synthetic-business-owner", "approval_reference": null},
+    {"kind": "source_owner_go_no_go", "status": "not_run", "evidence_reference": null, "owner_reference": "synthetic-source-owner", "approval_reference": null},
+    {"kind": "security_go_no_go", "status": "not_run", "evidence_reference": null, "owner_reference": "synthetic-security-owner", "approval_reference": null},
+    {"kind": "compliance_go_no_go", "status": "not_run", "evidence_reference": null, "owner_reference": "synthetic-compliance-owner", "approval_reference": null},
+    {"kind": "operations_go_no_go", "status": "not_run", "evidence_reference": null, "owner_reference": "synthetic-operations-owner", "approval_reference": null},
+    {"kind": "archives_and_restore", "status": "not_run", "evidence_reference": null, "owner_reference": "synthetic-compliance-owner", "approval_reference": null},
+    {"kind": "bw_unavailable_independence", "status": "not_run", "evidence_reference": null, "owner_reference": "synthetic-operations-owner", "approval_reference": null},
+    {"kind": "no_remaining_live_dependencies", "status": "not_run", "evidence_reference": null, "owner_reference": "synthetic-source-owner", "approval_reference": null},
+    {"kind": "decommission_approval", "status": "not_run", "evidence_reference": null, "owner_reference": "synthetic-business-owner", "approval_reference": null},
+    {"kind": "deactivation_evidence", "status": "not_run", "evidence_reference": null, "owner_reference": "synthetic-operations-owner", "approval_reference": null}
+  ]
+}

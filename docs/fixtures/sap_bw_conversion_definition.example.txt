@@ -1,0 +1,3 @@
+SYNTHETIC BW TRANSFORMATION DEFINITION - NOT A SAP EXPORT
+Synthetic sales field mappings: RULE-001 through RULE-006.
+This fixture is illustrative and does not attest BW behavior.

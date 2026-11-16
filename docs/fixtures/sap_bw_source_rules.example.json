@@ -1,0 +1,22 @@
+{
+  "schema_version": "1.0",
+  "inventory_run_id": "synthetic-conversion-run-001",
+  "transformation_object_id": "SYNTHETIC-BW-01:TRANSFORMATION:FIELD-RULES",
+  "definition_reference": "synthetic://bw/definitions/field-rules",
+  "definition_sha256": "c5ae958c6e7447ba41b0c0d17dcba94613697fd8576549835dc089433e647a40",
+  "rule_coverage": "complete",
+  "input_columns": [
+    {"name": "VenteID", "spark_type": "string"},
+    {"name": "Montant", "spark_type": "decimal(15,2)"},
+    {"name": "Ajustement", "spark_type": "decimal(15,2)"},
+    {"name": "Région", "spark_type": "string"}
+  ],
+  "rules": [
+    {"source_rule_id": "RULE-001", "mapping": {"kind": "transfer", "source": "VenteID", "target": "sale_id", "spark_type": "string"}},
+    {"source_rule_id": "RULE-002", "mapping": {"kind": "transfer", "source": "Région", "target": "region", "spark_type": "string"}},
+    {"source_rule_id": "RULE-003", "mapping": {"kind": "transfer", "source": "Montant", "target": "gross_amount", "spark_type": "decimal(15,2)"}},
+    {"source_rule_id": "RULE-004", "mapping": {"kind": "decimal_add", "left": "Montant", "right": "Ajustement", "target": "net_amount", "spark_type": "decimal(16,2)", "null_policy": "propagate"}},
+    {"source_rule_id": "RULE-005", "mapping": {"kind": "decimal_subtract", "left": "Montant", "right": "Ajustement", "target": "difference_amount", "spark_type": "decimal(16,2)", "null_policy": "propagate"}},
+    {"source_rule_id": "RULE-006", "mapping": {"kind": "constant", "target": "source_label", "spark_type": "string", "value": "BW"}}
+  ]
+}

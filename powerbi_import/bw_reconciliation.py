@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import re
 from datetime import datetime, timedelta
-from decimal import Decimal, InvalidOperation
+from decimal import MAX_EMAX, MIN_EMIN, Decimal, InvalidOperation, localcontext
 from pathlib import Path
 from typing import Any
 
@@ -65,6 +65,33 @@ def _decimal(value: Any, path: str) -> Decimal:
     if not number.is_finite():
         _fail(path, "must be a finite decimal value")
     return number
+
+
+def _exact_decimal_comparison(
+    reference: Decimal,
+    actual: Decimal,
+    absolute_tolerance: Decimal,
+    relative_tolerance: Decimal,
+) -> tuple[Decimal, Decimal]:
+    reference_tuple = reference.as_tuple()
+    actual_tuple = actual.as_tuple()
+    reference_exponent = reference_tuple.exponent
+    actual_exponent = actual_tuple.exponent
+    if not isinstance(reference_exponent, int) or not isinstance(actual_exponent, int):
+        raise ValueError("Decimal comparison requires finite values")
+    difference_precision = (
+        max(reference.adjusted(), actual.adjusted())
+        - min(reference_exponent, actual_exponent)
+        + 2
+    )
+    product_precision = len(reference_tuple.digits) + len(relative_tolerance.as_tuple().digits)
+    with localcontext() as context:
+        context.prec = max(1, difference_precision, product_precision)
+        context.Emax = MAX_EMAX
+        context.Emin = MIN_EMIN
+        difference = actual - reference
+        tolerance = max(absolute_tolerance, reference.copy_abs() * relative_tolerance)
+    return difference, tolerance
 
 
 def _utc_datetime(value: Any, path: str) -> datetime:
@@ -190,14 +217,13 @@ def compare_controls(manifest: Any) -> dict:
         target_metric = target["metrics"][name]
         if source_metric["unit"] != target_metric["unit"]:
             _fail(f"$.target.metrics.{name}.unit", "must match the source unit")
-        difference = target_metric["value"] - source_metric["value"]
         rule = rules[name]
-        tolerance = Decimal(0)
-        if rule["mode"] == "tolerance":
-            tolerance = max(
-                rule["absolute_tolerance"],
-                abs(source_metric["value"]) * rule["relative_tolerance"],
-            )
+        difference, tolerance = _exact_decimal_comparison(
+            source_metric["value"],
+            target_metric["value"],
+            rule["absolute_tolerance"] if rule["mode"] == "tolerance" else Decimal(0),
+            rule["relative_tolerance"] if rule["mode"] == "tolerance" else Decimal(0),
+        )
         checks.append({
             "metric": name,
             "unit": source_metric["unit"],
@@ -205,7 +231,7 @@ def compare_controls(manifest: Any) -> dict:
             "target_value": str(target_metric["value"]),
             "difference": str(difference),
             "allowed_difference": str(tolerance),
-            "status": "pass" if abs(difference) <= tolerance else "fail",
+            "status": "pass" if difference.copy_abs() <= tolerance else "fail",
         })
 
     failed = sum(check["status"] == "fail" for check in checks)

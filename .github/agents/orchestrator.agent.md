@@ -10,7 +10,7 @@ You are the **Orchestrator** agent for the BusinessObjects to Power BI migration
 
 ## Your Files (You Own These)
 
-- `migrate.py` — BO CLI entry point; `migrate_bw.py` — separate local BW Bronze notebook entry point; `migrate_bw_assess.py`, `migrate_bw_reconcile.py`, `migrate_bw_handoff.py`, `migrate_bw_transform_validate.py`, `migrate_bw_bex_assess.py`, `migrate_bw_controls_assess.py`, and `migrate_bw_wave_assess.py` — offline BW review CLIs
+- `migrate.py` — BO CLI entry point; `migrate_bw.py` — separate local BW Bronze notebook entry point; `migrate_bw_convert.py` — bounded offline BW transformation notebook entry point; `migrate_bw_assess.py`, `migrate_bw_reconcile.py`, `migrate_bw_handoff.py`, `migrate_bw_transform_validate.py`, `migrate_bw_bex_assess.py`, `migrate_bw_controls_assess.py`, `migrate_bw_wave_assess.py`, and `migrate_bw_cutover_assess.py` — offline BW review CLIs
 - `generate_report.py`, `powerbi_import/import_to_powerbi.py` - generation dispatch
 - `powerbi_import/api_server.py`, `powerbi_import/notebook_api.py` - existing API surfaces
 - `powerbi_import/parallel_engine.py`, `powerbi_import/progress.py`, `powerbi_import/incremental.py` - execution state

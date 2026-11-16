@@ -80,6 +80,13 @@ collections. It does not discover or extract SAP data, deploy or execute the
 notebook, convert BW semantics, or establish source-to-target equivalence.
 See [the BW design](SAP_BW_TO_FABRIC_DESIGN.md) for its controls and limitations.
 
+The separate `migrate_bw_convert.py` path converts a declared, normalized subset
+of BW field rules into an unbound Bronze-to-Silver PySpark notebook. It is not
+an SAP metadata/ABAP parser, DTP executor, independent reconciliation, or
+complete BW warehouse migration. An optional local preflight checks definition
+bytes and plan-to-declared-ledger consistency without authenticating the source
+or proving coverage; see the [BW-4 contract](SAP_BW_TO_FABRIC_DESIGN.md#bw-4-local-conversion-normalized-rules-to-silver).
+
 ### Output: PBIP (Default)
 ```
 <name>.pbip
@@ -107,7 +114,8 @@ See [the BW design](SAP_BW_TO_FABRIC_DESIGN.md) for its controls and limitations
 
 ## Formula Conversion (bo_export/dax_converter.py)
 
-Maps 150+ BO functions to DAX equivalents:
+Converts supported BO formula patterns to DAX candidates; generated expressions
+still require syntax and semantic validation:
 - **WebI syntax**: `=FunctionName([Object])` → `FUNCTION('Table'[Column])`
 - **Crystal syntax**: `{Table.Field}`, `{@Formula}`, `{?Param}` → DAX references
 - **Context operators**: `In`, `ForEach`, `ForAll` → CALCULATE + filter modifiers

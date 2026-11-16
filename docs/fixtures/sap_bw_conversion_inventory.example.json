@@ -1,0 +1,102 @@
+{
+  "schema_version": "1.0",
+  "run_id": "synthetic-conversion-run-001",
+  "captured_at": "2026-11-11T00:00:00Z",
+  "source_system": {
+    "id": "SYNTHETIC-BW-01",
+    "product": "SAP BW/4HANA",
+    "version": "synthetic-version",
+    "client": "000",
+    "landscape": {"id": null, "name": null, "status": "not_assessed"}
+  },
+  "provenance": {
+    "discovery_method": "manual",
+    "extraction_method": "manual",
+    "extractor_name": null,
+    "extractor_version": null,
+    "evidence_reference": "synthetic fixture only"
+  },
+  "discovery": {"method": "manual", "evidence_reference": "synthetic fixture only"},
+  "extraction_access": {"status": "not_applicable", "approval_reference": null, "credential_material_included": false},
+  "scope": {
+    "included_domains": ["synthetic-sales"],
+    "excluded_domains": [],
+    "completeness": "partial",
+    "owner_signoff": "pending",
+    "coverage": {
+      "systems": "complete", "sources": "partial", "providers": "partial",
+      "transformations": "partial", "process_chains": "not_assessed",
+      "consumers": "not_assessed", "usage": "not_assessed",
+      "data_volume_history_retention": "not_assessed", "delta_mechanisms": "not_assessed",
+      "authorizations": "not_assessed", "planning_writeback": "not_assessed"
+    },
+    "known_gaps": ["Synthetic fixture; it is not an owner-approved BW inventory."]
+  },
+  "objects": [
+    {
+      "id": "SYNTHETIC-BW-01:ADSO:SALES-RAW",
+      "type": "adso", "name": "Synthetic sales raw", "discovery_status": "observed",
+      "disposition": "in_scope", "criticality": "high", "business_owner": "synthetic-owner",
+      "source_reference": "synthetic://bw/adso/sales-raw", "location": null,
+      "usage_profile": {"status": "unknown", "observation_window_start": null, "observation_window_end": null, "last_used_at": null, "access_count": null},
+      "data_profile": {"status": "unknown", "estimated_rows": null, "estimated_bytes": null, "history_start": null, "history_end": null, "retention_policy": null},
+      "delta_profile": {"status": "unknown", "mechanism": "unknown", "delete_capture": null},
+      "migration_decision": {"classification": "automatic_candidate", "target_candidate": null, "rationale": "Synthetic example only.", "decision_owner": null, "route": null, "prerequisites": [], "validation": {"status": "not_run", "justification": null}},
+      "metadata_status": "observed",
+      "definition": {"status": "not_assessed", "reference": null, "hash_algorithm": null, "hash": null},
+      "keys_status": "observed",
+      "keys": [{"name": "VenteID", "data_type": "CHAR(12)", "nullable": false, "role": "business"}],
+      "semantics": {"status": "not_assessed", "measures": [], "dimensions": [], "functions": []}
+    },
+    {
+      "id": "SYNTHETIC-BW-01:TRANSFORMATION:FIELD-RULES",
+      "type": "transformation", "name": "Synthetic declared field rules", "discovery_status": "observed",
+      "disposition": "in_scope", "criticality": "high", "business_owner": "synthetic-owner",
+      "source_reference": "synthetic://bw/transformation/field-rules", "location": null,
+      "usage_profile": {"status": "unknown", "observation_window_start": null, "observation_window_end": null, "last_used_at": null, "access_count": null},
+      "data_profile": {"status": "unknown", "estimated_rows": null, "estimated_bytes": null, "history_start": null, "history_end": null, "retention_policy": null},
+      "delta_profile": {"status": "unknown", "mechanism": "unknown", "delete_capture": null},
+      "migration_decision": {"classification": "automatic_candidate", "target_candidate": null, "rationale": "Synthetic declared rules only.", "decision_owner": null, "route": null, "prerequisites": [], "validation": {"status": "not_run", "justification": null}},
+      "metadata_status": "observed",
+      "definition": {"status": "observed", "reference": "synthetic://bw/definitions/field-rules", "hash_algorithm": "sha256", "hash": "c5ae958c6e7447ba41b0c0d17dcba94613697fd8576549835dc089433e647a40"},
+      "keys_status": "not_assessed", "keys": [],
+      "semantics": {"status": "observed", "measures": [], "dimensions": [], "functions": []}
+    },
+    {
+      "id": "SYNTHETIC-BW-01:DTP:SALES",
+      "type": "dtp", "name": "Synthetic sales DTP", "discovery_status": "observed",
+      "disposition": "in_scope", "criticality": "high", "business_owner": "synthetic-owner",
+      "source_reference": null, "location": null,
+      "usage_profile": {"status": "unknown", "observation_window_start": null, "observation_window_end": null, "last_used_at": null, "access_count": null},
+      "data_profile": {"status": "unknown", "estimated_rows": null, "estimated_bytes": null, "history_start": null, "history_end": null, "retention_policy": null},
+      "delta_profile": {"status": "unknown", "mechanism": "unknown", "delete_capture": null},
+      "migration_decision": {"classification": "not_assessed", "target_candidate": null, "rationale": null, "decision_owner": null, "route": null, "prerequisites": [], "validation": {"status": "not_run", "justification": null}},
+      "metadata_status": "observed",
+      "definition": {"status": "not_assessed", "reference": null, "hash_algorithm": null, "hash": null},
+      "keys_status": "not_assessed", "keys": [],
+      "semantics": {"status": "not_assessed", "measures": [], "dimensions": [], "functions": []}
+    },
+    {
+      "id": "SYNTHETIC-BW-01:ADSO:SALES-SILVER",
+      "type": "adso", "name": "Synthetic sales target", "discovery_status": "observed",
+      "disposition": "in_scope", "criticality": "high", "business_owner": "synthetic-owner",
+      "source_reference": "synthetic://bw/adso/sales-target", "location": null,
+      "usage_profile": {"status": "unknown", "observation_window_start": null, "observation_window_end": null, "last_used_at": null, "access_count": null},
+      "data_profile": {"status": "unknown", "estimated_rows": null, "estimated_bytes": null, "history_start": null, "history_end": null, "retention_policy": null},
+      "delta_profile": {"status": "unknown", "mechanism": "unknown", "delete_capture": null},
+      "migration_decision": {"classification": "manual_redesign", "target_candidate": null, "rationale": "Synthetic example only.", "decision_owner": null, "route": null, "prerequisites": [], "validation": {"status": "not_run", "justification": null}},
+      "metadata_status": "observed",
+      "definition": {"status": "not_assessed", "reference": null, "hash_algorithm": null, "hash": null},
+      "keys_status": "not_assessed", "keys": [],
+      "semantics": {"status": "not_assessed", "measures": [], "dimensions": [], "functions": []}
+    }
+  ],
+  "dependencies": [
+    {"source_id": "SYNTHETIC-BW-01:ADSO:SALES-RAW", "target_id": "SYNTHETIC-BW-01:TRANSFORMATION:FIELD-RULES", "kind": "transforms", "evidence_status": "observed", "resolution_status": "resolved", "evidence_reference": "synthetic edge"},
+    {"source_id": "SYNTHETIC-BW-01:TRANSFORMATION:FIELD-RULES", "target_id": "SYNTHETIC-BW-01:DTP:SALES", "kind": "transforms", "evidence_status": "observed", "resolution_status": "resolved", "evidence_reference": "synthetic edge"},
+    {"source_id": "SYNTHETIC-BW-01:DTP:SALES", "target_id": "SYNTHETIC-BW-01:ADSO:SALES-SILVER", "kind": "feeds", "evidence_status": "observed", "resolution_status": "resolved", "evidence_reference": "synthetic edge"}
+  ],
+  "errors": [],
+  "unknowns": [],
+  "unsupported_features": []
+}

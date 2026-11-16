@@ -1,13 +1,36 @@
 # Development Plan — BO to Power BI Migration
 
-> **Last reviewed**: 2026-10-28
+> **Last reviewed**: 2026-11-16
 > The March 2026 version 3.0 plan is retained below as historical planning evidence,
 > not a current release or a certification that every phase exit criterion passed.
 
-## Current Evidence - 2026-10-28
+## Current Evidence - 2026-11-16
 
-- Full local suite: `python -m pytest tests/ --tb=short -o addopts="" -q`:
-        **419 passed, 242 subtests passed**. Coverage/hosted CI was not measured by this run.
+- Full local suite: `python -m pytest tests\ --tb=short -q -o addopts=''`:
+        **563 passed, 531 subtests passed**. Coverage/hosted CI was not measured by this run.
+- Earlier local measurement on 2026-11-12: **558 passed, 518 subtests passed
+        in 20.36s**.
+- BW-0 through BW-8 local contracts and synthetic assessments are present;
+        they do not prove SAP discovery, Fabric execution, cutover, or retirement.
+- BW-4 also generates an unbound notebook for one explicitly declared mapping
+        with an opt-in definition-byte / declared-ledger preflight; SAP origin,
+        source-to-ledger correspondence/completeness and source-owner approval
+        remain unverified, and equivalence remains `not_run`.
+- BW-4's optional source-declaration preflight in
+        `migrate_bw_transform_validate.py` requires the existing inventory /
+        transformation pair and the definition-file / rule-ledger pair. It
+        reuses complete plan/inventory validation and local SHA-256 / declared-
+        ledger checks, reports independent deterministic
+        `source_declaration_preflight` evidence, and does not write or execute
+        a notebook. SAP authenticity, ledger completeness/correspondence, vector
+        provenance, execution, equivalence and approval remain unverified or
+        `not_run`.
+- BW-4 plan-linked vectors also support local evaluation of normalized
+        transfers, typed constants and same-scale decimal addition/subtraction.
+        Its status is separate from vector comparison, plan linkage and source
+        declaration; exit 0 alone does not prove a `not_run` evaluation passed.
+        Only rule-referenced input values are type-checked; unused input values
+        are not. This evaluation does not execute SAP, Spark or Fabric.
 - 22 specialist development roles with an ownership contract; not runtime CLI stages.
 - Local assessment, dry-run, file/batch/BIAR/shared generation, six-tool guarded
         MCP, and PBIP/Fabric quality reporting are exercised by local tests.
@@ -17,8 +40,9 @@
         queries still reject instead of merging unsafely.
 - Direct Lake source entities, unique ingestion ownership, physical metadata
         retention, and unsupported-semantics findings are local artifact contracts.
-- Desktop opening/rendering, semantic equivalence, deployed refresh, and Fabric
-        execution remain `not_run`; historical phase completion labels do not waive them.
+- Desktop opening/rendering, semantic equivalence, deployed refresh, Fabric
+        execution, cutover and retirement remain `not_run`; historical phase
+        completion labels do not waive them.
 
 ### Open Gates And Owners
 
@@ -37,8 +61,9 @@ copy Tableau release numbers or create a competing roadmap.
 
 ## Separate roadmap: SAP BW/BW/4HANA to Fabric and BW retirement
 
-**Planning baseline, 2026-11-10; local BW-1 and limited BW-2 slices added
-2026-11-11.** Remaining capabilities and runtime validation are planned.
+**Planning baseline, 2026-11-10; offline BW-0 through BW-8 slices added
+2026-11-11.** End-to-end migration capabilities and runtime validation remain
+planned.
 This is a distinct source migration and retirement program, not an extension of
 the BO extraction contract or a claim that the BO pipeline migrates BW. The
 historical SAP BW plugin entry below is a limited idea, not this program or
@@ -271,33 +296,159 @@ evidence of delivery. The existing BO backlog and gates remain unchanged.
 
 - **Outcome:** lineage-backed recreation of the selected transformation chain
   with explicit handling of ABAP routines and unsupported semantics.
-- **Evidence / hypothesis:** no BW/ABAP conversion is established by the BO
-  DAX/M converters. Hypothesis: one bounded deterministic routine can be
-  reimplemented from approved source and test vectors without assuming ABAP
-  and Spark/SQL semantics are identical.
-- **First change and scope:** proposed BW source owner inventories routine
-  versions and inputs/outputs; `Fabric` builds a local target transformation
-  slice, with `Wiring` and `Dax` only where their actual M/DAX ownership
-  applies. Classify start/end/expert and field routines, lookup dependencies,
-  state, errors and side effects; use manual redesign or explicit blockers for
-  dynamic code, external calls or unsupported behavior, not invented output.
-- **Dependencies:** BW-1 contract, BW-2 baseline and BW-3 source mapping;
-  approved access to code and business test cases.
-- **Validation / exit:** golden input/output cases compare source and target,
-  including nulls, types, rounding, date/fiscal logic, ordering, duplicates,
-  lookups and failure paths. Reconcile all critical calculations at agreed
-  tolerances; every routine is converted with evidence, manually accepted or
-  blocks the wave. Generator errors are fixed at source, not hidden by metrics.
-- **Risks / non-goals:** side effects and undocumented dependencies; no promise
-  of automatic or complete ABAP translation.
-- **Local slice delivered (2026-11-11):** `migrate_bw_transform_validate.py`
+- **Evidence / hypothesis:** BO DAX/M conversion is not BW/ABAP conversion.
+  The local converter below cannot substantiate its supplied rules against a BW
+  definition. Hypothesis: a separately supplied source-rule ledger and local
+  definition bytes can expose discrepancies among those declarations in one
+  bounded mapping; generating under such a mismatch would falsify that slice.
+  This does not establish source truth or the ledger's authority and coverage.
+- **Local conversion slice delivered — partial:** `Orchestrator` owns
+  `migrate_bw_convert.py`, and `Fabric` owns
+  `powerbi_import/bw_transform_generator.py`. The CLI accepts `--inventory`
+  and `--transformation` plus a new `--output` `.ipynb` path, and generates
+  one unbound notebook without overwriting an existing file. The normalized 1.0
+  plan is described by
+  [`docs/schemas/sap_bw_conversion_plan.schema.json`](schemas/sap_bw_conversion_plan.schema.json).
+  Synthetic JSON fixtures provide the
+  [inventory](fixtures/sap_bw_conversion_inventory.example.json),
+  [conversion plan](fixtures/sap_bw_conversion_plan.example.json) and
+  [Bronze plan](fixtures/sap_bw_conversion_bronze_plan.example.json); they
+  do not provide actual staged Parquet data.
+- **Selection and rule boundary:** the plan declares one complete mapping;
+  selected source, transformation, target and optional DTP must be observed,
+  in scope and unblocked in the supplied inventory. The declared lineage must
+  have observed, resolved edges either directly or via the DTP; any additional
+  incoming transformation edge blocks generation, including operational edges.
+  The transformation requires observed metadata and semantics, and a definition
+  reference and SHA-256 matching the supplied inventory fields. Unknown or
+  unsupported features and declared semantic functions of selected objects
+  block generation. These are checks of declarations: the reference is not
+  dereferenced; without the optional preflight, the hash is not computed from
+  definition bytes. A `complete` declaration is not an independent completeness
+  or authenticity attestation.
+- **Local preflight delivered — partial (2026-11-11):** the opt-in
+  `--definition-file` and `--rule-ledger` options must be supplied together.
+  The preflight computes SHA-256 of the provided local definition bytes and
+  requires a match with the conversion plan and the inventory's observed
+  definition hash. Every plan rule must have a unique `source_rule_id`; its ID
+  and normalized mapping must match the separately declared ledger, with
+  identical rule-ID sets and input column name/type schemas. Missing, extra,
+  changed or unsupported rules, missing/duplicate IDs, schema/hash mismatches,
+  malformed ledger JSON, or an unpaired option block generation. The
+  [ledger schema](schemas/sap_bw_source_rules.schema.json), synthetic
+  [definition bytes](fixtures/sap_bw_conversion_definition.example.txt) and
+  [ledger](fixtures/sap_bw_source_rules.example.json) describe local evidence
+  only. Successful checks record `definition_sha256_check: pass` and
+  `plan_vs_declared_ledger: pass`; with neither option, both are `not_run`.
+  Existing 1.0 plans without source IDs remain supported in declaration-only
+  mode when neither option is supplied. The preflight does not parse the
+  definition: authentic SAP origin and actual source-to-ledger correspondence
+  and completeness remain unverified; source-owner approval has not been run.
+  Notebook metadata records `source_definition_authenticity` and
+  `ledger_source_correspondence` as `not_verified`, and
+  `source_owner_approval` as `not_run`.
+- **Supported target rules and execution:** exact-type transfers; typed
+  `string`, `boolean`, `int`, `bigint` and exactly representable decimal-string
+  constants, including null; and same-scale decimal addition/subtraction with
+  explicit null propagation. Decimal constants reject binary floats, excess
+  fractional precision that would round, and values beyond the target range.
+  Decimal result precision must be `max(left_precision, right_precision) + 1`,
+  at most 38, to avoid declared precision loss. Only when manually bound to an
+  authorized lakehouse and run does the notebook read the declared Bronze
+  snapshot, check its schema, count and lineage, preserve Bronze provenance,
+  add transformation/definition-hash/target provenance, and create the new
+  Silver Delta target with `errorifexists`. It checks the output schema before
+  writing and the target count afterward; a post-write mismatch may leave the
+  new table for investigation. Counts and lineage checks do not prove source
+  completeness or source-to-target equality.
+- **Local validation evidence:** the coordinator reports that local fake-Spark
+  and CLI tests were run; `tests/test_bw_transform_generator.py` exercises
+  supported rules, paired preflight success and rejection paths, 1.0
+  declaration-only compatibility, provenance and no-overwrite behavior.
+  Fake-Spark execution is not real Spark or Fabric execution.
+- **Existing vector-comparison slice (2026-11-11):** `migrate_bw_transform_validate.py`
   and `powerbi_import/bw_transform_validation.py` compare supplied expected
   outputs and target outputs for explicit vectors, with exact type/value checks
   or declared decimal tolerances. The synthetic suite covers rounding, nulls,
   missing/extra fields and mismatches. It neither parses ABAP nor executes
   either the source routine or a target transformation; source vector
   provenance, target runtime, semantic equivalence and business acceptance
-  remain `not_run`. This does not close BW-4 or provide an automatic converter.
+  remain `not_run`. This comparator does not generate notebooks or close BW-4.
+- **Optional conversion-plan linkage delivered — partial (2026-11-11):** the
+  vector comparator accepts paired inventory and normalized-plan CLI options.
+  When supplied, it validates the declared transformation ID, definition
+  reference and definition hash match; the exact input-field set for each
+  vector; and the exact rule-target set. The report records
+  `conversion_plan_linkage` separately from value `comparison_status`.
+  Omitting both options preserves legacy standalone comparison. This linkage
+  validates declarations only and does not establish Spark runtime behavior,
+  vector provenance, BW/Fabric execution, equivalence or owner approval.
+  The independent local rule evaluation is described below. This slice does not
+  parse source definitions or close BW-4.
+- **Optional source-declaration preflight delivered — partial (2026-11-11):**
+  `migrate_bw_transform_validate.py` requires both the existing
+  `--inventory` / `--transformation` pair and the `--definition-file` /
+  `--rule-ledger` pair. It reuses complete plan/inventory validation, computes
+  SHA-256 from the supplied local definition bytes, and reuses the declared
+  plan-versus-ledger rule and input-schema checks. The report records separate
+  deterministic `source_declaration_preflight` evidence; it does not write or
+  execute a notebook. The full local suite reports **550 passed, 515 subtests
+  passed**. This evidence does not establish SAP authenticity, independent
+  source-to-ledger correspondence or completeness, vector provenance, runtime
+  execution, semantic equivalence or owner approval; those remain unverified
+  or `not_run`.
+- **Normalized-rule vector evaluation delivered — partial (2026-11-12):**
+  with a linked plan, the vector validator locally evaluates `transfer`, typed
+  constants, and same-scale decimal add/subtract rules against declared inputs
+  and checks results against expected outputs. Decimal strings must fit the
+  declared precision and scale without rounding; null decimal operands
+  propagate as null. Plan-valid Spark types outside the evaluator subset remain
+  `not_run`; invalid conversion-plan types are rejected by the CLI. Invalid
+  values referenced by a rule or used as expected outputs fail local evaluation
+  when invalid; unused input values are not type-checked. No SAP, Spark, or Fabric runtime,
+  vector-provenance, semantic-equivalence, or BW-4 closure evidence is
+  established by this slice. CLI exit 0 does not imply a `not_run` evaluation
+  ran or passed.
+- **Next change and scope (blocked/planned):** source-owner-approved
+  source-definition format selection and parser work, and independently
+  obtained, source-owner-approved golden vectors, are explicitly blocked and
+  not delivered. First, the BW source owner must agree on source-definition
+  format, authority, access, ownership and coverage before a bounded parser
+  slice is selected; vector provenance must be established independently and
+  accepted by the owner.
+  `Assessor` owns the offline source-definition/rule contract; `Extractor` is
+  a proposed collaborator only after parser format and ownership are assigned.
+  `Evidence` owns comparison of independently obtained vectors; `Fabric` and
+  `Orchestrator` own any necessary generator and CLI changes; `Tester` owns
+  tests. Live BW discovery remains unassigned. No parser capability or
+  source/vector provenance is assumed by this plan.
+- **Further conversion work:** source owners must inventory and review
+  start/end/expert and field routines, lookups, ordering, state, errors and
+  side effects. Any future conditional, lookup or routine conversion requires
+  an explicitly supported semantic contract and source-derived test vectors;
+  otherwise use an accepted manual redesign or retain a blocker. Do not infer
+  ABAP behavior from Spark/SQL or silently accept unknown features.
+- **Dependencies:** BW-1 inventory and version policy, BW-2 snapshot baseline,
+  and BW-3 source mapping before retirement; an assigned BW source owner, an
+  agreed source-definition format, approved access and business test cases.
+  The local fixture is not a source-owner baseline or an SAP extraction.
+- **Validation / exit:** `Tester` should retain focused coverage of matching and
+  mismatched definition bytes, missing/extra/changed or unsupported rules,
+  missing/duplicate source IDs, changed input schema, unpaired options, lineage,
+  no-overwrite and 1.0 declaration-only compatibility. Run the focused
+  `python -m pytest tests/test_bw_transform_generator.py tests/test_bw_transform_validation.py tests/test_bw_inventory_contract.py tests/test_agent_contracts.py --tb=short -q`
+  and required `python -m pytest tests/ --tb=short -q` suites. For the BW-4
+  gate, independently obtained source and target golden cases must cover nulls,
+  types, rounding, date/fiscal logic, ordering, duplicates, lookups and
+  failure paths, with agreed tolerances and owner acceptance. Every routine
+  must be evidenced, manually accepted or block the wave; generator defects
+  must be fixed at source, not hidden by metrics.
+- **Risks / non-goals:** a matching hash or rule ledger cannot establish its
+  own authenticity or completeness; undocumented dependencies and side
+  effects remain risks. Actual Spark/Delta, Fabric and SAP execution, source
+  and target golden-case execution, semantic equivalence and business approval
+  are `not_run`. No ABAP parsing, completeness attestation, BW-4 gate closure,
+  cutover or retirement approval is implied.
 
 ### Increment BW-5 — BEx semantics and consumer replacement (P1, then P2)
 
@@ -416,31 +567,51 @@ evidence of delivery. The existing BO backlog and gates remain unchanged.
 
 ### Increment BW-8 — cutover and controlled retirement (P3)
 
-- **Outcome:** switch the approved estate, demonstrate independent operation,
-  then retire BW under separately authorized change control.
+- **Outcome:** establish a controlled cutover and retirement process for all
+  approved waves; actual switching and decommissioning remain separately
+  authorized customer operations.
 - **Evidence / hypothesis:** no cutover or retirement is established by local
   generation. Hypothesis: consumers and feeds remain correct and recoverable
   during an agreed parallel-run and a BW-independent observation period.
-- **First change and scope:** `Orchestrator` coordinates a wave runbook with
-  `Evidence`, `Fabric`, `Deployer` and named customer owners: freeze and
-  watermarks, parallel run, consumer switching, communications, go/no-go,
-  rollback triggers and time limit, escalation and post-cutover monitoring.
-  Maintain an explicit register of BO and non-BO consumers, upstream queues,
-  jobs, accounts, integrations and retained audit/legal records.
+- **Local slice delivered:** `migrate_bw_cutover_assess.py` evaluates one
+  versioned BW-8 declaration set against the BW inventory and BW-7 wave
+  manifest. It requires explicit dependency coverage/dispositions, plan and
+  checkpoint references, declared parallel-run and independent-observation
+  durations, operational upstream-feed and reconciliation declarations,
+  planning/retention sign-off, rollback objectives/exercise status, and
+  owner/evidence/approval references, including explicit owner acceptance of
+  BW-0 through BW-7. It
+  reports blockers or
+  `declarations_complete_for_owner_review`; that status does not establish
+  acceptance. The assessment always leaves `gate_closed`, `cutover_authorized`
+  and `retirement_authorized` false. It checks inventory edges directly incident
+  to the wave and their endpoint consumers, not transitive dependencies;
+  coverage completeness is not independently verified.
+- **Remaining change and scope:** `Orchestrator` coordinates an authorized
+  wave runbook with `Evidence`, `Fabric`, `Deployer` and named customer owners:
+  freeze and watermarks, parallel run, consumer switching, communications,
+  go/no-go, rollback triggers and time limit, escalation and post-cutover
+  monitoring. Maintain an explicit register of BO and non-BO consumers,
+  upstream queues, jobs, accounts, integrations and retained audit/legal records.
 - **Dependencies:** all BW-0 through BW-7 wave gates; every consumer and
   upstream dependency migrated or dispositioned, planning and retention signed
   off, operational ownership and rollback funded. Enterprise retirement follows
   completion of all waves, not just the pilot.
 - **Validation / exit:** agree and record parallel-run duration, observation
   window, reconciliation thresholds and rollback/recovery objectives before
-  cutover. Exercise rollback before the irreversible step; verify consumers,
-  feeds and controls while BW is unavailable. Business, source, security,
-  compliance and operations owners explicitly approve go/no-go and separately
-  approve decommission; preserve required archives and demonstrate restore.
-  Verify no remaining live dependencies and record deactivation evidence.
+  cutover. The local declaration assessor must reject BW-0/BW-7 review
+  statuses of `open`,
+  missing consumers/dependencies, incomplete periods, and absent/failed
+  approvals or checks. It does not authenticate evidence references or execute
+  a drill. The operational exit still requires exercising rollback before the
+  irreversible step; verifying consumers, feeds and controls while BW is
+  unavailable; explicit business, source, security, compliance and operations
+  go/no-go and separate decommission approval; archive restore; no remaining
+  live dependencies; and recorded deactivation evidence.
 - **Risks / non-goals:** rollback may become impossible after source shutdown
-  or data divergence; no implicit cloud writes, switch, deletion, license
-  cancellation or release approval follows from this roadmap.
+  or data divergence; local declaration completeness is not operational
+  readiness. No implicit cloud writes, switch, deletion, license cancellation,
+  cutover approval or retirement authorization follows from this roadmap.
 
 ### Cross-cutting validation and evidence gates
 
@@ -944,7 +1115,11 @@ Phase 15 (Marketplace & GA) ◄─────┘
 | **Visual** | Screenshot comparison, SSIM scoring | Playwright + Pillow/scikit-image |
 | **LLM** | Prompt quality, hallucination detection | Mock LLM + golden response comparison |
 
-### Currently Passing (244 tests)
+### Historical Test Table (2026-03-26)
+
+The original rows total 246 tests (245 passing), while the historical summary
+above reports 244 tests (243 passing). This discrepancy is not reconciled and
+neither figure describes the current suite.
 
 | File | Tests | Status |
 |------|-------|--------|

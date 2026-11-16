@@ -6,7 +6,7 @@ import sys
 import tempfile
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
-from decimal import Decimal
+from decimal import Decimal, localcontext
 from io import StringIO
 from pathlib import Path
 
@@ -18,7 +18,6 @@ from powerbi_import.bw_reconciliation import (
     compare_controls,
     load_comparison,
 )
-
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -59,6 +58,48 @@ class TestBWReconciliation(unittest.TestCase):
 
         manifest["target"]["metrics"]["net_sales_eur"]["value"] = "1000.11"
         self.assertEqual(compare_controls(manifest)["comparison_status"], "fail")
+
+    def test_tolerances_use_exact_arithmetic_independent_of_decimal_context(self):
+        manifest = copy.deepcopy(self.manifest)
+        source = manifest["source"]["metrics"]["net_sales_eur"]
+        target = manifest["target"]["metrics"]["net_sales_eur"]
+        source["value"] = "0.0"
+        target["value"] = "1.0000000000000000000000000001"
+        manifest["rules"]["net_sales_eur"] = {
+            "mode": "tolerance",
+            "absolute_tolerance": "1.0000000000000000000000000000",
+            "relative_tolerance": "0",
+        }
+        with localcontext() as context:
+            context.prec = 4
+            report = compare_controls(manifest)
+        check = next(item for item in report["checks"] if item["metric"] == "net_sales_eur")
+        self.assertEqual(report["comparison_status"], "fail")
+        self.assertEqual(check["difference"], "1.0000000000000000000000000001")
+        self.assertEqual(check["allowed_difference"], "1.0000000000000000000000000000")
+
+        with localcontext() as context:
+            context.prec = 100
+            reference = Decimal("1234567890123456789012345678.9")
+            relative = Decimal("0.12345678901234567890")
+            boundary = reference * relative
+            at_boundary = reference + boundary
+            above_boundary = at_boundary + Decimal("0.00000000000000000000001")
+        source["value"] = str(reference)
+        manifest["rules"]["net_sales_eur"].update({
+            "absolute_tolerance": "0",
+            "relative_tolerance": str(relative),
+        })
+        with localcontext() as context:
+            context.prec = 4
+            target["value"] = format(at_boundary, "f")
+            at_report = compare_controls(manifest)
+            target["value"] = format(above_boundary, "f")
+            above_report = compare_controls(manifest)
+        self.assertEqual(at_report["comparison_status"], "pass")
+        self.assertEqual(above_report["comparison_status"], "fail")
+        check = next(item for item in above_report["checks"] if item["metric"] == "net_sales_eur")
+        self.assertEqual(check["allowed_difference"], str(boundary))
 
     def test_exact_key_count_difference_is_reported_as_failure(self):
         manifest = copy.deepcopy(self.manifest)

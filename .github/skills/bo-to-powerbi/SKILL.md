@@ -61,6 +61,9 @@ Do not pass credentials in command examples or chat; use the supported secure au
 BW-0 review gate. It emits blockers and review items from a local snapshot; it
 does not discover SAP objects, verify owner attestation, or close the gate.
 The resulting `candidate_for_owner_review` status is not migration readiness.
+The partial BW-0, BW-5, BW-6, BW-7 and BW-8 assessments write reports and exit
+`1` while blockers remain; `0` means declarations are ready for owner review,
+not approved, and `2` indicates an input or output error. Use new output paths.
 
 `migrate_bw.py` generates an unbound Bronze notebook from a BW 1.0 inventory
 and an explicit plan for already-staged Parquet files; it does not invoke the
@@ -75,10 +78,77 @@ against its explicitly declared contiguous-integer position semantics. It is
 not a connector or proof of source guarantees, production restart recovery,
 Fabric operation, or BW retirement; see the design's BW-3 boundaries.
 
+`migrate_bw_convert.py` generates an unbound Fabric notebook for an explicitly
+normalized, declared-complete BW transformation:
+
+```powershell
+python migrate_bw_convert.py `
+    --inventory "docs\fixtures\sap_bw_conversion_inventory.example.json" `
+    --transformation "docs\fixtures\sap_bw_conversion_plan.example.json" `
+    --output "bw_transform.ipynb"
+```
+
+The bounded rules are exact-type field transfer, typed string/boolean/integer
+and exact decimal-string constants, and same-scale decimal add/subtract with
+explicit null propagation. Decimal constants reject rounding or overflow.
+Selected-object or
+ambiguously scoped unknowns, unsupported selected features, selected-object
+functions and additional incoming transformation dependencies block generation.
+An optional paired `--definition-file` and `--rule-ledger` preflight checks
+the supplied file's SHA-256 and matches plan source-rule IDs and mappings
+against the declared ledger. Existing plans without IDs work in declaration-only
+mode. Neither mode authenticates SAP origin or proves the ledger's source
+coverage. It does not parse SAP metadata or ABAP, execute a DTP, establish
+equivalence, or run Spark. Read the BW-4 contract in
+`docs/SAP_BW_TO_FABRIC_DESIGN.md`; use `fabric-mcp-routing` and `spark-cli`
+authoring for notebook work. Deployment and execution require separate approval.
+
 `migrate_bw_transform_validate.py` compares declared source golden vectors and
 target output vectors with explicit exact or decimal-tolerance rules. It does
-not parse ABAP, execute transformations, verify how either set of values was
-produced, or prove semantic equivalence; see the BW-4 boundaries.
+not parse ABAP, execute generated Spark transformations, verify how either set
+of values was produced, or prove semantic equivalence. Optional paired
+`--inventory` and `--transformation` arguments bind the vector suite's
+transformation identity, input field names and business output targets to the
+normalized conversion plan. In linked mode, it locally evaluates only the
+supported normalized transfer, typed constant and same-scale decimal
+add/subtract rules against declared inputs and checks the computed values
+against `expected_output`. Plan-valid Spark types outside the local evaluator
+subset remain `not_run`; the CLI rejects invalid conversion-plan types before
+report generation. When evaluation runs, `input_validation_scope` is
+`referenced_rule_inputs_only`: unused input values are not type-checked.
+Otherwise the scope is `not_run`. This does not authenticate vector provenance
+or establish source/Fabric execution. A successful CLI exit does not imply that a
+`not_run` evaluation ran or passed.
+The CLI can also run the source-declaration preflight with vectors, both
+plan-linkage inputs, and both source-declaration inputs:
+
+```powershell
+python migrate_bw_transform_validate.py `
+    --vectors "docs\fixtures\sap_bw_conversion_vectors.example.json" `
+    --output "bw_conversion_preflight_report.json" `
+    --inventory "docs\fixtures\sap_bw_conversion_inventory.example.json" `
+    --transformation "docs\fixtures\sap_bw_conversion_plan.example.json" `
+    --definition-file "docs\fixtures\sap_bw_conversion_definition.example.txt" `
+    --rule-ledger "docs\fixtures\sap_bw_source_rules.example.json"
+```
+
+`--inventory` and `--transformation` must be supplied together;
+`--definition-file` and `--rule-ledger` must also be paired and require the
+plan inputs. `source_declaration_preflight.status` is separate from vector
+comparison, plan-linkage and normalized-rule-evaluation status. With both pairs, it is `pass` only when
+the definition check and plan-versus-ledger check pass; source authenticity and
+ledger-to-source correspondence remain `not_verified`, and source-owner
+approval remains `not_run`. Standalone and plan-linked-only reports default
+preflight status and both declaration checks to `not_run` (with authenticity
+and correspondence `not_verified` and approval `not_run`).
+
+This preflight reuses `build_bw_conversion_notebook` for local validation but
+does not write or execute a notebook. Deterministic results are limited to the
+supplied declarations, definition bytes and vector values. Matching statuses
+do not prove SAP authenticity, rule completeness, source-to-ledger
+correspondence, vector provenance, source/Spark/Fabric execution, equivalence,
+or business approval.
+See the BW-4 boundaries.
 
 `migrate_bw_bex_assess.py` checks a local BEx semantic-capture manifest against
 a BW inventory, including BW-0 review blockers and query-to-consumer links. It
@@ -117,10 +187,33 @@ python migrate_bw_wave_assess.py `
 The evaluator checks scope, required layer/operations declarations, status
 consistency and exception links. It preserves those declarations in the output
 but does not open or verify referenced report bytes, establish freshness or
-correctness, execute/certify runtime controls, or approve retirement. An open
-BW-0 gate or any applicable `not_run`/failed evidence keeps the wave open;
+correctness, execute/certify runtime controls, or approve retirement. A BW-0
+review status of `open` or applicable `not_run`/failed evidence keeps the wave open;
 `candidate_for_owner_review` is not acceptance, and `gate_closed` remains false.
 SAP/Fabric runtime checks remain `not_run`.
+
+`migrate_bw_cutover_assess.py` evaluates one BW-8 declaration set against a
+local BW inventory and BW-7 evidence manifest:
+
+```powershell
+python migrate_bw_cutover_assess.py `
+    --inventory "docs\fixtures\sap_bw_inventory.partial.example.json" `
+    --wave-evidence "docs\fixtures\sap_bw_wave_evidence.partial.example.json" `
+    --cutover "docs\fixtures\sap_bw_cutover.partial.example.json" `
+    --output "bw_cutover_assessment.json"
+```
+
+It checks declaration coverage, dependency dispositions, upstream-feed status,
+planning/retention sign-off, reconciliation thresholds, parallel-run and
+BW-independent observation periods, rollback plan/exercise declarations, and
+explicit owner acceptance of BW-0 through BW-7. It does not authenticate or
+dereference evidence. Only direct inventory edges incident to the wave and
+consumers at their endpoints are checked; transitive dependencies and coverage
+completeness remain unverified. It does not execute
+cutover/rollback, switch consumers, shut down BW, or authorize retirement.
+`declarations_complete_for_owner_review` leaves `gate_closed`,
+`cutover_authorized` and `retirement_authorized` false; runtime evidence stays
+`not_run`.
 
 ## Ownership
 
@@ -135,8 +228,10 @@ SAP/Fabric runtime checks remain `not_run`.
 | PBIR report | Visual | `powerbi_import/pbip_generator.py` and visual generators |
 | Fabric bundle | Fabric | `powerbi_import/fabric_project_generator.py` and its five sub-generators |
 | Staged BW Bronze notebook | Fabric | `powerbi_import/bw_bronze_generator.py` |
+| Normalized BW transformation notebook | Fabric | `powerbi_import/bw_transform_generator.py` |
 | BW-6 security, planning and compliance declarations | Assessor | `powerbi_import/bw_controls_assessment.py` |
 | BW-7 wave evidence index | Evidence | `powerbi_import/bw_wave_evidence_index.py` |
+| BW-8 cutover/retirement declarations | Evidence | `powerbi_import/bw_cutover_assessment.py` |
 | Publishing and refresh | Deployer | `powerbi_import/deploy/` |
 | Tests | Tester | `tests/` |
 | Local MCP transport, contracts, handoffs | AgentTools | `powerbi_import/mcp_server.py`, `.vscode/mcp.json` |

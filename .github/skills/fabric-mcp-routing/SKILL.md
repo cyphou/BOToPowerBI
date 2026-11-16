@@ -38,6 +38,16 @@ for an explicitly staged Parquet snapshot; it does not extract SAP data,
 replace transformations or reconcile BW. It is not part of the BO CLI/MCP
 bundle or its quality gate. Use the `spark-cli` authoring procedure before
 working on the notebook and obtain separate authorization for remote execution.
+The separate `migrate_bw_convert.py` generates an unbound notebook for declared
+field transfers, typed string/boolean/integer and exact decimal-string constants,
+and same-scale decimal add/subtract. It checks
+the selected inventory lineage. An optional paired local definition file and
+declared rule ledger check the supplied bytes' SHA-256 and match explicit rule
+IDs/mappings to the plan; this does not authenticate SAP origin or establish
+source coverage. It does not parse SAP metadata/ABAP, reproduce DTP processing,
+or establish equivalence. Its output is outside the BO bundle/MCP
+quality gate and needs the same `spark-cli` authoring and authorization
+boundaries; see the BW-4 section of `docs/SAP_BW_TO_FABRIC_DESIGN.md`.
 `migrate_bw_handoff.py` only evaluates local declarations for a normalized
 snapshot-to-delta sequence; it does not prove that a source provides its declared
 position semantics or that a Fabric pipeline runs correctly.
@@ -90,6 +100,13 @@ not implemented BW migration capabilities:
 - Extracting BW data does not by itself migrate BEx semantics, authorization, or
   reconcile results. Record unsupported semantics and separately validate source
   and target results. Do not copy credentials or assume access to a BW system.
+- `migrate_bw_cutover_assess.py` checks only local cutover/retirement declarations
+  against the supplied BW inventory and BW-7 manifest. It checks direct wave
+  neighbors, not transitive dependencies; coverage completeness is unverified.
+  Its review status does not
+  authenticate evidence, run a parallel period, switch consumers, execute rollback,
+  authorize a Fabric operation, or approve BW shutdown; those remain separately
+  authorized owner decisions and unperformed runtime checks stay `not_run`.
 
 ## Read The Workload Procedure
 

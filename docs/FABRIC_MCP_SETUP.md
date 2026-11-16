@@ -47,6 +47,8 @@ outputs and symlink source/project trees are rejected. There are no deployment,
 refresh, credential, or arbitrary-command tools. Direct archive-file tool calls are
 not exposed; use the BIAR CLI or a batch directory for archives.
 `agent_handoff` is advisory and does not apply or acknowledge fixes.
+The standalone BW Bronze and normalized-transformation CLIs are not exposed
+through this six-tool server and do not enter the BO bundle quality gate.
 
 For `migrate` with `output_format: "fabric"`, generation is followed by local
 quality validation. Blocking findings return `isError: true` and structured
@@ -108,6 +110,10 @@ first authorized refresh after a definition change needs `ApplyChangesIfNeeded`.
 The local generator does not discover connections, create credentials, refresh
 items, or execute notebooks. `Previous` without source ordering and groups without
 members remain explicit quality blockers rather than invented transformations.
+The separate BW conversion notebook is unbound and requires a prepared default
+lakehouse and the declared Bronze table; generation alone does not verify its
+rules against SAP or execute them, attach a lakehouse or execute Spark. The
+generator validates the supplied normalized rule declarations locally.
 
 | Capability | Low-impact verification | What It Does Not Prove |
 |------------|-------------------------|------------------------|

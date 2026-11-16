@@ -1,0 +1,76 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:bo-to-powerbi:schema:sap-bw-source-rules:1.0",
+  "title": "Declared source-rule ledger for bounded BW conversion",
+  "description": "A manually supplied mapping declaration, not a parser, authentication or proof of SAP rule completeness. The generator performs additional cross-field and precision checks.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version", "inventory_run_id", "transformation_object_id",
+    "definition_reference", "definition_sha256", "rule_coverage",
+    "input_columns", "rules"
+  ],
+  "properties": {
+    "schema_version": {"const": "1.0"},
+    "inventory_run_id": {"$ref": "#/$defs/text"},
+    "transformation_object_id": {"$ref": "#/$defs/text"},
+    "definition_reference": {"$ref": "#/$defs/text"},
+    "definition_sha256": {"type": "string", "pattern": "^[0-9a-fA-F]{64}$"},
+    "rule_coverage": {"const": "complete"},
+    "input_columns": {
+      "type": "array", "minItems": 1,
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["name", "spark_type"],
+        "properties": {"name": {"$ref": "#/$defs/text"}, "spark_type": {"$ref": "#/$defs/sparkType"}}
+      }
+    },
+    "rules": {
+      "type": "array", "minItems": 1,
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["source_rule_id", "mapping"],
+        "properties": {
+          "source_rule_id": {"$ref": "#/$defs/text"},
+          "mapping": {"oneOf": [{"$ref": "#/$defs/transfer"}, {"$ref": "#/$defs/constant"}, {"$ref": "#/$defs/decimalRule"}]}
+        }
+      }
+    }
+  },
+  "$defs": {
+    "text": {"type": "string", "minLength": 1, "pattern": "^[^\\u0000-\\u001f\\u007f]+$"},
+    "decimalType": {"type": "string", "pattern": "^decimal\\([1-9][0-9]?,[0-9]+\\)$"},
+    "sparkType": {"type": "string", "pattern": "^(string|boolean|tinyint|smallint|int|bigint|float|double|date|timestamp|binary|decimal\\([1-9][0-9]?,[0-9]+\\))$"},
+    "transfer": {
+      "type": "object", "additionalProperties": false,
+      "required": ["kind", "source", "target", "spark_type"],
+      "properties": {
+        "kind": {"const": "transfer"}, "source": {"$ref": "#/$defs/text"},
+        "target": {"$ref": "#/$defs/text"}, "spark_type": {"$ref": "#/$defs/sparkType"}
+      }
+    },
+    "constant": {
+      "type": "object", "additionalProperties": false,
+      "required": ["kind", "target", "spark_type", "value"],
+      "properties": {
+        "kind": {"const": "constant"}, "target": {"$ref": "#/$defs/text"},
+        "spark_type": {"anyOf": [{"enum": ["string", "boolean", "int", "bigint"]}, {"$ref": "#/$defs/decimalType"}]},
+        "value": {"type": ["string", "boolean", "integer", "null"]}
+      },
+      "allOf": [{
+        "if": {"properties": {"spark_type": {"$ref": "#/$defs/decimalType"}}, "required": ["spark_type"]},
+        "then": {"properties": {"value": {"type": ["string", "null"]}}}
+      }]
+    },
+    "decimalRule": {
+      "type": "object", "additionalProperties": false,
+      "required": ["kind", "left", "right", "target", "spark_type", "null_policy"],
+      "properties": {
+        "kind": {"enum": ["decimal_add", "decimal_subtract"]},
+        "left": {"$ref": "#/$defs/text"}, "right": {"$ref": "#/$defs/text"},
+        "target": {"$ref": "#/$defs/text"}, "spark_type": {"$ref": "#/$defs/sparkType"},
+        "null_policy": {"const": "propagate"}
+      }
+    }
+  }
+}

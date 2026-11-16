@@ -19,11 +19,19 @@ TableauToPowerBI Evidence role. Read `shared.instructions.md` before work.
 - `powerbi_import/visual_diff.py` - visual comparison evidence
 - `powerbi_import/monitoring.py`, `powerbi_import/sla_tracker.py` - monitoring evidence
 - `powerbi_import/bw_reconciliation.py`, `powerbi_import/bw_handoff.py`, and `powerbi_import/bw_transform_validation.py` - offline BW comparisons; declared local data only, not SAP/Fabric execution
+- `docs/fixtures/sap_bw_transform_vectors.example.json` and
+  `docs/fixtures/sap_bw_conversion_vectors.example.json` - synthetic vector
+  comparison fixtures; neither proves source or target execution
 - `powerbi_import/bw_wave_evidence_index.py` and
   `docs/schemas/sap_bw_wave_evidence.schema.json`,
   `docs/fixtures/sap_bw_wave_evidence.partial.example.json` - BW-7 index of
   declared per-object and operational evidence; references are not dereferenced,
   freshness/correctness are not verified, and runtime is not executed
+- `powerbi_import/bw_cutover_assessment.py`,
+  `docs/schemas/sap_bw_cutover.schema.json`,
+  `docs/fixtures/sap_bw_cutover.partial.example.json` - BW-8 local cutover and
+  retirement declarations; references/approvals are not authenticated or
+  dereferenced, and the assessment cannot authorize cutover or retirement
 
 ## Evidence Contract
 

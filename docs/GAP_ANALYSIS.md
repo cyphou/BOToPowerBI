@@ -146,7 +146,7 @@ blocking source/model findings.
 | Sorts | ✅ | → Visual sort configuration |
 | Input controls | ✅ | → Slicers |
 | Alerters | ✅ | → Conditional formatting rules |
-| Calculations (150+ functions) | ✅ | → DAX expressions |
+| Calculations (BO formula subset) | ⚠️ | DAX candidates require formula-level validation |
 
 ### Crystal Reports
 | Feature | Status | Notes |
@@ -203,16 +203,23 @@ blocking source/model findings.
 ### Full SAP BW warehouse migration
 
 The repository has a local, versioned BW inventory snapshot contract and
-validator/upgrader (`powerbi_import/bw_inventory.py`), plus a separate generator
-for an unbound Bronze notebook that reads explicitly staged Parquet. This is
-not a BW extractor, transformation/BEx conversion engine, direct-upstream
-ingestion pipeline, reconciliation service, or retirement workflow.
+validator/upgrader (`powerbi_import/bw_inventory.py`), an unbound Bronze
+notebook generator for explicitly staged Parquet, and a bounded normalized
+field-rule to PySpark converter. The latter covers transfers, typed constants
+and same-scale decimal addition/subtraction, not SAP metadata or ABAP parsing.
+These are not a BW extractor, general transformation/BEx conversion engine,
+direct-upstream ingestion pipeline, independent runtime reconciliation service,
+or retirement workflow.
 See the [BW-to-Fabric design](SAP_BW_TO_FABRIC_DESIGN.md) and
 [development plan](DEVELOPMENT_PLAN.md#separate-roadmap-sap-bwbw4hana-to-fabric-and-bw-retirement)
 for remaining scope and evidence gates. SAP/Fabric runtime checks remain
 `not_run`.
 
-## Formula Gap Summary
+## Historical Formula Gap Estimate
+
+The following figures are historical estimates, not a measured current
+coverage rate or proof of formula equivalence. In particular, current `Pos`
+and `DaysBetween` outputs require manual correction and validation.
 
 | Category | Total BO Functions | Supported | Gap |
 |----------|-------------------|-----------|-----|

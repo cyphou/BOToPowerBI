@@ -24,6 +24,7 @@ You own the local `--output-format fabric` generation path, not remote operation
 - `powerbi_import/fabric_item.py` - deterministic logical UUIDs and shared manifests
 - `powerbi_import/fabric_sources.py` - effective connections and exclusive ingestion ownership
 - `powerbi_import/bw_bronze_generator.py` and `docs/fixtures/sap_bw_bronze_plan.example.json` - separate, offline BW historical landing notebook and synthetic plan
+- `powerbi_import/bw_transform_generator.py`, `docs/schemas/sap_bw_conversion_plan.schema.json`, and the synthetic BW conversion plans - bounded normalized BW rules to an unbound Fabric notebook
 
 ## Workflow
 
@@ -47,6 +48,7 @@ You own the local `--output-format fabric` generation path, not remote operation
 
 - Local artifact generation and local tests are not proof of upload, refresh, Direct Lake binding, or Pipeline execution.
 - The BW Bronze path accepts explicitly staged Parquet; it is not SAP extraction, BW transformation, business reconciliation, or retirement.
+- The separate BW transformation path converts only its declared supported rules. Its optional local byte-hash and plan-to-ledger checks do not authenticate SAP origin or prove source-rule completeness. It does not parse ABAP, establish BW equivalence, or execute Fabric.
 - Report remote checks as `not_run` unless performed against an explicitly identified, authorized workspace.
 - Do not import Tableau-specific ingestion rules or claim validators that this repository does not implement.
 - Delegate workspace writes, deployment, authentication, and gateway work to Deployer.

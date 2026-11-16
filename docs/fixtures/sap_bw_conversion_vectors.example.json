@@ -1,0 +1,69 @@
+{
+  "schema_version": "1.0",
+  "suite_id": "synthetic-conversion-plan-vectors",
+  "transformation": {
+    "object_id": "SYNTHETIC-BW-01:TRANSFORMATION:FIELD-RULES",
+    "definition_reference": "synthetic://bw/definitions/field-rules",
+    "definition_sha256": "c5ae958c6e7447ba41b0c0d17dcba94613697fd8576549835dc089433e647a40"
+  },
+  "rules": {
+    "sale_id": {"mode": "exact"},
+    "region": {"mode": "exact"},
+    "gross_amount": {"mode": "exact"},
+    "net_amount": {"mode": "exact"},
+    "difference_amount": {"mode": "exact"},
+    "source_label": {"mode": "exact"}
+  },
+  "cases": [
+    {
+      "case_id": "positive-sales-row",
+      "input": {
+        "VenteID": "S-001",
+        "Montant": "120.00",
+        "Ajustement": "5.00",
+        "Région": "FR"
+      },
+      "expected_output": {
+        "sale_id": "S-001",
+        "region": "FR",
+        "gross_amount": "120.00",
+        "net_amount": "125.00",
+        "difference_amount": "115.00",
+        "source_label": "BW"
+      },
+      "target_output": {
+        "sale_id": "S-001",
+        "region": "FR",
+        "gross_amount": "120.00",
+        "net_amount": "125.00",
+        "difference_amount": "115.00",
+        "source_label": "BW"
+      }
+    },
+    {
+      "case_id": "negative-sales-row",
+      "input": {
+        "VenteID": "S-002",
+        "Montant": "-20.00",
+        "Ajustement": "2.50",
+        "Région": "BE"
+      },
+      "expected_output": {
+        "sale_id": "S-002",
+        "region": "BE",
+        "gross_amount": "-20.00",
+        "net_amount": "-17.50",
+        "difference_amount": "-22.50",
+        "source_label": "BW"
+      },
+      "target_output": {
+        "sale_id": "S-002",
+        "region": "BE",
+        "gross_amount": "-20.00",
+        "net_amount": "-17.50",
+        "difference_amount": "-22.50",
+        "source_label": "BW"
+      }
+    }
+  ]
+}

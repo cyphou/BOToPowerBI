@@ -11,11 +11,11 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/tests-497%20passed-brightgreen?style=flat-square" alt="Tests"/>
+  <img src="https://img.shields.io/badge/tests-563%20passed-brightgreen?style=flat-square" alt="Tests"/>
   <img src="https://img.shields.io/badge/python-3.12%2B-3776AB?style=flat-square&logo=python&logoColor=white" alt="Python"/>
   <img src="https://img.shields.io/badge/license-MIT-green?style=flat-square" alt="License"/>
   <img src="https://img.shields.io/badge/deps-zero-orange?style=flat-square" alt="Zero Dependencies"/>
-  <img src="https://img.shields.io/badge/DAX%20mappings-150%2B-blue?style=flat-square" alt="DAX Mappings"/>
+  <img src="https://img.shields.io/badge/DAX-BO%20formulas-blue?style=flat-square" alt="DAX Conversion"/>
   <img src="https://img.shields.io/badge/source%20formats-8-purple?style=flat-square" alt="Source Formats"/>
 </p>
 
@@ -23,7 +23,7 @@
   <a href="#-quick-start">Quick Start</a> •
   <a href="#-key-features">Features</a> •
   <a href="#-how-it-works">How It Works</a> •
-  <a href="#-dax-conversions-150-functions">DAX Mappings</a> •
+  <a href="#-dax-conversion-examples">DAX Mappings</a> •
   <a href="#-deployment">Deployment</a> •
   <a href="#-documentation">Docs</a>
 </p>
@@ -116,8 +116,8 @@ single-file hooks, not verified cloud outcomes; inspect service results separate
 ## SAP BW to Fabric: staged historical landing
 
 The full BW warehouse migration has a separate source contract, an offline
-BW-0 inventory review, and an initial Bronze notebook generator. Assess a local
-inventory snapshot with:
+BW-0 inventory review, a Bronze notebook generator, and a bounded transformation
+converter. Assess a local inventory snapshot with:
 
 ```powershell
 python migrate_bw_assess.py --inventory "docs\fixtures\sap_bw_inventory.partial.example.json" `
@@ -127,6 +127,11 @@ python migrate_bw_assess.py --inventory "docs\fixtures\sap_bw_inventory.partial.
 The report lists blockers and review items. `candidate_for_owner_review` does
 not close BW-0 or verify live discovery or owner attestation; the sample
 inventory is intentionally partial.
+
+The partial BW-0, BW-5, BW-6, BW-7 and BW-8 assessment examples write reports
+and return exit code `1` while blockers remain. Exit `0` indicates declarations
+ready for owner review, not approval; `2` indicates an input or output error.
+Each command requires a new output file.
 
 Given a BW inventory and an explicit plan
 for one already-exported Parquet snapshot, it creates an **unbound** Fabric
@@ -141,10 +146,10 @@ python migrate_bw.py --inventory "docs\fixtures\sap_bw_inventory.partial.example
 The generated code checks the declared columns and row count and requests a
 new Delta table without overwriting an existing table. Execution requires an authorized
 lakehouse binding and explicitly staged, immutable files. A row-count match is
-not independent reconciliation with BW. The tool does not yet extract SAP
-data, migrate BW transformations/BEx, establish upstream feeds, or retire BW;
-Fabric execution remains `not_run`. The BO CLI, local MCP tools and bundle
-quality gate do not dispatch this separate BW path.
+not independent reconciliation with BW. This Bronze tool does not itself
+extract SAP data, convert transformations or BEx, establish upstream feeds, or
+retire BW; Fabric execution remains `not_run`. The BO CLI, local MCP tools and
+bundle quality gate do not dispatch this separate BW path.
 See the [BW design](docs/SAP_BW_TO_FABRIC_DESIGN.md) and
 [development plan](docs/DEVELOPMENT_PLAN.md#separate-roadmap-sap-bwbw4hana-to-fabric-and-bw-retirement).
 
@@ -156,7 +161,8 @@ python migrate_bw_reconcile.py --comparison "docs\fixtures\sap_bw_reconciliation
     --output "bw_reconciliation.json"
 ```
 
-The sample is synthetic. A passing comparison means only that the supplied
+The sample is synthetic. Tolerance calculations use exact decimal arithmetic.
+A passing comparison means only that the supplied
 control declarations match within their declared rules; the comparator does
 not collect or attest to SAP/Fabric measurements, compare sampled rows, or
 approve business equivalence. SAP extraction, Fabric execution and approval
@@ -179,7 +185,47 @@ running pipeline, or establish BW-independent operation. Source extraction,
 Fabric execution, BW-unavailable operation and business approval remain
 `not_run`.
 
-The BW-4 transformation-vector evaluator compares an owner-provided golden
+The separate BW-4 converter generates an **unbound** PySpark notebook from an
+explicitly normalized transformation plan. This invocation checks declarations
+only:
+
+```powershell
+python migrate_bw_convert.py `
+    --inventory "docs\fixtures\sap_bw_conversion_inventory.example.json" `
+    --transformation "docs\fixtures\sap_bw_conversion_plan.example.json" `
+    --output "bw_transform.ipynb"
+```
+
+The synthetic plan converts exact-type field transfers, typed string/boolean/
+integer and exactly representable decimal-string constants, and same-scale
+decimal addition/subtraction. It checks declared inventory lineage,
+rejects selected-object or ambiguously scoped unknowns and unsupported selected
+features, and rejects additional incoming transformation dependencies. The
+notebook checks Bronze schema, snapshot lineage and counts before creating a
+new Silver Delta table.
+
+To additionally check supplied definition bytes and a separately declared
+source-rule ledger before generation, provide both optional inputs:
+
+```powershell
+python migrate_bw_convert.py `
+    --inventory "docs\fixtures\sap_bw_conversion_inventory.example.json" `
+    --transformation "docs\fixtures\sap_bw_conversion_plan.example.json" `
+    --definition-file "docs\fixtures\sap_bw_conversion_definition.example.txt" `
+    --rule-ledger "docs\fixtures\sap_bw_source_rules.example.json" `
+    --output "bw_transform_ledger_checked.ipynb"
+```
+
+This mode checks the file's SHA-256 and one-to-one rule IDs, mappings and input
+schema against the declarations. It does **not** authenticate SAP origin or
+prove that the ledger covers the actual BW definition. The corresponding
+[Bronze plan](docs/fixtures/sap_bw_conversion_bronze_plan.example.json) names a
+fictional Parquet file that is not included. The tool does not parse SAP
+metadata or ABAP, reproduce DTP update semantics, or establish BW equivalence.
+Generated notebooks are not deployed or run; see the
+[conversion contract and limitations](docs/SAP_BW_TO_FABRIC_DESIGN.md#bw-4-local-conversion-normalized-rules-to-silver).
+
+The separate BW-4 transformation-vector evaluator compares a declared golden
 output with a separately declared target result using exact or explicitly
 toleranced field rules:
 
@@ -189,9 +235,63 @@ python migrate_bw_transform_validate.py `
     --output "bw_transform_report.json"
 ```
 
-The fixture is synthetic. The evaluator does not parse ABAP, run Spark/SQL,
-verify the provenance of the supplied outputs, or establish semantic
-equivalence. Source golden-case execution, target transformation execution and
+The fixture is synthetic. The evaluator does not parse ABAP, run generated
+Spark/SQL, verify the provenance of the supplied outputs, or establish
+semantic equivalence. Source golden-case execution, target transformation
+execution and business approval remain `not_run`.
+
+To bind a declared vector suite to the normalized conversion plan and inventory,
+use the separate plan-linked fixture and supply both plan arguments:
+
+```powershell
+python migrate_bw_transform_validate.py `
+    --vectors "docs\fixtures\sap_bw_conversion_vectors.example.json" `
+    --inventory "docs\fixtures\sap_bw_conversion_inventory.example.json" `
+    --transformation "docs\fixtures\sap_bw_conversion_plan.example.json" `
+    --output "bw_conversion_vector_report.json"
+```
+
+This checks the transformation identity and definition reference/hash, each
+case's input field set, and the output target set against the plan. It also
+locally evaluates the supported normalized transfer, typed constant and
+same-scale decimal add/subtract rules against each case's inputs and compares
+the computed values with `expected_output`. The report's
+`normalized_rule_evaluation` is separate from both
+`conversion_plan_linkage` and the value `comparison_status`. This local
+evaluation does not run the generated Spark code. Plan-valid Spark types
+outside the local evaluator subset are explicitly `not_run`; the CLI rejects
+invalid conversion-plan types before report generation. When evaluation runs,
+`input_validation_scope` is `referenced_rule_inputs_only`: unused input values
+are not type-checked. Otherwise the scope is `not_run`. These checks do not
+prove that expected values came from BW or target values came from Fabric;
+source/target execution, vector provenance and business approval remain
+unverified or `not_run`.
+With linked inputs, the CLI returns a nonzero exit code if either the
+expected-versus-target comparison or normalized-rule evaluation fails.
+It can return 0 when comparison passes but normalized-rule evaluation is
+`not_run`; exit 0 does not imply that this evaluation ran or passed.
+
+To additionally run the source-declaration preflight, provide both local
+definition/ledger inputs as well as both plan-linkage inputs:
+
+```powershell
+python migrate_bw_transform_validate.py `
+    --vectors "docs\fixtures\sap_bw_conversion_vectors.example.json" `
+    --inventory "docs\fixtures\sap_bw_conversion_inventory.example.json" `
+    --transformation "docs\fixtures\sap_bw_conversion_plan.example.json" `
+    --definition-file "docs\fixtures\sap_bw_conversion_definition.example.txt" `
+    --rule-ledger "docs\fixtures\sap_bw_source_rules.example.json" `
+    --output "bw_conversion_vector_preflight_report.json"
+```
+
+The report's `source_declaration_preflight.status` is separate from
+`conversion_plan_linkage`, `normalized_rule_evaluation` and the vector-value
+`comparison_status`. A `pass` means only that the supplied local definition bytes hash to the declared
+definition hash and the declared ledger reconciles with the conversion plan.
+This hashes supplied local definition bytes and reconciles declarations only:
+it does not authenticate SAP origin, prove source-rule completeness or
+correspondence, establish vector provenance, execute SAP/Spark/Fabric, prove
+equivalence, or approve business results. SAP/source and target execution and
 business approval remain `not_run`.
 
 The BW-5 BEx capture contract and gap assessment are separate from conversion.
@@ -243,11 +343,38 @@ python migrate_bw_wave_assess.py `
 See the [BW-7 schema](docs/schemas/sap_bw_wave_evidence.schema.json), [synthetic
 partial fixture](docs/fixtures/sap_bw_wave_evidence.partial.example.json) and
 [design boundaries](docs/SAP_BW_TO_FABRIC_DESIGN.md#bw-7-offline-wave-evidence-index).
-The evaluator blocks an open BW-0 gate and applicable `not_run`/failed checks.
+The evaluator blocks a BW-0 review status of `open` and applicable
+`not_run`/failed checks.
 It preserves declarations but does not open referenced reports or validate
 their freshness or correctness. `candidate_for_owner_review` is not acceptance;
 the gate stays open for runtime/owner approval, with SAP/Fabric execution
 remaining `not_run`.
+
+The BW-8 cutover assessment reviews local declarations for one wave:
+
+```powershell
+python migrate_bw_cutover_assess.py `
+    --inventory "docs\fixtures\sap_bw_inventory.partial.example.json" `
+    --wave-evidence "docs\fixtures\sap_bw_wave_evidence.partial.example.json" `
+    --cutover "docs\fixtures\sap_bw_cutover.partial.example.json" `
+    --output "bw_cutover_assessment.json"
+```
+
+See the [BW-8 schema](docs/schemas/sap_bw_cutover.schema.json), [synthetic
+partial fixture](docs/fixtures/sap_bw_cutover.partial.example.json) and
+[design boundaries](docs/SAP_BW_TO_FABRIC_DESIGN.md#bw-8-offline-cutover-and-retirement-declaration-assessment).
+The assessment checks BW-0/BW-7 local declarations, dependency dispositions,
+upstream-feed operation, planning/retention sign-off, reconciliation thresholds,
+parallel-run and independent-observation durations, rollback planning, owner
+references, explicit owner acceptance of BW-0 through BW-7, and
+cutover/retirement declarations. Evidence and approval
+references are not authenticated or dereferenced. `declarations_complete_for_owner_review`
+is not acceptance or authorization: `gate_closed`, `cutover_authorized` and
+`retirement_authorized` remain false, and runtime checks remain `not_run`.
+Only inventory edges directly incident to the wave and consumers at their
+endpoints are checked. Transitive dependencies and the declared completeness
+of coverage are not verified; the report records
+`dependency_coverage_verification: not_verified`.
 
 ## Local Quality And MCP
 
@@ -312,8 +439,8 @@ reports, queries, datasources, formulas, prompts, filters, tables, columns, join
 </td>
 <td width="50%">
 
-### 🧮 150+ DAX Conversions
-Translates BO formulas to DAX:
+### 🧮 BO-to-DAX Formula Conversion
+Translates supported BO formula patterns to DAX candidates:
 aggregation, text, date, math, null handling, running calculations, context operators (In/ForEach/ForAll/Where), @Aggregate_Aware, security functions, Crystal syntax
 
 </td>
@@ -558,24 +685,27 @@ YourReport/
 
 ---
 
-## 🧮 DAX Conversions (150+ functions)
+## 🧮 DAX Conversion Examples
+
+These are illustrative patterns, not a complete table or proof of generated
+syntax or semantic equivalence. Current `Pos` output preserves BO argument order
+for `SEARCH`, and `DaysBetween` omits the DAX interval; correct and validate
+those expressions manually.
 
 <details>
-<summary><b>📋 Complete conversion table</b> (click to expand)</summary>
+<summary><b>📋 Illustrative conversion patterns</b> (click to expand)</summary>
 
-| Category | BO Formula | DAX Equivalent |
+| Category | BO Formula | Illustrative DAX Pattern |
 |----------|-----------|----------------|
 | Aggregation | `=Sum([Revenue])` | `SUM('Table'[Revenue])` |
 | Aggregation | `=Count([OrderID])` | `COUNT('Table'[OrderID])` |
 | Aggregation | `=Average([Price])` | `AVERAGE('Table'[Price])` |
 | Aggregation | `=DistinctCount([Customer])` | `DISTINCTCOUNT('Table'[Customer])` |
 | Text | `=Substr([Name],1,3)` | `MID('Table'[Name], 1, 3)` |
-| Text | `=Pos([Name],"A")` | `SEARCH("A", 'Table'[Name])` |
 | Text | `=Length([Name])` | `LEN('Table'[Name])` |
 | Text | `=Upper([Name])` | `UPPER('Table'[Name])` |
 | Date | `=Year([Date])` | `YEAR('Table'[Date])` |
 | Date | `=Month([Date])` | `MONTH('Table'[Date])` |
-| Date | `=DaysBetween([Start],[End])` | `DATEDIFF('Table'[Start], 'Table'[End], DAY)` |
 | Logic | `=If [X]>0 Then "Y" Else "N"` | `IF('Table'[X] > 0, "Y", "N")` |
 | Logic | `=If ... ElseIf ...` | `SWITCH(TRUE(), ...)` |
 | Math | `=Round([Value],2)` | `ROUND('Table'[Value], 2)` |
@@ -664,7 +794,7 @@ BOToPowerBI/
 │   ├── universe_extractor.py          #   Universe (UNX/UNV) extraction
 │   ├── lumira_extractor.py            #   Lumira extraction
 │   ├── biar_reader.py                 #   BIAR/LCMBIAR archive reader
-│   ├── dax_converter.py               #   150+ BO formula → DAX
+│   ├── dax_converter.py               #   BO formula → DAX candidates
 │   ├── m_query_builder.py             #   Power Query M generator (15+ connectors)
 │   ├── server_client.py               #   BO CMS REST API client
 │   └── converted_objects_adapter.py   #   Bridge: 15 JSON types → generation layer
@@ -704,15 +834,17 @@ BOToPowerBI/
 
 | Flag | Description |
 |------|-------------|
+| `--help` / `-h` | Show CLI help |
 | `input` | Path to `.wid`, `.rpt`, `.unx`, `.unv`, `.lumx`, or `.lums` file |
 | `--biar FILE` | Path to BIAR/LCMBIAR archive for batch migration |
 | `--batch DIR` | Directory containing BO artifacts for batch migration |
 | `--server URL` | BO CMS download/extraction path; not target generation |
 | `--folder PATH` | Server folder to migrate |
 | `--user NAME` | BO server username |
-| `--password SECRET` | BO server password |
+| `--password SECRET` | BO server password; command-line arguments can expose secrets |
 | `--auth TYPE` | Authentication type: `enterprise`, `ldap`, `windows`, `sap` |
-| `--output-dir DIR` | Custom output directory |
+| `--token TOKEN` | Pre-authenticated BO session token; command-line arguments can expose secrets |
+| `--output-dir DIR` / `-o DIR` | Custom output directory |
 | `--output-format FORMAT` | Output format: `pbip` (default) or `fabric` |
 | `--shared-model FILE [FILE ...]` | Build shared semantic model from multiple reports |
 | `--model-name NAME` | Name for shared semantic model |
@@ -737,9 +869,14 @@ BOToPowerBI/
 | `--verbose` / `-v` | Enable debug logging |
 | `--no-optimize-dax` | Skip DAX optimization pass |
 | `--no-compare` | Skip comparison report generation |
-| `--universe FILE` | Path to universe file for additional metadata |
+| `--universe FILE` | Parsed but not used to load additional metadata |
+| `--no-universe` | Parsed but not used to disable universe extraction |
 
 </details>
+
+BW entry points are separate from the BO flags above; run
+`python migrate_bw_convert.py --help` for the normalized transformation
+converter, or use the [BW examples](#sap-bw-to-fabric-staged-historical-landing).
 
 ---
 
@@ -790,17 +927,19 @@ The `tenants.json` file specifies per-tenant workspace IDs and connection string
 ## 🧪 Testing
 
 <p align="center">
-  <img src="https://img.shields.io/badge/tests-497%20passed-brightgreen?style=for-the-badge" alt="Tests"/>
+  <img src="https://img.shields.io/badge/tests-563%20passed-brightgreen?style=for-the-badge" alt="Tests"/>
 </p>
 
 ```bash
 python -m pytest tests/ --tb=short -o addopts="" -q
 ```
 
-Latest local measurement on 2026-11-11: **497 passed, 365 subtests passed**.
-A prior run on 2026-10-28 recorded 419 tests and 242 subtests. Neither result is
-a feature-parity score or evidence of Desktop rendering, deployed refresh, or
-Fabric execution. See [Contributing](CONTRIBUTING.md) for test-tool installation.
+Latest local measurement on 2026-11-16: **563 passed, 531 subtests passed**.
+Earlier local runs recorded 558 tests and 518 subtests on 2026-11-12,
+513 tests and 374 subtests on 2026-11-11, and 419 tests and 242 subtests on
+2026-10-28. These results are not a feature-parity
+score or evidence of Desktop rendering, deployed refresh, or Fabric execution.
+See [Contributing](CONTRIBUTING.md) for test-tool installation.
 Coverage is a separate CI gate, not measured by this command.
 
 ### CI/CD Pipeline

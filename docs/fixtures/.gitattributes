@@ -1,0 +1,2 @@
+# Preserve definition bytes while allowing its intentional CRLF line endings.
+sap_bw_conversion_definition.example.txt -text whitespace=cr-at-eol
