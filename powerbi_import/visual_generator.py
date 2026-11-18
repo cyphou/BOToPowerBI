@@ -22,7 +22,7 @@ import json
 import hashlib
 import logging
 
-from powerbi_import.pbip_generator import _L
+from powerbi_import.pbip_generator import _L, _aggregation_query_refs
 
 logger = logging.getLogger(__name__)
 
@@ -214,7 +214,7 @@ VISUAL_TYPE_MAP = {
     "stackedareachart": "stackedAreaChart",
     "donutchart": "donutChart",
     "waterfallchart": "waterfallChart",
-    "lineStackedColumnComboChart": "lineStackedColumnComboChart",
+    "linestackedcolumncombochart": "lineStackedColumnComboChart",
 
     # ── BO-native chart types (from WebI / Crystal Reports) ─
     "horizontal_bar": "clusteredBarChart",
@@ -521,8 +521,8 @@ VISUAL_DATA_ROLES = {
     "matrix":                            (["Rows", "Columns"], ["Values"]),
     "pivotTable":                        (["Rows", "Columns"], ["Values"]),
     "slicer":                            (["Values"], []),
-    "lineStackedColumnComboChart":       (["Category"], ["ColumnY", "LineY"]),
-    "lineClusteredColumnComboChart":     (["Category"], ["ColumnY", "LineY"]),
+    "lineStackedColumnComboChart":       (["Category"], ["Y", "Y2"]),
+    "lineClusteredColumnComboChart":     (["Category"], ["Y", "Y2"]),
     "map":                               (["Category", "Location"], ["Size", "Color"]),
     "azureMap":                           (["Latitude", "Longitude"], ["Size", "Color"]),
     "filledMap":                         (["Location"], ["Color"]),
@@ -776,9 +776,8 @@ def _get_config_template(visual_type):
 
 # Aggregation function mapping
 _AGG_FUNC_MAP = {
-    "sum": 1, "min": 2, "max": 3, "count": 4,
-    "countnonnull": 5, "avg": 6, "average": 6,
-    "distinctcount": 7,
+    "sum": 0, "min": 3, "max": 4, "count": 2,
+    "countnonnull": 5, "avg": 1, "average": 1,
 }
 
 
@@ -1979,12 +1978,20 @@ def build_query_state(pbi_type, dimensions, measures, col_table_map,
         else:
             func_name, col_name = '', expr.strip() if expr else ''
 
-        func_id = _AGG_FUNC_MAP.get(func_name, 1)
+        if func_name and func_name not in _AGG_FUNC_MAP:
+            logger.warning(
+                "Unsupported visual aggregation %r for %r; skipping projection",
+                func_name, measure_label,
+            )
+            continue
+        func_id = _AGG_FUNC_MAP.get(func_name, 0)
         table_name = col_table_map.get(col_name, '')
         if not table_name and col_table_map:
             table_name = next(iter(col_table_map.values()), 'Table')
         if table_name and col_name:
-            agg_name = func_name.capitalize() if func_name else 'Sum'
+            query_ref, native_query_ref = _aggregation_query_refs(
+                table_name, col_name, func_id,
+            )
             proj = {
                 "field": {
                     "Aggregation": {
@@ -1997,8 +2004,8 @@ def build_query_state(pbi_type, dimensions, measures, col_table_map,
                         "Function": func_id,
                     },
                 },
-                "queryRef": f"{agg_name}({table_name}.{col_name})",
-                "nativeQueryRef": col_name,
+                "queryRef": query_ref,
+                "nativeQueryRef": native_query_ref,
             }
             if measure_label:
                 proj["displayName"] = measure_label
@@ -2025,7 +2032,8 @@ def build_query_state(pbi_type, dimensions, measures, col_table_map,
     for i, role_name in enumerate(meas_roles):
         if i < len(meas_projections):
             query_state[role_name] = {"projections": [meas_projections[i]]}
-        elif meas_projections:
+        elif meas_projections and pbi_type not in (
+                "lineStackedColumnComboChart", "lineClusteredColumnComboChart"):
             query_state[role_name] = {"projections": [meas_projections[0]]}
 
     return query_state if query_state else None

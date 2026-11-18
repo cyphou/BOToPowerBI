@@ -303,7 +303,7 @@ class MigrationReport:
                 return cls.APPROXIMATE
 
         # Check for leaked BO functions
-        for pattern in _TABLEAU_LEAK_PATTERNS:
+        for pattern in _BO_LEAK_PATTERNS:
             if pattern.search(dax):
                 return cls.APPROXIMATE
 

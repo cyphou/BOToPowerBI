@@ -22,6 +22,7 @@ import json
 import logging
 import os
 import sys
+import tempfile
 
 logger = logging.getLogger(__name__)
 
@@ -71,9 +72,11 @@ class MigrationSession:
 
         from bo_export.extract_bo_data import extract_bo_data
 
-        self._workbook_path = os.path.abspath(workbook_path)
-        output_dir = os.path.join(base, 'bo_export')
-        self._extracted = extract_bo_data(self._workbook_path, output_dir)
+        workbook_path = os.path.abspath(workbook_path)
+        with tempfile.TemporaryDirectory(prefix='bo_notebook_load_') as output_dir:
+            extracted = extract_bo_data(workbook_path, output_dir)
+        self._workbook_path = workbook_path
+        self._extracted = extracted
 
         summary = {}
         for key, value in self._extracted.items():
@@ -300,12 +303,8 @@ class MigrationSession:
         """
         self._require_loaded()
 
+        from bo_export.extract_bo_data import _write_json_outputs
         from powerbi_import.import_to_powerbi import PowerBIImporter
-
-        base = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        source_dir = os.path.join(base, 'bo_export')
-
-        importer = PowerBIImporter(source_dir=source_dir)
 
         # Apply DAX overrides to extracted calculations
         if self._dax_overrides:
@@ -316,18 +315,20 @@ class MigrationSession:
                     calc['_dax_override'] = self._dax_overrides[name]
 
         if output_dir is None:
-            import tempfile
             output_dir = os.path.join(tempfile.gettempdir(), 'pbi_notebook_output')
 
-        result = importer.import_all(
-            generate_pbip=True,
-            output_dir=output_dir,
-            calendar_start=self._config.get('calendar_start', 2020),
-            calendar_end=self._config.get('calendar_end', 2030),
-            culture=self._config.get('culture', 'en-US'),
-            model_mode=self._config.get('mode', 'import'),
-            languages=self._config.get('languages'),
-        )
+        with tempfile.TemporaryDirectory(prefix='bo_notebook_generate_') as source_dir:
+            _write_json_outputs(self._extracted, source_dir)
+            importer = PowerBIImporter(source_dir=source_dir)
+            result = importer.import_all(
+                generate_pbip=True,
+                output_dir=output_dir,
+                calendar_start=self._config.get('calendar_start', 2020),
+                calendar_end=self._config.get('calendar_end', 2030),
+                culture=self._config.get('culture', 'en-US'),
+                model_mode=self._config.get('mode', 'import'),
+                languages=self._config.get('languages'),
+            )
         self._generated_path = output_dir
 
         summary = {

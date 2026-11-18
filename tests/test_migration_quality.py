@@ -10,6 +10,7 @@ from unittest.mock import patch
 from migrate import EXIT_SUCCESS, EXIT_VALIDATION_ERROR, main
 from powerbi_import.fabric_validator import FabricProjectValidator
 from powerbi_import.migration_quality import build_quality_report, save_quality_report
+from powerbi_import.migration_report import MigrationReport
 from powerbi_import.fabric_semantic_model_generator import FabricSemanticModelGenerator
 from powerbi_import.dataflow_generator import DataflowGenerator
 from powerbi_import.notebook_generator import NotebookGenerator
@@ -18,6 +19,25 @@ from powerbi_import.fabric_project_generator import FabricProjectGenerator
 from powerbi_import.pipeline_generator import PipelineGenerator
 from powerbi_import.calc_column_utils import bo_formula_to_m, bo_formula_to_pyspark, classify_calculations
 from powerbi_import.fabric_sources import table_connection, is_file_connection, build_ingestion_plan
+
+
+class TestMigrationReport(unittest.TestCase):
+    def test_calculations_classify_dax_without_crashing(self):
+        report = MigrationReport('Synthetic')
+        report.add_calculations([
+            {'name': 'Total', 'formula': 'Sum([Amount])'},
+            {'name': 'Unconverted', 'formula': 'IsNull([Amount])'},
+            {'name': 'Missing', 'formula': 'Unknown([Amount])'},
+        ], {
+            'Total': 'SUM(Sales[Amount])',
+            'Unconverted': 'ifnull(Sales[Amount], 0)',
+        })
+
+        self.assertEqual(
+            [item['status'] for item in report.items],
+            [MigrationReport.EXACT, MigrationReport.APPROXIMATE, MigrationReport.SKIPPED],
+        )
+        self.assertEqual(report.get_summary()['total_items'], 3)
 
 
 class TestMigrationQuality(unittest.TestCase):

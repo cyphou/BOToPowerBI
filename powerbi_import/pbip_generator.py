@@ -34,6 +34,15 @@ _TABLEAU_AGG_TO_PBI_FUNC = {
     'median': 0, 'attr': 0,
 }
 
+_AGGREGATION_REF_NAMES = {
+    0: ('Sum', 'Sum of'),
+    1: ('Avg', 'Average of'),
+    2: ('Count', 'Count of'),
+    3: ('Min', 'Minimum of'),
+    4: ('Max', 'Maximum of'),
+    5: ('CountNonNull', ''),
+}
+
 # Add parent directory to path for imports
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -82,6 +91,19 @@ def _rmtree_with_retry(path, attempts=3, delay=0.5):
 def _L(v):
     """PBIR expression literal wrapper."""
     return {"expr": {"Literal": {"Value": v}}}
+
+
+def _aggregation_query_refs(entity, prop, function):
+    names = _AGGREGATION_REF_NAMES.get(function)
+    if names is None:
+        logger.warning(
+            "PBIR aggregation function %s requires manual semantic and reference review",
+            function,
+        )
+        return f"{entity}.{prop}", prop
+    query_name, native_prefix = names
+    native_name = f"{native_prefix} {prop}" if native_prefix else prop
+    return f"{query_name}({entity}.{prop})", native_name
 
 
 def _pbi_literal(v):
@@ -638,7 +660,7 @@ class PowerBIProjectGenerator:
                           ':Measure Names', ':Measure Values'}
             fields = ws_data.get('fields', [])
             has_measure = any(
-                self._is_measure_field(self._clean_field_name(f.get('name', '')))
+                self._is_measure_source_field(f)
                 for f in fields
                 if self._clean_field_name(f.get('name', '')) not in skip_names
             )
@@ -668,7 +690,7 @@ class PowerBIProjectGenerator:
                     row_meas = [
                         f for f in fields
                         if f.get('shelf') == 'rows'
-                        and self._is_measure_field(self._clean_field_name(f.get('name', '')))
+                        and self._is_measure_source_field(f)
                     ]
                     if row_meas and all(
                         calc_formulas.get(self._clean_field_name(f.get('name', '')).strip('[]'), '') == 'min(1)'
@@ -1799,7 +1821,7 @@ class PowerBIProjectGenerator:
                               ':Measure Names', ':Measure Values'}
                 fields = ws.get('fields', [])
                 has_measure = any(
-                    self._is_measure_field(self._clean_field_name(f.get('name', '')))
+                    self._is_measure_source_field(f)
                     for f in fields
                     if self._clean_field_name(f.get('name', '')) not in skip_names
                 )
@@ -1827,7 +1849,7 @@ class PowerBIProjectGenerator:
                         row_meas = [
                             f for f in fields
                             if f.get('shelf') == 'rows'
-                            and self._is_measure_field(self._clean_field_name(f.get('name', '')))
+                            and self._is_measure_source_field(f)
                         ]
                         if row_meas and all(
                             calc_formulas.get(self._clean_field_name(f.get('name', '')).strip('[]'), '') == 'min(1)'
@@ -2112,6 +2134,10 @@ class PowerBIProjectGenerator:
             if hasattr(self, '_measure_names') and prop in self._measure_names:
                 return True
         return False
+
+    def _is_measure_source_field(self, field):
+        return (field.get('role') == 'measure'
+                or self._is_measure_field(self._clean_field_name(field.get('name', ''))))
     
     def _clean_field_name(self, name):
         """Strip all known Tableau derivation prefixes from a field name"""
@@ -2166,8 +2192,8 @@ class PowerBIProjectGenerator:
         "matrix":                            (["Rows", "Columns"], ["Values"]),
         "pivotTable":                        (["Rows", "Columns"], ["Values"]),
         "slicer":                            (["Values"], []),
-        "lineStackedColumnComboChart":       (["Category", "Series"], ["ColumnY", "LineY"]),
-        "lineClusteredColumnComboChart":     (["Category", "Series"], ["ColumnY", "LineY"]),
+        "lineStackedColumnComboChart":       (["Category", "Series"], ["Y", "Y2"]),
+        "lineClusteredColumnComboChart":     (["Category", "Series"], ["Y", "Y2"]),
         "map":                               (["Category", "Series"], ["Size"]),
         "filledMap":                         (["Category", "Series"], ["Size"]),
         "shapeMap":                          (["Location"], ["Color"]),
@@ -2205,8 +2231,7 @@ class PowerBIProjectGenerator:
         }
         for f in cleaned_fields:
             shelf = f.get('shelf', '')
-            is_mea = (shelf == 'measure_value'
-                      or self._is_measure_field(f['name']))
+            is_mea = (shelf == 'measure_value' or self._is_measure_source_field(f))
 
             if shelf == 'measure_value':
                 result['expanded_meas'].append(f)
@@ -2295,8 +2320,8 @@ class PowerBIProjectGenerator:
         # Promote text-shelf measures to axis_meas when there are no axis
         # measures yet (e.g. pie/donut charts where the value sits on text
         # shelf in Tableau).
-        text_meas = [f for f in text_fields if self._is_measure_field(f['name'])]
-        text_dims = [f for f in text_fields if not self._is_measure_field(f['name'])]
+        text_meas = [f for f in text_fields if self._is_measure_source_field(f)]
+        text_dims = [f for f in text_fields if not self._is_measure_source_field(f)]
         if not axis_meas and text_meas:
             axis_meas = text_meas
             text_fields = text_dims
@@ -2313,14 +2338,18 @@ class PowerBIProjectGenerator:
         # ── Per-visual-type role assignment ───────────────────────
 
         if visual_type == 'scatterChart':
-            # Scatter: all dims → Category (detail grouping)
+            # Scatter: first dim → Category, second dim → Series
             #          cols measures → X, rows measures → Y, 3rd → Size
             scatter_dims = axis_dims + color_dims
             if scatter_dims:
-                query_state["Category"] = {
-                    "projections": [self._make_projection_entry(d)
-                                    for d in scatter_dims]
-                }
+                query_state["Category"] = self._make_projection(scatter_dims[0])
+            if len(scatter_dims) >= 2:
+                query_state["Series"] = self._make_projection(scatter_dims[1])
+            if len(scatter_dims) > 2:
+                logger.warning(
+                    "Scatter visual has %d grouping fields; only two can be represented",
+                    len(scatter_dims),
+                )
             # In Tableau: columns = X-axis, rows = Y-axis.
             # Use cols_meas first for X, rows_meas for Y.
             scatter_meas = (cols_meas + rows_meas + expanded_meas
@@ -2490,9 +2519,9 @@ class PowerBIProjectGenerator:
             elif len(axis_dims) >= 2:
                 query_state["Series"] = self._make_projection(axis_dims[1])
             if axis_meas:
-                query_state["ColumnY"] = self._make_projection(axis_meas[0])
+                query_state["Y"] = self._make_projection(axis_meas[0])
             if len(axis_meas) >= 2:
-                query_state["LineY"] = self._make_projection(axis_meas[1])
+                query_state["Y2"] = self._make_projection(axis_meas[1])
 
         elif visual_type == 'waterfallChart':
             if axis_dims:
@@ -2611,57 +2640,9 @@ class PowerBIProjectGenerator:
         """Creates projection entry for scatter chart axes.
         Named DAX measures → Measure wrapper.
         Physical columns → Aggregation wrapper with shelf-aware Function ID."""
-        raw_name = field.get('name', 'Field')
-        clean_name = self._clean_field_name(raw_name)
-
-        if hasattr(self, '_field_map') and clean_name in self._field_map:
-            entity, prop = self._field_map[clean_name]
-        else:
-            entity = getattr(self, '_main_table', 'Table')
-            prop = clean_name
-            for ds in getattr(self, '_datasources_ref', []):
-                for calc in ds.get('calculations', []):
-                    calc_id = calc.get('name', '').replace('[', '').replace(']', '')
-                    if calc_id == clean_name:
-                        prop = calc.get('caption', clean_name)
-                        self._field_map[clean_name] = (entity, prop)
-                        break
-
-        is_bim_measure = hasattr(self, '_bim_measure_names') and (
-            clean_name in self._bim_measure_names or prop in self._bim_measure_names
-        )
-
-        shelf_agg = field.get('aggregation', '')
-        agg_func = _TABLEAU_AGG_TO_PBI_FUNC.get(shelf_agg, 0)
-
-        if is_bim_measure:
-            field_ref = {
-                "Measure": {
-                    "Expression": {"SourceRef": {"Entity": entity}},
-                    "Property": prop
-                }
-            }
-        else:
-            # Physical column: wrap as Aggregation with shelf-aware Function ID
-            field_ref = {
-                "Aggregation": {
-                    "Expression": {
-                        "Column": {
-                            "Expression": {"SourceRef": {"Entity": entity}},
-                            "Property": prop
-                        }
-                    },
-                    "Function": agg_func
-                }
-            }
-
-        return {
-            "field": field_ref,
-            "queryRef": f"{entity}.{prop}",
-            "active": True
-        }
+        return self._make_projection_entry(field, force_aggregation=True)
     
-    def _make_projection_entry(self, field):
+    def _make_projection_entry(self, field, force_aggregation=False):
         """Creates a projection entry for a field, resolved to the Power BI model.
 
         Wrapper selection:
@@ -2694,7 +2675,7 @@ class PowerBIProjectGenerator:
                         self._field_map[clean_name] = (entity, prop)
                         break
 
-        shelf_agg = field.get('aggregation', '')
+        shelf_agg = str(field.get('aggregation') or '').strip().lower()
         explicit_agg_func = _TABLEAU_AGG_TO_PBI_FUNC.get(shelf_agg)
 
         # Determine wrapper type
@@ -2715,7 +2696,7 @@ class PowerBIProjectGenerator:
                     "Property": prop
                 }
             }
-        elif is_physical_measure or explicit_agg_func is not None:
+        elif is_physical_measure or explicit_agg_func is not None or force_aggregation:
             # Physical column with aggregation — use shelf aggregation if present
             agg_func = explicit_agg_func if explicit_agg_func is not None else 0
             field_ref = {
@@ -2738,9 +2719,15 @@ class PowerBIProjectGenerator:
                 }
             }
 
+        if "Aggregation" in field_ref:
+            query_ref, native_query_ref = _aggregation_query_refs(entity, prop, agg_func)
+        else:
+            query_ref, native_query_ref = f"{entity}.{prop}", prop
+
         return {
             "field": field_ref,
-            "queryRef": f"{entity}.{prop}",
+            "queryRef": query_ref,
+            "nativeQueryRef": native_query_ref,
             "active": True
         }
     
@@ -3220,6 +3207,14 @@ class PowerBIProjectGenerator:
     def _build_axis_objects(self, objects, ws_data, visual_type):
         """Axis display, explicit axes, dual axis, enhanced config, continuous/discrete, sync."""
         formatting = ws_data.get('formatting', {})
+        if visual_type in (
+            'pieChart', 'donutChart', 'table', 'tableEx', 'matrix', 'pivotTable',
+            'card', 'multiRowCard', 'gauge', 'treemap', 'map', 'azureMap',
+            'filledMap', 'shapeMap',
+        ):
+            if ws_data.get('axes') or formatting.get('axis'):
+                logger.warning("Axis formatting cannot be represented on %s", visual_type)
+            return
 
         # Axis display (formatting.axis.display)
         axis_fmt = formatting.get('axis', {})
@@ -3782,7 +3777,8 @@ class PowerBIProjectGenerator:
                                     "Property": clean_field
                                 }
                             },
-                            "queryRef": f"{clean_table}.{clean_field}"
+                            "queryRef": f"{clean_table}.{clean_field}",
+                            "nativeQueryRef": clean_field,
                         }]
                     }
                 }

@@ -61,6 +61,19 @@
   they do not establish source type, runtime behavior or equivalence.
 
 ### Fixed
+- Legacy notebook sessions now isolate and clean up their intermediate BO
+  extraction instead of overwriting JSON in the repository source tree.
+  Notebook assessment and preview limitations remain; use the supported CLI.
+- PBIR visual resolution now preserves native stacked line-and-column combo
+  charts instead of falling back to a table. Combo bindings use the PBIR
+  `Y`/`Y2` roles, and visual projections include native query references.
+- BO chart field qualifications and explicit aggregations are used even
+  when universe column metadata is missing. This does not create missing
+  semantic-model columns or establish that a visual can be rendered.
+  The alternate visual generator warns and skips unsupported inline
+  aggregations instead of silently substituting another calculation.
+- Migration report DAX classification no longer crashes on ordinary formulas;
+  its existing leaked-function checks still mark matching formulas approximate.
 - SQL Server RDL generation now reports missing or inconsistent intermediate
   table structure explicitly instead of failing with an opaque Python error.
 - SQL Server RDL tables now fit within their declared body and distribute

@@ -10,6 +10,8 @@ import sys
 import tempfile
 import unittest
 import zipfile
+from pathlib import Path
+from unittest.mock import patch
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -451,6 +453,42 @@ class TestEndToEndGeneration(unittest.TestCase):
             self.assertGreater(len(converted["hierarchies"]), 0)
 
 
+class TestNotebookSessionIsolation(unittest.TestCase):
+    def test_sessions_do_not_write_or_share_extractions_in_source_tree(self):
+        from bo_export.extract_bo_data import extract_bo_data
+        from powerbi_import.notebook_api import MigrationSession
+
+        repo = Path(__file__).resolve().parents[1]
+        extraction_dirs = []
+
+        def guarded_extract(path, output_dir):
+            output = Path(output_dir).resolve()
+            self.assertNotEqual(output, (repo / "bo_export").resolve())
+            extraction_dirs.append(output)
+            return extract_bo_data(path, output_dir)
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            first = MigrationSession()
+            second = MigrationSession()
+            with patch("bo_export.extract_bo_data.extract_bo_data", side_effect=guarded_extract):
+                first.load(str(repo / "examples" / "Enterprise_Sales.wid"))
+                second.load(str(repo / "examples" / "HR_Analytics.wid"))
+
+            self.assertEqual(len(set(extraction_dirs)), 2)
+            self.assertTrue(all(not path.exists() for path in extraction_dirs))
+            first.generate(str(root / "sales"))
+            second.generate(str(root / "hr"))
+            first_tables = {p.stem for p in (root / "sales").rglob("*.tmdl")
+                            if p.parent.name == "tables"}
+            second_tables = {p.stem for p in (root / "hr").rglob("*.tmdl")
+                             if p.parent.name == "tables"}
+            self.assertIn("FACT_SALES", first_tables)
+            self.assertNotIn("DIM_EMPLOYEE", first_tables)
+            self.assertIn("DIM_EMPLOYEE", second_tables)
+            self.assertNotIn("FACT_SALES", second_tables)
+
+
 class TestCompatModule(unittest.TestCase):
     """Test the compat shim provides all expected functions."""
 
@@ -552,6 +590,180 @@ class TestVisualTypeMapping(unittest.TestCase):
         self.assertEqual(resolve_visual_type("combined_bar_line"), "lineClusteredColumnComboChart")
         self.assertEqual(resolve_visual_type("tag_cloud"), "wordCloud")
         self.assertEqual(resolve_visual_type("3d_pie"), "pieChart")
+
+    def test_native_stacked_combo_chart_is_preserved(self):
+        from powerbi_import.visual_generator import (
+            create_visual_container, resolve_custom_visual_type, resolve_visual_type,
+        )
+
+        visual_type = "lineStackedColumnComboChart"
+        for source in (visual_type, visual_type.upper()):
+            with self.subTest(source=source):
+                self.assertEqual(resolve_visual_type(source), visual_type)
+                self.assertEqual(resolve_custom_visual_type(source), (visual_type, None))
+                visual = create_visual_container({"name": "Sales", "visualType": source})
+                self.assertEqual(visual["visual"]["visualType"], visual_type)
+
+    def test_combo_queries_bind_independent_column_and_line_values(self):
+        from powerbi_import.pbip_generator import PowerBIProjectGenerator
+        from powerbi_import.visual_generator import create_visual_container
+
+        with tempfile.TemporaryDirectory() as output:
+            generator = PowerBIProjectGenerator(output)
+            generator._build_field_mapping({
+                "datasources": [{"tables": [{
+                    "name": "Sales",
+                    "columns": [
+                        {"name": "Country", "role": "dimension"},
+                        {"name": "Revenue", "role": "measure"},
+                        {"name": "Cost", "role": "measure"},
+                    ],
+                }]}],
+            })
+            for visual_type in ("lineStackedColumnComboChart", "lineClusteredColumnComboChart"):
+                with self.subTest(visual_type=visual_type):
+                    query = generator._build_visual_query({
+                        "chart_type": visual_type,
+                        "fields": [
+                            {"name": "Country", "role": "dimension"},
+                            {"name": "Revenue", "role": "measure", "aggregation": "SUM"},
+                            {"name": "Cost", "role": "measure", "aggregation": "SUM"},
+                        ],
+                    })["queryState"]
+                    self.assertEqual(set(query), {"Category", "Y", "Y2"})
+                    category = query["Category"]["projections"][0]
+                    self.assertEqual(category["nativeQueryRef"], "Country")
+                    for role, name in (("Y", "Revenue"), ("Y2", "Cost")):
+                        projection = query[role]["projections"][0]
+                        self.assertEqual(projection["field"]["Aggregation"]["Function"], 0)
+                        self.assertEqual(projection["queryRef"], f"Sum(Sales.{name})")
+                        self.assertEqual(projection["nativeQueryRef"], f"Sum of {name}")
+
+                    visual = create_visual_container({
+                        "name": "Combo",
+                        "visualType": visual_type,
+                        "dimensions": [{"name": "Country"}],
+                        "measures": [{"name": "Revenue"}, {"name": "Cost"}],
+                    }, col_table_map={"Country": "Sales"},
+                        measure_lookup={"Revenue": ("Sales", "1"), "Cost": ("Sales", "2")})
+                    state = visual["visual"]["query"]["queryState"]
+                    self.assertEqual(set(state), {"Category", "Y", "Y2"})
+                    self.assertEqual(state["Y"]["projections"][0]["nativeQueryRef"], "Revenue")
+                    self.assertEqual(state["Y2"]["projections"][0]["nativeQueryRef"], "Cost")
+
+                    visual = create_visual_container({
+                        "name": "Combo",
+                        "visualType": visual_type,
+                        "dimensions": [{"name": "Country"}],
+                        "measures": [
+                            {"name": "Revenue", "expression": "SUM(Revenue)"},
+                            {"name": "Cost", "expression": "AVG(Cost)"},
+                        ],
+                    }, col_table_map={"Country": "Sales", "Revenue": "Sales", "Cost": "Sales"})
+                    state = visual["visual"]["query"]["queryState"]
+                    for role, name, function, ref, native in (
+                        ("Y", "Revenue", 0, "Sum", "Sum of Revenue"),
+                        ("Y2", "Cost", 1, "Avg", "Average of Cost"),
+                    ):
+                        projection = state[role]["projections"][0]
+                        self.assertEqual(projection["field"]["Aggregation"]["Function"], function)
+                        self.assertEqual(projection["queryRef"], f"{ref}(Sales.{name})")
+                        self.assertEqual(projection["nativeQueryRef"], native)
+
+                    visual = create_visual_container({
+                        "name": "Combo",
+                        "visualType": visual_type,
+                        "dimensions": [{"name": "Country"}],
+                        "measures": [{"name": "Revenue"}],
+                    }, col_table_map={"Country": "Sales"},
+                        measure_lookup={"Revenue": ("Sales", "1")})
+                    state = visual["visual"]["query"]["queryState"]
+                    self.assertIn("Y", state)
+                    self.assertNotIn("Y2", state)
+
+    def test_bo_chart_field_roles_survive_missing_universe_column_metadata(self):
+        from powerbi_import.pbip_generator import PowerBIProjectGenerator
+
+        with tempfile.TemporaryDirectory() as output:
+            generator = PowerBIProjectGenerator(output)
+            generator._build_field_mapping({"datasources": []})
+            state = generator._build_visual_query({
+                "chart_type": "lineChart",
+                "fields": [
+                    {"name": "Year", "role": "dimension"},
+                    {"name": "Revenue", "role": "measure", "aggregation": "SUM"},
+                    {"name": "Margin", "role": "measure", "aggregation": "SUM"},
+                ],
+            })["queryState"]
+            self.assertEqual(set(state), {"Category", "Y"})
+            values = state["Y"]["projections"]
+            self.assertEqual(len(values), 2)
+            self.assertTrue(all(value["field"]["Aggregation"]["Function"] == 0
+                                for value in values))
+
+            scatter = {
+                "name": "Scatter",
+                "chart_type": "scatterChart",
+                "fields": [
+                    {"name": "Country", "role": "dimension"},
+                    {"name": "Region", "role": "dimension"},
+                    {"name": "Revenue", "role": "measure", "aggregation": "SUM"},
+                    {"name": "Margin", "role": "measure", "aggregation": "SUM"},
+                ],
+            }
+            generator._create_visual_worksheet(
+                output, scatter, {"worksheetName": "Scatter"}, 1, 1, 0,
+                [scatter], {"calculations": []},
+            )
+            path = next(Path(output).rglob("visual.json"))
+            visual = json.loads(path.read_text(encoding="utf-8"))["visual"]
+            self.assertEqual(visual["visualType"], "scatterChart")
+            state = visual["query"]["queryState"]
+            self.assertEqual(set(state), {"Category", "Series", "X", "Y"})
+            self.assertEqual(len(state["Category"]["projections"]), 1)
+
+    def test_filter_slicer_has_native_query_reference(self):
+        from powerbi_import.pbip_generator import PowerBIProjectGenerator
+
+        with tempfile.TemporaryDirectory() as output:
+            generator = PowerBIProjectGenerator(output)
+            slicer = generator._create_slicer_visual(
+                "slicer", 0, 0, 200, 200, "[Country]", "Sales", 0,
+            )
+            projection = slicer["visual"]["query"]["queryState"]["Values"]["projections"][0]
+            self.assertEqual(projection["queryRef"], "Sales.Country")
+            self.assertEqual(projection["nativeQueryRef"], "Country")
+
+    def test_unsupported_visual_aggregation_is_not_silently_summed(self):
+        from powerbi_import.visual_generator import create_visual_container
+
+        for expression in ("MEDIAN(Revenue)", "DISTINCTCOUNT(Revenue)"):
+            with self.subTest(expression=expression):
+                with self.assertLogs("powerbi_import.visual_generator", level="WARNING"):
+                    visual = create_visual_container({
+                        "name": "Chart",
+                        "visualType": "lineChart",
+                        "dimensions": [{"name": "Country"}],
+                        "measures": [{"name": "Revenue", "expression": expression}],
+                    }, col_table_map={"Country": "Sales", "Revenue": "Sales"})
+                state = visual["visual"]["query"]["queryState"]
+                self.assertNotIn("Y", state)
+
+    def test_non_axis_visuals_do_not_receive_axis_formatting(self):
+        from powerbi_import.pbip_generator import PowerBIProjectGenerator
+
+        with tempfile.TemporaryDirectory() as output:
+            generator = PowerBIProjectGenerator(output)
+            for visual_type in ("pieChart", "donutChart", "tableEx"):
+                with self.subTest(visual_type=visual_type):
+                    objects = generator._build_visual_objects(
+                        "Example", {"formatting": {}}, visual_type,
+                    )
+                    self.assertNotIn("categoryAxis", objects)
+                    self.assertNotIn("valueAxis", objects)
+            objects = generator._build_visual_objects("Example", {"formatting": {}}, "lineChart")
+            self.assertIn("categoryAxis", objects)
+            self.assertIn("valueAxis", objects)
 
     def test_multi_chart_per_report(self):
         """Reports with multiple charts produce multiple worksheets."""

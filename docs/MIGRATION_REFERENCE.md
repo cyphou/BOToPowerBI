@@ -327,6 +327,13 @@ remain available, as do archive batches and shared-model workflows. The separate
 declared RDL generator and legacy REST/notebook APIs are not changed by this CLI
 restriction.
 
+The legacy notebook `MigrationSession` is not a validated alternative to the
+CLI. On the included WebI example, its assessment raises an error and its DAX
+and visual previews omit extracted formulas and charts. Its override and
+validation workflows have not been verified. Loading and generation now use
+temporary, per-operation extraction directories rather than writing JSON into
+the repository; temporary files can still contain sensitive metadata.
+
 ### Desktop, Report Server, and paginated targets
 
 | Target | Local handoff |
@@ -1175,6 +1182,10 @@ It does not deploy to Fabric. See [MCP setup](FABRIC_MCP_SETUP.md) and the
 [dated capability comparison](GAP_ANALYSIS.md#tableautopowerbi-comparison---2026-10-27).
 
 Local quality is not proof of Desktop rendering, refresh, or Fabric execution.
+When extracted column metadata is incomplete, visual references can remain
+unresolved; these are quality warnings. Local PBIR checks do not cover every
+required visual role or field binding, so inspect the warnings and validate
+the report separately before relying on it.
 Fabric bundles still require identity/connection binding; the current semantic
 wrapper emits entity-based Direct Lake partitions for source tables and a shared
 OneLake expression. Calculated utility tables that remain Import are flagged.
