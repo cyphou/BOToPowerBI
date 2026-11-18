@@ -47,7 +47,6 @@ from bo_export.compat import (
     m_transform_filter_values,
     m_transform_filter_nulls,
     m_transform_add_column,
-    wrap_source_with_try_otherwise,
     generate_m_from_hyper,
 )
 
@@ -611,31 +610,6 @@ def _self_heal_model(model, recovery=None):
                             action="Deactivated to break cycle",
                             severity='info')
 
-    # 6. M query self-repair — ensure all M partitions have try/otherwise wrapping
-    for t in model.get('model', {}).get('tables', []):
-        tname = t.get('name', '')
-        for part in t.get('partitions', []):
-            src = part.get('source', {})
-            if src.get('type') != 'm':
-                continue
-            m_expr = src.get('expression', '')
-            if not m_expr or 'try' in m_expr:
-                continue  # Already wrapped or empty
-            # Only wrap partitions that have a 'let ... in' structure
-            if 'let' not in m_expr.lower():
-                continue
-            col_names = [c.get('name', '') for c in t.get('columns', []) if c.get('name')]
-            wrapped = wrap_source_with_try_otherwise(m_expr, col_names)
-            if wrapped != m_expr:
-                src['expression'] = wrapped
-                repairs += 1
-                if recovery:
-                    recovery.record('m_query', 'try_otherwise_wrap',
-                                    item_name=tname,
-                                    description=f"M partition for '{tname}' lacks error handling",
-                                    action="Wrapped Source with try...otherwise fallback",
-                                    severity='info')
-
     return repairs
 
 
@@ -779,8 +753,7 @@ def _configure_direct_lake(model_data, datasources, binding):
                 'schemaName': 'dbo', 'expressionSource': 'DirectLakeSource',
             }
         for column in table.get('columns', []):
-            source_column = column.get('sourceColumn', column['name'])
-            column['sourceColumn'] = sanitize_column_name(source_column)
+            column['sourceColumn'] = sanitize_column_name(column['name'])
             column.pop('expression', None)
             if column.get('type') == 'calculated':
                 column.pop('type')
@@ -1575,10 +1548,6 @@ def _build_table(table, connection, calculations, columns_metadata, dax_context=
     if m_steps:
         m_query = inject_m_steps(m_query, m_steps)
 
-    # Wrap Source step with try...otherwise for graceful error handling
-    col_names = [c.get('name', '') for c in columns if c.get('name')]
-    m_query = wrap_source_with_try_otherwise(m_query, col_names)
-
     # Determine partition mode based on model_mode
     # For composite: large tables use directQuery, small/lookup use import
     partition_mode = model_mode if model_mode in ('import', 'directQuery') else 'import'
@@ -1624,7 +1593,7 @@ def _build_table(table, connection, calculations, columns_metadata, dax_context=
         bim_column = {
             "name": unique_col_name,
             "dataType": map_tableau_to_powerbi_type(col.get('datatype', 'string')),
-            "sourceColumn": col.get('name', 'Column'),
+            "sourceColumn": col.get('sourceColumn') or col.get('name', 'Column'),
             "summarizeBy": "none"
         }
 

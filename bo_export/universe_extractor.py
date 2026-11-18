@@ -5,6 +5,7 @@ data foundation tables, joins, contexts, derived tables, and @Aggregate_Aware
 configurations.
 """
 
+import io
 import logging
 import os
 import re
@@ -130,7 +131,35 @@ def _parse_unx_file(input_path):
                 if root is not None:
                     metadata["connections"].append(root)
 
+        protected = _protected_unx_components(zf)
+        if protected:
+            logger.warning(
+                "UNX component(s) %s are CMS-protected (embedded 'Cipher' member) and "
+                "are not read; no decryption is attempted. Use an authorized CMS or a "
+                "SAP-supported export to obtain their metadata.",
+                ", ".join(protected),
+            )
+
     return metadata
+
+
+def _protected_unx_components(zf):
+    """Name nested UNX components that carry a 'Cipher' member."""
+    protected = []
+    for info in zf.infolist():
+        if info.is_dir() or info.file_size > 64 * 1024 * 1024:
+            continue
+        if not info.filename.lower().endswith((".dfx", ".blx", ".cns")):
+            continue
+        try:
+            with zf.open(info) as member:
+                nested = zipfile.ZipFile(io.BytesIO(member.read()))
+        except (zipfile.BadZipFile, OSError, RuntimeError, ValueError):
+            continue
+        with nested:
+            if any(name.casefold() == "cipher" for name in nested.namelist()):
+                protected.append(info.filename)
+    return protected
 
 
 def _parse_unv_file(input_path):
@@ -213,6 +242,7 @@ def _extract_tables(metadata):
                         "type": "derived" if "derived" in tag else "table",
                         "source": "universe",
                         "sql": table.get("sql", ""),
+                        "datasource": _datasource_reference(table),
                     })
 
     return tables
@@ -309,10 +339,19 @@ def _extract_derived_tables(metadata):
                 derived.append({
                     "name": table.get("name", "DerivedTable"),
                     "sql": sql.strip(),
-                    "datasource": "",
+                    "datasource": _datasource_reference(table),
                 })
 
     return derived
+
+
+def _datasource_reference(element):
+    """Return a source reference exactly as stored in the XML attribute."""
+    for attribute in ("datasource", "dataSource", "connection", "connectionId"):
+        value = element.get(attribute)
+        if value:
+            return value
+    return ""
 
 
 def _extract_predefined_formulas(metadata):

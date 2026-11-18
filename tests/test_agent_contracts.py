@@ -53,6 +53,20 @@ class TestAgentContracts(unittest.TestCase):
                         self.assertIn(target, self.agents)
                         self.assertNotEqual(target, name)
 
+    def test_webi_migration_coordinator_is_routable_without_module_ownership(self):
+        expert = self.agents['WebI Migration']
+        self.assertEqual(expert.get('user-invocable'), 'true')
+        targets = set(next(csv.reader([expert['agents'][1:-1]], skipinitialspace=True)))
+        self.assertTrue({
+            'Extractor', 'BusinessObjects', 'Wiring', 'Dax', 'Semantic',
+            'Visual', 'Evidence', 'Orchestrator', 'Tester',
+        }.issubset(targets))
+        orchestrator = self.agents['Orchestrator']['agents']
+        self.assertIn('WebI Migration', next(csv.reader(
+            [orchestrator[1:-1]], skipinitialspace=True,
+        )))
+        self.assertEqual(self.contract['owners']['WebI Migration'], [])
+
     def test_every_engine_module_has_exactly_one_primary_owner(self):
         owners = {}
         for agent, patterns in self.contract['owners'].items():

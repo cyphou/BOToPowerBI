@@ -140,6 +140,74 @@ class TestAssessmentE2E(unittest.TestCase):
         self.assertEqual(report.overall_score, "RED")
         self.assertGreater(report.total_fail, 0)
 
+    def test_missing_datasources_block_folder_import_readiness(self):
+        report = run_assessment(self._make_extracted(datasources=[]))
+        self.assertEqual(report.overall_score, "RED")
+        categories = {category.name: category for category in report.categories}
+        finding = categories["Datasource Compatibility"].checks[0]
+        self.assertEqual(finding.severity, "fail")
+        self.assertIn("No datasource definitions were extracted", finding.detail)
+        self.assertIn("does not establish", finding.recommendation)
+        self.assertEqual(categories["Connection String Security"].worst_severity, "info")
+        self.assertEqual(categories["Multi-Datasource"].worst_severity, "info")
+
+    def test_synthetic_datasource_is_not_treated_as_an_extracted_connector(self):
+        from bo_export.converted_objects_adapter import adapt_bo_to_converted_objects
+
+        converted = adapt_bo_to_converted_objects({
+            "datasources": [], "tables": [{"name": "Orders"}],
+        })
+        self.assertTrue(converted["datasources"][0]["is_synthetic"])
+        report = run_assessment(converted)
+        self.assertEqual(report.overall_score, "YELLOW")
+        categories = {category.name: category for category in report.categories}
+        checks = categories["Datasource Compatibility"].checks
+        self.assertTrue(any(c.severity == "warn" and "placeholder" in c.detail for c in checks))
+        self.assertFalse(any(c.name == "Connector: odbc" for c in checks))
+        self.assertEqual(categories["Connection String Security"].worst_severity, "info")
+        self.assertEqual(categories["Multi-Datasource"].worst_severity, "info")
+
+        real_source = adapt_bo_to_converted_objects({
+            "datasources": [{"name": "BO_DataSource", "type": "odbc"}],
+            "tables": [{"name": "Orders"}],
+        })
+        self.assertFalse(real_source["datasources"][0].get("is_synthetic", False))
+        self.assertEqual(run_assessment(real_source).overall_score, "GREEN")
+
+    def test_sql_without_a_matching_datasource_table_requires_review(self):
+        from bo_export.converted_objects_adapter import adapt_bo_to_converted_objects
+        from powerbi_import.server_assessment import run_server_assessment
+
+        datasources = [
+            {"name": "Source A", "type": "sql_server"},
+            {"name": "Source B", "type": "sql_server"},
+        ]
+        sql = {"name": "Query", "sql": "SELECT Id FROM Orders"}
+        cases = [
+            ([sql], "YELLOW", 1),
+            ([{**sql, "datasource": "Source A"}], "GREEN", 0),
+            ([{**sql, "datasource": "Source A"},
+              {**sql, "datasource": "Unknown"}], "YELLOW", 1),
+        ]
+        for queries, expected_score, expected_unmatched in cases:
+            with self.subTest(queries=queries):
+                converted = adapt_bo_to_converted_objects({
+                    "datasources": datasources, "custom_sql": queries,
+                })
+                report = run_assessment(converted)
+                self.assertEqual(report.overall_score, expected_score)
+                category = next(c for c in report.categories
+                                if c.name == "Datasource Compatibility")
+                sql_check = next(c for c in category.checks if c.name == "Custom SQL")
+                self.assertIn("generation and execution are not verified", sql_check.detail)
+                self.assertNotIn("Auto-converted", sql_check.detail)
+                unmatched = [c for c in category.checks if c.name == "Custom SQL binding"]
+                self.assertEqual(len(unmatched), expected_unmatched)
+                if unmatched:
+                    self.assertEqual(unmatched[0].severity, "warn")
+                portfolio = run_server_assessment([converted], ["SQL"])
+                self.assertEqual(portfolio.workbook_results[0].status, expected_score)
+
     def test_context_operator_detected(self):
         calcs = [{"name": "CtxSales", "formula": "In([Region]; Sum([Sales]))"}]
         report = run_assessment(self._make_extracted(calculations=calcs))
@@ -283,6 +351,28 @@ class TestDaxOptimizerProject(unittest.TestCase):
 
 class TestServerAssessment(unittest.TestCase):
     """Test server/portfolio assessment with BO data."""
+
+    def test_portfolio_preserves_missing_and_placeholder_datasource_findings(self):
+        from bo_export.converted_objects_adapter import adapt_bo_to_converted_objects
+        from powerbi_import.server_assessment import run_server_assessment
+
+        missing = adapt_bo_to_converted_objects({"datasources": [], "tables": []})
+        placeholder = adapt_bo_to_converted_objects({
+            "datasources": [], "tables": [{"name": "Orders"}],
+        })
+        real_source = adapt_bo_to_converted_objects({
+            "datasources": [{"name": "BO_DataSource", "type": "odbc"}],
+            "tables": [{"name": "Orders"}],
+        })
+        result = run_server_assessment(
+            [missing, placeholder, real_source], ["missing", "placeholder", "real"],
+        )
+        self.assertEqual(
+            [report.status for report in result.workbook_results],
+            ["RED", "YELLOW", "GREEN"],
+        )
+        self.assertEqual((result.red_count, result.yellow_count, result.green_count), (1, 1, 1))
+        self.assertEqual(result.connector_census, {"odbc": 1})
 
     def test_compute_complexity_bo(self):
         from powerbi_import.server_assessment import _compute_complexity

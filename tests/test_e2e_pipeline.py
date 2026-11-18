@@ -9,10 +9,12 @@ import os
 import sys
 import tempfile
 import unittest
+import zipfile
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from bo_export.converted_objects_adapter import adapt_bo_to_converted_objects
+from bo_export.lumira_extractor import extract_lumira
 
 
 def _make_sample_bo_extraction():
@@ -110,6 +112,45 @@ def _make_sample_bo_extraction():
              "sql": "SELECT TOP 100 customer_name, SUM(amount) FROM orders GROUP BY customer_name ORDER BY 2 DESC"},
         ],
     }
+
+
+class TestLumiraObjectExtraction(unittest.TestCase):
+    def test_explicit_table_and_chart_bindings_are_preserved(self):
+        metadata = {
+            "datasets": [{"name": "Sales"}],
+            "dimensions": [
+                {"name": "Région", "type": "string", "table": "Sales"},
+                {"name": "Unassigned", "type": "string"},
+            ],
+            "measures": [{"name": "Revenue", "type": "decimal", "table": "Sales"}],
+            "pages": [{"name": "Overview"}],
+            "visualizations": [
+                {"name": "Sales chart", "type": "bar", "report": "Overview",
+                 "dimensions": ["Région"], "measures": ["Revenue"]},
+            ],
+        }
+        with tempfile.TemporaryDirectory() as temporary:
+            path = os.path.join(temporary, "sample.lumx")
+            with zipfile.ZipFile(path, "w") as archive:
+                archive.writestr("metadata.json", json.dumps(metadata))
+            extracted = extract_lumira(path)
+
+        columns = {column["name"]: column for column in extracted["columns"]}
+        self.assertEqual(columns["Région"]["table"], "Sales")
+        self.assertEqual(columns["Revenue"]["table"], "Sales")
+        self.assertNotIn("table", columns["Unassigned"])
+        chart = extracted["charts"][0]
+        self.assertEqual(chart["report"], "Overview")
+        self.assertEqual(chart["dimensions"], ["Région"])
+        self.assertEqual(chart["measures"], ["Revenue"])
+        converted = adapt_bo_to_converted_objects(extracted)
+        sales = converted["datasources"][0]["tables"][0]
+        self.assertEqual({column["name"] for column in sales["columns"]},
+                         {"Région", "Revenue"})
+        self.assertEqual(
+            [field["name"] for field in converted["worksheets"][0]["fields"]],
+            ["Région", "Revenue"],
+        )
 
 
 class TestBridgeAdapter(unittest.TestCase):
@@ -227,6 +268,48 @@ class TestBridgeAdapter(unittest.TestCase):
         field_names = [f["name"] for f in bar_ws["fields"]]
         self.assertIn("Country", field_names)
         self.assertIn("Revenue", field_names)
+
+    def test_unlinked_charts_are_not_discarded_or_assigned_to_source_reports(self):
+        extracted = {
+            "reports": [{"name": "Overview"}],
+            "charts": [
+                {"name": "Bound", "type": "bar", "report": "Overview",
+                 "dimensions": ["Region"], "measures": ["Revenue"]},
+                {"name": "Trend", "type": "line",
+                 "dimensions": ["Year"], "measures": ["Revenue"]},
+                {"name": "Overview", "type": "pie", "tab": "Missing"},
+            ],
+        }
+
+        converted = adapt_bo_to_converted_objects(extracted)
+        worksheets = {ws["name"]: ws for ws in converted["worksheets"]}
+
+        self.assertEqual(set(worksheets), {"Overview", "Trend", "Overview (2)"})
+        self.assertEqual(worksheets["Overview"]["chart_type"], "clusteredBarChart")
+        self.assertEqual(worksheets["Trend"]["chart_type"], "lineChart")
+        self.assertEqual(worksheets["Overview (2)"]["chart_type"], "pieChart")
+        self.assertEqual(
+            [field["name"] for field in worksheets["Trend"]["fields"]],
+            ["Year", "Revenue"],
+        )
+        dashboards = {dashboard["name"]: dashboard for dashboard in converted["dashboards"]}
+        self.assertEqual(dashboards["BO_Dashboard"]["worksheets"], ["Overview"])
+        self.assertEqual(
+            dashboards["BO_Unassigned_Charts"]["worksheets"], ["Trend", "Overview (2)"]
+        )
+
+    def test_charts_without_reports_are_flagged_without_dropping_prompts(self):
+        converted = adapt_bo_to_converted_objects({
+            "charts": [{"name": "Trend", "type": "line"}],
+            "prompts": [{"name": "Choose region", "type": "text"}],
+        })
+
+        self.assertTrue(converted["worksheets"][0]["source_chart_unlinked"])
+        self.assertEqual(converted["dashboards"][0]["name"], "BO_Unassigned_Charts")
+        self.assertEqual(
+            [obj["type"] for obj in converted["dashboards"][0]["objects"]],
+            ["worksheetReference", "parameter_control"],
+        )
 
     def test_dashboards(self):
         dbs = self.converted["dashboards"]

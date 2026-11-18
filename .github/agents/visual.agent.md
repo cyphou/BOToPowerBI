@@ -12,6 +12,7 @@ You are the **Visual** agent for the BusinessObjects to Power BI migration proje
 - `powerbi_import/layout_engine.py` - report layout
 - `powerbi_import/bookmark_generator.py`, `powerbi_import/theme_generator.py` - interactions and themes
 - `powerbi_import/paginated_generator.py` - paginated layouts
+- `docs/fixtures/webi_rdl_mapping.example.json` - synthetic declared WebI RDL mapping
 - `powerbi_import/alerts_generator.py`, `powerbi_import/goals_generator.py`, `powerbi_import/geo_passthrough.py` - visual/report features
 - Merger owns thin-report generation; coordinate layout-only changes with that owner. Web Designer owns HTML presentation, not PBIR.
 

@@ -26,7 +26,7 @@
       "migrate.py", "migrate_bw.py", "migrate_bw_assess.py", "migrate_bw_reconcile.py",
       "migrate_bw_handoff.py", "migrate_bw_transform_validate.py", "migrate_bw_bex_assess.py",
       "migrate_bw_controls_assess.py", "migrate_bw_wave_assess.py", "migrate_bw_cutover_assess.py",
-      "migrate_bw_convert.py",
+      "migrate_bw_convert.py", "migrate_paginated.py", "migrate_lcm_inventory.py",
       "generate_report.py", "powerbi_import/import_to_powerbi.py",
       "powerbi_import/parallel_engine.py", "powerbi_import/progress.py",
       "powerbi_import/incremental.py", "powerbi_import/wizard.py",
@@ -36,12 +36,19 @@
     ],
     "Extractor": [
       "bo_export/__init__.py", "bo_export/extract_bo_data.py",
-      "bo_export/webi_extractor.py", "bo_export/crystal_extractor.py",
+      "bo_export/webi_extractor.py", "bo_export/webi_snapshot_adapter.py",
+      "bo_export/lcm_manifest.py",
+      "bo_export/crystal_extractor.py",
       "bo_export/universe_extractor.py", "bo_export/lumira_extractor.py",
       "bo_export/biar_reader.py", "bo_export/batch_report.py",
       "bo_export/converted_objects_adapter.py", "bo_export/compat.py"
     ],
-    "BusinessObjects": ["bo_export/server_client.py"],
+    "BusinessObjects": [
+      "bo_export/server_client.py", "docs/schemas/webi_query_plan.schema.json",
+      "docs/fixtures/webi_query_plan.example.json",
+      "docs/schemas/webi_document_snapshot.schema.json",
+      "docs/fixtures/webi_document_snapshot.example.json"
+    ],
     "Dax": ["bo_export/dax_converter.py", "powerbi_import/dax_optimizer.py", "powerbi_import/dax_recipes.py"],
     "Wiring": ["bo_export/m_query_builder.py", "powerbi_import/m_query_generator.py", "powerbi_import/calc_column_utils.py"],
     "Semantic": ["powerbi_import/tmdl_generator.py", "powerbi_import/semantic_intelligence.py", "powerbi_import/model_templates.py"],
@@ -49,6 +56,7 @@
       "powerbi_import/pbip_generator.py", "powerbi_import/visual_generator.py",
       "powerbi_import/layout_engine.py", "powerbi_import/bookmark_generator.py",
       "powerbi_import/theme_generator.py", "powerbi_import/paginated_generator.py",
+      "docs/fixtures/webi_rdl_mapping.example.json",
       "powerbi_import/alerts_generator.py", "powerbi_import/goals_generator.py",
       "powerbi_import/geo_passthrough.py"
     ],
@@ -88,6 +96,7 @@
       "powerbi_import/bw_reconciliation.py", "docs/schemas/sap_bw_reconciliation.schema.json",
       "docs/fixtures/sap_bw_reconciliation.example.json",
       "powerbi_import/bw_handoff.py", "docs/fixtures/sap_bw_handoff.example.json",
+      "docs/schemas/sap_bw_handoff.schema.json",
       "powerbi_import/bw_transform_validation.py",
       "docs/fixtures/sap_bw_transform_vectors.example.json",
       "docs/fixtures/sap_bw_conversion_vectors.example.json",
@@ -125,9 +134,11 @@
     "Tester": ["tests/**/*.py"],
     "Converter": [],
     "Generator": [],
+    "WebI Migration": [],
     "Reviewer": []
   },
   "collaboration": [
+    {"path": "bo_export/batch_report.py", "primary": "Extractor", "collaborators": ["Evidence", "Web Designer"], "boundary": "Batch manifest parsing and safe output-link resolution remain Extractor-owned; Evidence defines interpretation limits and Web Designer reviews presentation/accessibility."},
     {"path": "powerbi_import/tmdl_generator.py", "primary": "Semantic", "collaborators": ["Healing", "Dax", "Wiring", "Fabric"], "boundary": "Repair helpers, conversion/writer integration, and Direct Lake; no whole-file ownership transfer."},
     {"path": "powerbi_import/validator.py", "primary": "Assessor", "collaborators": ["Healing", "Dax"], "boundary": "Repair-only APIs and formula semantics; deterministic validation remains authoritative."},
     {"path": "powerbi_import/calc_column_utils.py", "primary": "Wiring", "collaborators": ["Dax", "Fabric"], "boundary": "Classification and M/PySpark materialization contracts."},

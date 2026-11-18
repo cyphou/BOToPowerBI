@@ -23,9 +23,9 @@ from .calc_column_utils import (
     sanitize_calc_col_name,
 )
 from .fabric_naming import sanitize_query_name as _sanitize_query_name
-from .fabric_naming import sanitize_table_name, sanitize_column_name
+from .fabric_naming import sanitize_table_name
 from .fabric_item import write_platform
-from .fabric_sources import table_connection, is_file_connection
+from .fabric_sources import table_connection, is_file_connection, column_source_mappings
 
 # Import M query builder from bo_export
 _parent = os.path.join(os.path.dirname(os.path.dirname(__file__)))
@@ -89,6 +89,7 @@ class DataflowGenerator:
                     m_query = generate_power_query_m(conn, table)
 
                 lh_table = sanitize_table_name(table_name)
+                column_mappings = column_source_mappings(table)
 
                 queries.append({
                     'name': query_name,
@@ -100,48 +101,76 @@ class DataflowGenerator:
                     'result_type': 'Table',
                     'load_enabled': True,
                     'column_count': len(table.get('columns', [])),
-                    'column_renames': [[column['name'], sanitize_column_name(column['name'])]
-                                       for column in table.get('columns', []) if column.get('name')],
+                    'column_renames': [[source, target] for source, target, explicit in column_mappings
+                                       if not explicit],
+                    'physical_column_renames': [[source, target] for source, target, explicit in column_mappings
+                                                if explicit],
+                    'required_source_columns': [source for source, _, explicit in column_mappings if explicit],
                 })
 
         # Custom SQL queries
         for sql_entry in custom_sql:
             sql_name = _sanitize_query_name(sql_entry.get('name', 'Custom_SQL'))
-            if sql_name not in seen_queries:
-                seen_queries.add(sql_name)
+            if sql_name in seen_queries:
+                continue
+            seen_queries.add(sql_name)
 
-                ds_name = sql_entry.get('datasource', '')
-                conn = {'type': 'SQL Server', 'details': {'server': 'localhost', 'database': 'MyDB'}}
-                for ds in datasources:
-                    if ds.get('name', '') == ds_name:
-                        conn = ds.get('connection', conn)
-                        break
-
-                sql_query = sql_entry.get('query', '')
-                server = conn.get('details', {}).get('server', 'localhost')
-                database = conn.get('details', {}).get('database', 'MyDB')
-                sql_escaped = sql_query.replace('"', '""')
-
-                m_query = (
-                    'let\n'
-                    '    // Custom SQL Query\n'
-                    f'    Source = Sql.Database("{server}", "{database}", '
-                    f'[Query="{sql_escaped}"]),\n'
-                    '    Result = Source\n'
-                    'in\n'
-                    '    Result'
+            sql_query = sql_entry.get('sql')
+            if not isinstance(sql_query, str) or not sql_query.strip():
+                raise ValueError(
+                    f"Custom SQL query {sql_name!r} has no non-empty 'sql' value"
                 )
 
-                lh_table = sanitize_table_name(sql_entry.get('name', 'Custom_SQL'))
-                queries.append({
-                    'name': sql_name,
-                    'description': f'Custom SQL: {sql_name}',
-                    'm_query': m_query,
-                    'lakehouse_table': lh_table,
-                    'source_type': 'Custom SQL',
-                    'result_type': 'Table',
-                    'load_enabled': True,
-                })
+            ds_reference = sql_entry.get('datasource')
+            if ds_reference is None or (
+                    isinstance(ds_reference, str) and not ds_reference.strip()):
+                if len(datasources) != 1:
+                    raise ValueError(
+                        f"Custom SQL query {sql_name!r} has no datasource reference "
+                        f"and requires exactly one datasource; found {len(datasources)}"
+                    )
+                datasource = datasources[0]
+            else:
+                reference = str(ds_reference)
+                matches = [
+                    ds for ds in datasources
+                    if str(ds.get('name', '')).casefold() == reference.casefold()
+                ]
+                if len(matches) != 1:
+                    reason = 'not found' if not matches else 'ambiguous'
+                    raise ValueError(
+                        f"Custom SQL query {sql_name!r} datasource {reference!r} "
+                        f"was {reason}"
+                    )
+                datasource = matches[0]
+
+            # BO extraction stores connection fields on the datasource; the
+            # adapter may instead provide them in its normalized connection.
+            connection = dict(datasource.get('connection') or {})
+            for key in ('type', 'server', 'database', 'schema', 'connection_string',
+                        'warehouse', 'file_path', 'site_url', 'url'):
+                if key not in connection and key in datasource:
+                    connection[key] = datasource[key]
+            if 'connection_string' not in connection:
+                connection['connection_string'] = connection.get(
+                    'connectionString', ''
+                )
+
+            m_query = generate_power_query_m(
+                connection,
+                {'name': sql_entry.get('name', 'Custom_SQL'), 'sql': sql_query},
+            )
+
+            lh_table = sanitize_table_name(sql_entry.get('name', 'Custom_SQL'))
+            queries.append({
+                'name': sql_name,
+                'description': f'Custom SQL: {sql_name}',
+                'm_query': m_query,
+                'lakehouse_table': lh_table,
+                'source_type': 'Custom SQL',
+                'result_type': 'Table',
+                'load_enabled': True,
+            })
 
         dataflow_def = self._build_dataflow_definition(queries)
 
@@ -178,6 +207,40 @@ class DataflowGenerator:
         steps_block = ',\n'.join(extra_lines)
         return f'{before_in},\n{steps_block}\nin\n    {prev_step}'
 
+    def _query_with_destination_column_names(self, query):
+        """Apply explicit source bindings before historical name normalization."""
+        from bo_export.m_query_builder import _m_escape_string
+
+        source = query['m_query'].rstrip().rstrip(';')
+        required = query.get('required_source_columns', [])
+        physical = [pair for pair in query.get('physical_column_renames', []) if pair[0] != pair[1]]
+        renames = [pair for pair in query.get('column_renames', []) if pair[0] != pair[1]]
+        if not (required or renames):
+            return source
+
+        def literal(value):
+            return '"' + _m_escape_string(value) + '"'
+
+        def pairs(values):
+            return ', '.join('{' + ', '.join(literal(value) for value in pair) + '}'
+                             for pair in values)
+
+        steps = ['SourceTable = ' + source]
+        previous = 'SourceTable'
+        if required:
+            columns = ', '.join(literal(value) for value in dict.fromkeys(required))
+            steps.append(f'MissingSourceColumns = List.Difference({{{columns}}}, Table.ColumnNames(SourceTable))')
+            steps.append('CheckedSource = if List.IsEmpty(MissingSourceColumns) then SourceTable '
+                         'else error ("Missing explicit BO source columns: " & Text.Combine(MissingSourceColumns, ", "))')
+            previous = 'CheckedSource'
+        if physical:
+            steps.append(f'PhysicalRenamedColumns = Table.RenameColumns({previous}, {{{pairs(physical)}}})')
+            previous = 'PhysicalRenamedColumns'
+        if renames:
+            steps.append(f'RenamedColumns = Table.RenameColumns({previous}, {{{pairs(renames)}}}, MissingField.Ignore)')
+            previous = 'RenamedColumns'
+        return 'let\n    ' + ',\n    '.join(steps) + f'\nin\n    {previous}'
+
     def _build_dataflow_definition(self, queries):
         """Build the Dataflow Gen2 JSON definition."""
         mashup_sections = []
@@ -185,15 +248,7 @@ class DataflowGenerator:
             query_name = q['name'].replace('"', '""')
             destination_name = query_name + '_DataDestination'
             table_name = q['lakehouse_table'].replace('"', '""')
-            query = q['m_query'].rstrip().rstrip(';')
-            renames = [[original, renamed] for original, renamed in q.get('column_renames', [])
-                       if original != renamed]
-            if renames:
-                rename_pairs = ', '.join('{' + ', '.join('"' + value.replace('"', '""') + '"'
-                                                         for value in pair) + '}' for pair in renames)
-                query = ('let\n    SourceTable = ' + query + ',\n'
-                         '    RenamedColumns = Table.RenameColumns(SourceTable, {' + rename_pairs + '}, MissingField.Ignore)\n'
-                         'in\n    RenamedColumns')
+            query = self._query_with_destination_column_names(q)
             mashup_sections.append(
                 '[DataDestinations = {[\n'
                 f'    Definition = [Kind = "Reference", QueryName = "{destination_name}", IsNewTarget = true],\n'
@@ -250,7 +305,7 @@ class DataflowGenerator:
                 f.write(f'// Query: {q["name"]}\n')
                 f.write(f'// Description: {q.get("description", "")}\n')
                 f.write(f'// Destination: {q.get("lakehouse_table", "")}\n\n')
-                f.write(q['m_query'])
+                f.write(self._query_with_destination_column_names(q))
                 f.write('\n')
 
     def _write_mashup_document(self, queries, definition=None):

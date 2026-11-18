@@ -37,9 +37,9 @@ from typing import Dict, List, Optional, Tuple
 logger = logging.getLogger(__name__)
 
 try:
-    from powerbi_import.assessment import run_assessment, AssessmentReport
+    from powerbi_import.assessment import run_assessment, AssessmentReport, _SQL_BINDING_CHECK
 except ImportError:
-    from assessment import run_assessment, AssessmentReport
+    from assessment import run_assessment, AssessmentReport, _SQL_BINDING_CHECK
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -220,7 +220,15 @@ def _assess_single_workbook(wb_name: str, extracted: dict) -> WorkbookReadiness:
                 info_c += 1
 
     # Classify status
-    if fail_c == 0 and warn_c <= 2:
+    datasources = extracted.get('datasources', [])
+    has_placeholder = any(ds.get('is_synthetic') for ds in datasources)
+    has_unmatched_sql = any(
+        check.name == _SQL_BINDING_CHECK and check.severity == "warn"
+        for category in report.categories for check in category.checks
+    )
+    if not datasources:
+        status = "RED"
+    elif fail_c == 0 and warn_c <= 2 and not (has_placeholder or has_unmatched_sql):
         status = "GREEN"
     elif fail_c <= 2:
         status = "YELLOW"
@@ -232,7 +240,9 @@ def _assess_single_workbook(wb_name: str, extracted: dict) -> WorkbookReadiness:
 
     # Extract connector types
     connectors = []
-    for ds in extracted.get('datasources', []):
+    for ds in datasources:
+        if ds.get('is_synthetic'):
+            continue
         conn = ds.get('connection', {})
         ctype = conn.get('type', 'unknown')
         if ctype and ctype not in connectors:
@@ -479,7 +489,7 @@ def generate_server_html_report(
 
     # Connector distribution
     if assessment.connector_census:
-        conn_items = [(conn, count, "#0078d4")
+        conn_items = [(conn, float(count), "#0078d4")
                       for conn, count in assessment.connector_census.items()]
         html += '<div class="chart-card"><h4>&#128268; Connector Census</h4>'
         html += bar_chart(conn_items)

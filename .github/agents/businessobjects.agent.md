@@ -12,6 +12,8 @@ Read `shared.instructions.md` before work.
 ## Your Files (You Own These)
 
 - `bo_export/server_client.py` - BO server client and session lifecycle
+- `docs/schemas/webi_query_plan.schema.json` and `docs/fixtures/webi_query_plan.example.json` - saved WebI API plan contract and synthetic example
+- `docs/schemas/webi_document_snapshot.schema.json` and `docs/fixtures/webi_document_snapshot.example.json` - read-only document inventory contract and synthetic example
 
 ## Server Contract
 

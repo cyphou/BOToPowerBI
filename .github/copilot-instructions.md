@@ -69,6 +69,7 @@ architecture diagram and `.github/agents/` for per-agent definitions.
 
 - The TableauToPowerBI role model is adapted to BO, with **BusinessObjects** replacing the Tableau server role and **Dax** retaining its existing BO frontmatter name.
 - Use **Evidence** for deterministic reports, **Healing** for bounded repair/ledger work, **AI** for optional LLM/pattern work, and **AgentTools** for the local MCP protocol.
+- Use **WebI Migration** to coordinate cross-cutting WebI-to-Power BI work; local parsing, CMS, model, visual, and evidence owners remain unchanged.
 - Use **Web Designer** for HTML presentation, **Visual** for PBIR, **Documentation Guardian** before/after capability or routing updates, and **Roadmap Planner** for the existing `docs/DEVELOPMENT_PLAN.md`.
 - Read `.github/agents/shared.instructions.md` and `.github/agents/ownership.json` before specialist edits. The ownership contract and `tests/test_agent_contracts.py` guard module coverage and exact delegation names.
 - These are Copilot development roles, not runtime stages automatically called by the migration CLI. Reapplying a role does not implement its missing Tableau counterpart modules.

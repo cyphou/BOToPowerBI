@@ -142,3 +142,7 @@ not a Fabric workspace connector. Its six tools are documented in
 - Never request passwords/tokens through chat, commit credentials, or print authentication output containing secrets.
 - Remote execution can incur cost or change data. Delegate to Deployer and follow the workload's authorization requirements.
 - Record actual operation results. Generated JSON/TMDL and passing pytest tests are local evidence only; unperformed Desktop/runtime checks are `not_run`.
+
+<!-- demo-studio:integration:start -->
+For requested demos or presentations, follow [the Demo Studio guide](../../../docs/DEMO_STUDIO.md); this Skill's domain rules, tool restrictions and evidence gates remain authoritative.
+<!-- demo-studio:integration:end -->

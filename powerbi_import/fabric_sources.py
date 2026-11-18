@@ -1,6 +1,6 @@
 """One connection-resolution and ingestion-routing contract for Fabric generators."""
 
-from .fabric_naming import sanitize_table_name
+from .fabric_naming import sanitize_column_name, sanitize_table_name
 
 
 def table_connection(datasource, table):
@@ -21,6 +21,33 @@ def table_connection(datasource, table):
 
 def is_file_connection(connection):
     return str(connection.get('type', '')).strip().lower() in {'csv', 'excel'}
+
+
+def column_source_mappings(table):
+    """Return physical, Delta, and explicit-source names for a table."""
+    mappings = [
+        (column.get('sourceColumn') or column['name'],
+         sanitize_column_name(column['name']), bool(column.get('sourceColumn')))
+        for column in table.get('columns', []) if column.get('name')
+    ]
+    if not any(explicit for _, _, explicit in mappings):
+        return mappings
+
+    sources = {}
+    targets = {}
+    for source, target, _ in mappings:
+        source_key, target_key = source.casefold(), target.casefold()
+        if source_key in sources and sources[source_key] != target_key:
+            raise ValueError(f'Fabric source column {source!r} in {table.get("name")!r} maps to multiple Delta columns')
+        if target_key in targets:
+            raise ValueError(f'Fabric Delta column {target!r} in {table.get("name")!r} is duplicated')
+        sources[source_key] = target_key
+        targets[target_key] = source_key
+    for source, target, _ in mappings:
+        source_key, target_key = source.casefold(), target.casefold()
+        if source_key != target_key and target_key in sources and sources[target_key] != target_key:
+            raise ValueError(f'Ambiguous Fabric column rename {source!r} to {target!r} in {table.get("name")!r}')
+    return mappings
 
 
 def datasource_has_connected_tables(datasource):

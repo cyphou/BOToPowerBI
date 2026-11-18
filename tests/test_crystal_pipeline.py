@@ -134,6 +134,69 @@ class TestCrystalExtractor(unittest.TestCase):
         names = [p["name"] for p in params]
         self.assertIn("Country", names)
 
+    def test_extract_field_names_with_spaces_unicode_and_punctuation(self):
+        metadata = {
+            "raw_text": (
+                "{Sales Orders.Région d'affaires / % (net)} "
+                "{Sales Orders.Total Revenue}"
+            ),
+        }
+
+        result = extract_crystal("dummy.rpt", artifact_data=metadata)
+
+        self.assertEqual([table["name"] for table in result["tables"]], ["Sales Orders"])
+        self.assertEqual(
+            [(column["table"], column["name"]) for column in result["columns"]],
+            [
+                ("Sales Orders", "Région d'affaires / % (net)"),
+                ("Sales Orders", "Total Revenue"),
+            ],
+        )
+        converted = adapt_bo_to_converted_objects(result)
+        converted_table = converted["datasources"][0]["tables"][0]
+        self.assertEqual(
+            [column["name"] for column in converted_table["columns"]],
+            ["Région d'affaires / % (net)", "Total Revenue"],
+        )
+
+    def test_extract_formula_and_parameter_names_with_special_characters(self):
+        formula_name = "Chiffre d'affaires / % (net)"
+        parameter_name = "Région sélectionnée / %"
+        result = extract_crystal("dummy.rpt", artifact_data={
+            "raw_text": f"{{?{parameter_name}}}",
+            "formulas_raw": [f"{{@{formula_name}}}"],
+        })
+
+        self.assertEqual([formula["name"] for formula in result["formulas"]], [formula_name])
+        self.assertEqual([prompt["name"] for prompt in result["prompts"]], [parameter_name])
+        converted = adapt_bo_to_converted_objects(result)
+        self.assertEqual([item["name"] for item in converted["calculations"]], [formula_name])
+        self.assertEqual([item["name"] for item in converted["parameters"]], [parameter_name])
+
+    def test_extract_group_and_sort_fields_with_spaces_and_punctuation(self):
+        field_name = "Region / Net (%)"
+        report_bytes = (
+            f"Group #1 on {{Sales Orders.{field_name}}}\n"
+            f"Sort on {{Sales Orders.{field_name}}} Descending"
+        ).encode("ascii")
+        with tempfile.NamedTemporaryFile(suffix=".rpt", delete=False) as report:
+            report.write(report_bytes)
+            report_path = report.name
+
+        try:
+            result = extract_crystal(report_path)
+        finally:
+            os.unlink(report_path)
+
+        self.assertEqual(
+            [(group["table"], group["object"]) for group in result["groups"]],
+            [("Sales Orders", field_name)],
+        )
+        self.assertEqual(
+            [(sort["object"], sort["order"]) for sort in result["sorts"]],
+            [(field_name, "descending")],
+        )
+
 
 class TestSubreportDrillThrough(unittest.TestCase):
     """Sprint 15: Crystal subreport → PBI drill-through page."""
@@ -417,6 +480,74 @@ class TestBatchValidation(unittest.TestCase):
             self.assertIn("sales_report", html_content)
             self.assertIn("broken_report", html_content)
             self.assertIn("50%", html_content)  # 1/2 = 50% success rate
+
+    def test_generate_migration_report_links_from_custom_location(self):
+        from bo_export.batch_report import generate_migration_batch_report
+        with tempfile.TemporaryDirectory() as tmp:
+            output_dir = os.path.join(tmp, "output")
+            rdl_dir = os.path.join(output_dir, "Sales.wid", "PaginatedReport")
+            os.makedirs(rdl_dir)
+            for filename in ("report.rdl", "query.m"):
+                with open(os.path.join(rdl_dir, filename), "w", encoding="utf-8") as handle:
+                    handle.write("fixture")
+            manifest = {
+                "artifacts": [{
+                    "source": "<script>alert(1)</script>.wid",
+                    "source_kind": "webi",
+                    "status": "success",
+                    "targets": {
+                        "paginated": {
+                            "status": "success",
+                            "output_dir": rdl_dir,
+                            "error": None,
+                        },
+                    },
+                    "warnings": ["Review selected query"],
+                }],
+                "skipped": [],
+            }
+            with open(os.path.join(output_dir, "batch_manifest.json"), "w", encoding="utf-8") as handle:
+                json.dump(manifest, handle)
+            report_path = os.path.join(tmp, "migration.html")
+            generate_migration_batch_report(output_dir, report_path)
+
+            with open(report_path, "r", encoding="utf-8") as handle:
+                report_html = handle.read()
+            self.assertIn('href="output/Sales.wid/PaginatedReport/report.rdl"', report_html)
+            self.assertIn('href="output/Sales.wid/PaginatedReport/query.m"', report_html)
+            self.assertIn("&lt;script&gt;alert(1)&lt;/script&gt;.wid", report_html)
+            self.assertNotIn("<script>alert(1)</script>", report_html)
+            self.assertIn("Review selected query", report_html)
+            self.assertIn("does not prove", report_html)
+            self.assertIn(".table-wrap", report_html)
+
+    def test_generate_migration_report_omits_symlinked_external_artifact(self):
+        from bo_export.batch_report import generate_migration_batch_report
+        with tempfile.TemporaryDirectory() as tmp:
+            output_dir = os.path.join(tmp, "output")
+            rdl_dir = os.path.join(output_dir, "Sales.wid", "PaginatedReport")
+            os.makedirs(rdl_dir)
+            external_report = os.path.join(tmp, "outside.rdl")
+            with open(external_report, "w", encoding="utf-8") as handle:
+                handle.write("fixture")
+            try:
+                os.symlink(external_report, os.path.join(rdl_dir, "report.rdl"))
+            except OSError:
+                self.skipTest("File symlinks are unavailable")
+            manifest = {
+                "artifacts": [{
+                    "source": "Sales.wid",
+                    "source_kind": "webi",
+                    "targets": {"paginated": {"status": "success", "output_dir": rdl_dir}},
+                }],
+                "skipped": [],
+            }
+            with open(os.path.join(output_dir, "batch_manifest.json"), "w", encoding="utf-8") as handle:
+                json.dump(manifest, handle)
+            report_path = generate_migration_batch_report(output_dir)
+            with open(report_path, "r", encoding="utf-8") as handle:
+                report_html = handle.read()
+            self.assertNotIn('href="Sales.wid/PaginatedReport/report.rdl"', report_html)
 
 
 if __name__ == "__main__":

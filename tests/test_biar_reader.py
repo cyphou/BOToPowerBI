@@ -1,11 +1,13 @@
 """Tests for the BIAR archive reader."""
 
+import io
 import os
 import tempfile
 import unittest
 import zipfile
 
 from bo_export.biar_reader import read_biar_archive, _classify_artifact
+from bo_export.extract_bo_data import extract_from_biar
 
 
 class TestClassifyArtifact(unittest.TestCase):
@@ -101,6 +103,43 @@ class TestReadBiarArchive(unittest.TestCase):
                 read_biar_archive(biar_path)
         finally:
             os.unlink(biar_path)
+
+    def test_extract_from_biar_parses_materialized_webi_artifact(self):
+        webi = io.BytesIO()
+        with zipfile.ZipFile(webi, "w") as wid:
+            wid.writestr(
+                "document.xml",
+                '<document><dataprovider name="Sales Query">'
+                '<resultobject name="Revenue" qualification="measure"/>'
+                '</dataprovider></document>',
+            )
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            biar_path = os.path.join(temp_dir, "reports.biar")
+            output_dir = os.path.join(temp_dir, "output")
+            with zipfile.ZipFile(biar_path, "w") as archive:
+                archive.writestr("reports/sales.wid", webi.getvalue())
+
+            results = extract_from_biar(biar_path, output_dir)
+
+            self.assertEqual(len(results), 1)
+            self.assertEqual(results[0]["queries"][0]["name"], "Sales Query")
+            self.assertTrue(
+                os.path.isfile(os.path.join(output_dir, "sales_pbi", "queries.json"))
+            )
+
+    def test_extract_from_biar_rejects_case_insensitive_output_name_collisions(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            biar_path = os.path.join(temp_dir, "reports.biar")
+            output_dir = os.path.join(temp_dir, "output")
+            with zipfile.ZipFile(biar_path, "w") as archive:
+                archive.writestr("reports/Sales.wid", b"first")
+                archive.writestr("universes/sales.unx", b"second")
+
+            with self.assertRaisesRegex(ValueError, "same output name"):
+                extract_from_biar(biar_path, output_dir)
+
+            self.assertFalse(os.path.exists(output_dir))
 
 
 if __name__ == "__main__":

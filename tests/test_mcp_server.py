@@ -126,21 +126,34 @@ class TestMCPServer(unittest.TestCase):
 
     def test_confirmed_generation_uses_local_cli_only(self):
         self.tools.allow_write = True
-        (self.root / 'Sales.wid').write_bytes(b'fixture')
+        (self.root / 'sources').mkdir()
+        (self.root / 'sources/Sales.wid').write_bytes(b'fixture')
         with patch('migrate.main', return_value=0) as migrate:
-            result = self.request('migrate', {'source': 'Sales.wid', 'output_dir': 'output', 'confirm': True})['result']
+            result = self.request('migrate', {'source': 'sources', 'output_dir': 'output', 'confirm': True})['result']
             self.assertFalse(result['isError'])
             self.assertNotIn('--deploy', migrate.call_args.args[0])
+            self.assertEqual(migrate.call_args.args[0][:2], ['--batch', str(self.root / 'sources')])
             self.assertEqual(result['structuredContent']['remote_execution'], 'not_run')
+
+    def test_confirmed_generation_rejects_individual_files(self):
+        self.tools.allow_write = True
+        (self.root / 'Sales.wid').write_bytes(b'fixture')
+        with patch('migrate.main') as migrate:
+            result = self.request('migrate', {'source': 'Sales.wid', 'output_dir': 'output', 'confirm': True})['result']
+            self.assertTrue(result['isError'])
+            self.assertIn('source must be a directory', str(result))
+            migrate.assert_not_called()
+        self.assertFalse((self.root / 'output').exists())
 
     def test_fabric_migration_exposes_quality_block_and_findings(self):
         self.tools.allow_write = True
-        (self.root / 'Sales.wid').write_bytes(b'fixture')
+        (self.root / 'sources').mkdir()
+        (self.root / 'sources/Sales.wid').write_bytes(b'fixture')
         (self.root / 'output').mkdir()
         report = {'status': 'FAIL', 'priorities': [{'owner': 'Fabric', 'message': 'Unsupported BO semantics'}]}
         with patch('migrate.main', return_value=6), \
              patch('powerbi_import.migration_quality.build_quality_report', return_value=report):
-            result = self.request('migrate', {'source': 'Sales.wid', 'output_dir': 'output',
+            result = self.request('migrate', {'source': 'sources', 'output_dir': 'output',
                                               'output_format': 'fabric', 'confirm': True})['result']
             self.assertTrue(result['isError'])
             self.assertFalse(result['structuredContent']['ok'])
@@ -170,12 +183,13 @@ class TestMCPServer(unittest.TestCase):
 
     def test_real_stdio_generation_and_quality_report(self):
         repository = Path(__file__).resolve().parents[1]
-        shutil.copyfile(repository / 'examples/Enterprise_Sales.wid', self.root / 'Sales.wid')
+        (self.root / 'sources').mkdir()
+        shutil.copyfile(repository / 'examples/Enterprise_Sales.wid', self.root / 'sources/Sales.wid')
         requests = [
             {'jsonrpc': '2.0', 'id': 1, 'method': 'initialize', 'params': {}},
             {'jsonrpc': '2.0', 'method': 'notifications/initialized'},
             {'jsonrpc': '2.0', 'id': 2, 'method': 'tools/call', 'params': {'name': 'migrate', 'arguments': {
-                'source': 'Sales.wid', 'output_dir': 'output', 'confirm': True}}},
+                'source': 'sources', 'output_dir': 'output', 'confirm': True}}},
             {'jsonrpc': '2.0', 'id': 3, 'method': 'tools/call', 'params': {'name': 'quality_report', 'arguments': {
                 'project_dir': 'output'}}},
         ]
@@ -190,16 +204,17 @@ class TestMCPServer(unittest.TestCase):
         self.assertEqual(report['summary']['projects'], 1)
         self.assertEqual(report['evidence']['data_refresh'], 'not_run')
         self.assertEqual(len(list((self.root / 'output').rglob('*.pbip'))), 1)
-        self.assertTrue((self.root / 'output/comparison_report.html').is_file())
+        self.assertTrue((self.root / 'output/Sales.wid/comparison_report.html').is_file())
 
     def test_real_stdio_fabric_generation_returns_blockers_not_success(self):
         repository = Path(__file__).resolve().parents[1]
-        shutil.copyfile(repository / 'examples/Enterprise_Sales.wid', self.root / 'Sales.wid')
+        (self.root / 'sources').mkdir()
+        shutil.copyfile(repository / 'examples/Enterprise_Sales.wid', self.root / 'sources/Sales.wid')
         requests = [
             {'jsonrpc': '2.0', 'id': 1, 'method': 'initialize', 'params': {}},
             {'jsonrpc': '2.0', 'method': 'notifications/initialized'},
             {'jsonrpc': '2.0', 'id': 2, 'method': 'tools/call', 'params': {'name': 'migrate', 'arguments': {
-                'source': 'Sales.wid', 'output_dir': 'output', 'output_format': 'fabric', 'confirm': True}}},
+                'source': 'sources', 'output_dir': 'output', 'output_format': 'fabric', 'confirm': True}}},
         ]
         process = subprocess.run([sys.executable, '-m', 'powerbi_import.mcp_server', '--root', str(self.root), '--allow-write'],
                                  input='\n'.join(json.dumps(request) for request in requests) + '\n',
@@ -216,5 +231,5 @@ class TestMCPServer(unittest.TestCase):
         self.assertTrue(any('Unsupported BO group' in finding['message']
                             for finding in payload['quality_report']['priorities']))
         self.assertEqual(payload['remote_execution'], 'not_run')
-        report_file = self.root / 'output/Sales/quality_report.json'
+        report_file = self.root / 'output/Sales.wid/Sales/quality_report.json'
         self.assertTrue(report_file.is_file())

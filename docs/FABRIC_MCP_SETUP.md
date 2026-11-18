@@ -38,14 +38,16 @@ The default workspace configuration does **not** enable writes.
 | `assess` | Assess a report/universe using temporary extraction | None |
 | `quality_report` | Static PBIP/Fabric report with actionable priorities | None |
 | `agent_handoff` | Filter the latest report's findings by owner | None |
-| `migrate` | Generate a single source or directory batch | Explicit opt-in |
+| `migrate` | Generate a directory batch | Explicit opt-in |
 | `shared_model` | Merge two or more sources into a model and thin reports | Explicit opt-in |
 
 Generation requires **both** startup `--allow-write` and tool argument
 `confirm=true`. All supplied paths must resolve within `--root`; existing nonempty
 outputs and symlink source/project trees are rejected. There are no deployment,
 refresh, credential, or arbitrary-command tools. Direct archive-file tool calls are
-not exposed; use the BIAR CLI or a batch directory for archives.
+not exposed; use the BIAR CLI or a batch directory for archives. Individual BO
+files cannot be submitted to `migrate`; use a source directory. `assess` still
+accepts an individual report or universe.
 `agent_handoff` is advisory and does not apply or acknowledge fixes.
 The standalone BW Bronze and normalized-transformation CLIs are not exposed
 through this six-tool server and do not enter the BO bundle quality gate.

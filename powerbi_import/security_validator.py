@@ -16,6 +16,7 @@ import logging
 import os
 import re
 import xml.etree.ElementTree as ET
+from urllib.parse import unquote_plus, urlsplit, urlunsplit
 
 logger = logging.getLogger(__name__)
 
@@ -281,6 +282,122 @@ def redact_credentials(text):
     for pattern, replacement in _CREDENTIAL_PATTERNS:
         result = pattern.sub(replacement, result)
     return result
+
+
+def redact_connection_string(text):
+    """Redact recognized authentication components in a connection string.
+
+    Handles common semicolon-delimited SQL/ODBC keys and URI userinfo/query
+    parameters. This is pattern-based rather than a complete parser for every
+    connection-string dialect; unrecognized key names or encodings may remain.
+
+    Args:
+        text: Connection string that may contain credentials.
+
+    Returns:
+        str: Connection string with recognized authentication values replaced
+        by ``***REDACTED***``.
+    """
+    if not text:
+        return text
+
+    sensitive_keys = {
+        "password", "passwd", "pwd",
+        "user", "userid", "username", "uid",
+        "token", "accesstoken",
+        "secret", "clientsecret",
+        "credential", "credentials",
+        "apikey", "accesskey", "accountkey",
+        "sharedaccesssignature",
+    }
+
+    def redact_component(component, force=False):
+        """Redact a key/value component without interpreting its secret value."""
+        equals_at = component.find("=")
+        if equals_at < 0:
+            return "***REDACTED***" if force else component
+
+        key = unquote_plus(component[:equals_at]).strip()
+        normalized_key = re.sub(r"[^a-z0-9]", "", key.lower())
+        if normalized_key not in sensitive_keys and not force:
+            return component
+
+        value = component[equals_at + 1:]
+        leading_len = len(value) - len(value.lstrip())
+        trailing_len = len(value) - len(value.rstrip())
+        trailing = value[len(value) - trailing_len:] if trailing_len else ""
+        return (
+            component[:equals_at + 1]
+            + value[:leading_len]
+            + "***REDACTED***"
+            + trailing
+        )
+
+    def redact_delimited(value, delimiters):
+        """Split only on unescaped delimiters outside quotes and ODBC braces."""
+        parts = []
+        start = 0
+        quote = None
+        in_braces = False
+        index = 0
+        while index < len(value):
+            char = value[index]
+            if char == "\\":
+                # Backslash-escaped delimiters and quotes are part of the value.
+                index += 2
+                continue
+            if quote is not None:
+                if char == quote:
+                    if index + 1 < len(value) and value[index + 1] == quote:
+                        index += 2
+                        continue
+                    quote = None
+                index += 1
+                continue
+            if in_braces:
+                if char == "}":
+                    if index + 1 < len(value) and value[index + 1] == "}":
+                        index += 2
+                        continue
+                    in_braces = False
+                index += 1
+                continue
+            if char in ("'", '"'):
+                quote = char
+            elif char == "{":
+                in_braces = True
+            elif char in delimiters:
+                parts.append(redact_component(value[start:index]))
+                parts.append(char)
+                start = index + 1
+            index += 1
+        parts.append(redact_component(
+            value[start:],
+            force=quote is not None or in_braces,
+        ))
+        return "".join(parts)
+
+    # Match ordinary URI schemes and nested forms such as jdbc:postgresql://.
+    uri_prefix = re.match(
+        r"^((?:[A-Za-z][A-Za-z0-9+.-]*:)*)([A-Za-z][A-Za-z0-9+.-]*://)",
+        text,
+    )
+    if uri_prefix:
+        prefix = uri_prefix.group(1)
+        uri = text[len(prefix):]
+        try:
+            parsed = urlsplit(uri)
+        except ValueError:
+            parsed = None
+        if parsed is not None:
+            netloc = parsed.netloc
+            if "@" in netloc:
+                _userinfo, host = netloc.rsplit("@", 1)
+                netloc = "***REDACTED***@" + host
+            query = redact_delimited(parsed.query, "&;")
+            return prefix + urlunsplit(parsed._replace(netloc=netloc, query=query))
+
+    return redact_delimited(text, ";")
 
 
 def redact_m_credentials(m_query):

@@ -1,0 +1,241 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:bo-to-powerbi:schema:sap-bw-handoff:1.0",
+  "title": "SAP BW normalized snapshot-to-delta handoff",
+  "description": "Strict local declaration contract for offline BW handoff evaluation; this is not a SAP feed or Fabric execution contract.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "feed_id",
+    "source_contract",
+    "snapshot",
+    "events",
+    "target"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "1.0"
+    },
+    "feed_id": {
+      "$ref": "#/$defs/nonEmptyText"
+    },
+    "source_contract": {
+      "$ref": "#/$defs/sourceContract"
+    },
+    "snapshot": {
+      "$ref": "#/$defs/snapshot"
+    },
+    "events": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/event"
+      }
+    },
+    "target": {
+      "$ref": "#/$defs/target"
+    }
+  },
+  "$defs": {
+    "nonEmptyText": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "\\S",
+      "allOf": [
+        {
+          "not": {
+            "pattern": "[\\u0000-\\u001F\\u007F]"
+          }
+        }
+      ]
+    },
+    "watermark": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "utcDateTime": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "(Z|\\+00:00)$"
+    },
+    "jsonValue": {
+      "type": [
+        "null",
+        "boolean",
+        "number",
+        "string",
+        "array",
+        "object"
+      ],
+      "items": {
+        "$ref": "#/$defs/jsonValue"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/jsonValue"
+      }
+    },
+    "sourceContract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "position_semantics",
+        "evidence_ref",
+        "schema_version",
+        "schema_fields"
+      ],
+      "properties": {
+        "position_semantics": {
+          "const": "contiguous_integer"
+        },
+        "evidence_ref": {
+          "$ref": "#/$defs/nonEmptyText"
+        },
+        "schema_version": {
+          "$ref": "#/$defs/nonEmptyText"
+        },
+        "schema_fields": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/nonEmptyText"
+          }
+        }
+      }
+    },
+    "record": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "key",
+        "values"
+      ],
+      "properties": {
+        "key": {
+          "$ref": "#/$defs/nonEmptyText"
+        },
+        "values": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/jsonValue"
+          }
+        }
+      }
+    },
+    "records": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/record"
+      }
+    },
+    "snapshot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "watermark",
+        "cutoff_utc",
+        "records"
+      ],
+      "properties": {
+        "watermark": {
+          "$ref": "#/$defs/watermark"
+        },
+        "cutoff_utc": {
+          "$ref": "#/$defs/utcDateTime"
+        },
+        "records": {
+          "$ref": "#/$defs/records"
+        }
+      }
+    },
+    "event": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "event_id",
+        "position",
+        "event_time_utc",
+        "operation",
+        "key",
+        "schema_version",
+        "values"
+      ],
+      "properties": {
+        "event_id": {
+          "$ref": "#/$defs/nonEmptyText"
+        },
+        "position": {
+          "$ref": "#/$defs/watermark"
+        },
+        "event_time_utc": {
+          "$ref": "#/$defs/utcDateTime"
+        },
+        "operation": {
+          "enum": [
+            "upsert",
+            "delete"
+          ]
+        },
+        "key": {
+          "$ref": "#/$defs/nonEmptyText"
+        },
+        "schema_version": {
+          "$ref": "#/$defs/nonEmptyText"
+        },
+        "values": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "additionalProperties": {
+            "$ref": "#/$defs/jsonValue"
+          }
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "operation": {
+                "const": "delete"
+              }
+            },
+            "required": [
+              "operation"
+            ]
+          },
+          "then": {
+            "properties": {
+              "values": {
+                "type": "null"
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "values": {
+                "type": "object"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "target": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "watermark",
+        "records"
+      ],
+      "properties": {
+        "watermark": {
+          "$ref": "#/$defs/watermark"
+        },
+        "records": {
+          "$ref": "#/$defs/records"
+        }
+      }
+    }
+  }
+}

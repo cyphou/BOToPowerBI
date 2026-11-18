@@ -154,11 +154,14 @@ def _extract_dimensions_measures(metadata):
                     if isinstance(items, list):
                         for item in items:
                             qual = "measure" if col_key == "measures" else "dimension"
-                            columns.append({
+                            column = {
                                 "name": item.get("name", item) if isinstance(item, dict) else str(item),
                                 "qualification": qual,
                                 "data_type": item.get("type", "string") if isinstance(item, dict) else "string",
-                            })
+                            }
+                            if isinstance(item, dict) and isinstance(item.get("table"), str) and item["table"]:
+                                column["table"] = item["table"]
+                            columns.append(column)
     return columns
 
 
@@ -172,11 +175,27 @@ def _extract_visualizations(metadata):
                     items = value[viz_key]
                     if isinstance(items, list):
                         for item in items:
-                            charts.append({
+                            chart = {
                                 "name": item.get("name", ""),
                                 "type": item.get("type", "bar"),
                                 "title": item.get("title", ""),
-                            })
+                            }
+                            for reference in ("report", "tab"):
+                                if isinstance(item.get(reference), str) and item[reference]:
+                                    chart[reference] = item[reference]
+                            for field_type in ("dimensions", "axes", "measures", "values", "series"):
+                                if field_type not in item:
+                                    continue
+                                fields = item[field_type]
+                                if (isinstance(fields, list)
+                                        and all(isinstance(field, (str, dict)) for field in fields)):
+                                    chart[field_type] = fields
+                                else:
+                                    logger.warning(
+                                        "Unsupported Lumira chart %s field list %s",
+                                        chart["name"], field_type,
+                                    )
+                            charts.append(chart)
     return charts
 
 

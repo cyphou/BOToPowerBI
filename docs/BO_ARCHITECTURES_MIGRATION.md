@@ -69,12 +69,12 @@ flowchart LR
 4. Configurer les connexions et, si nécessaire, la passerelle dans
    l'environnement autorisé. Ouvrir le PBIP et comparer les résultats à BO.
 
-Exemple local, avec des fichiers synthétiques du dépôt :
+Exemple local : placer les rapports à migrer dans un nouveau dossier `sources` :
 
 ```powershell
 python migrate.py "examples\Enterprise_Sales.wid" --assess
-python migrate.py "examples\Enterprise_Sales.wid" --output-dir "artifacts\bo-report"
-python migrate.py --validate-project "artifacts\bo-report\Enterprise_Sales" --quality-output "artifacts\bo-report-quality.json"
+python migrate.py "sources" --output-dir "artifacts\bo-report"
+python migrate.py --validate-project "artifacts\bo-report" --quality-output "artifacts\bo-report-quality.json"
 ```
 
 L'option `--universe` apparaît dans l'aide du CLI mais n'est actuellement pas
@@ -154,10 +154,127 @@ personnalisé au Dataflow ; les colonnes calculées sont matérialisées dans le
 notebook principal après ingestion. Inspecter le plan d'ingestion, de
 matérialisation et les constats de qualité avant de poursuivre.
 
+### SQL WebI/Universe et cible RDL
+
+Le SQL incorporé dans une requête WebI peut être repris en Power Query avec
+`Value.NativeQuery` dans une partition du modèle ou dirigé vers un Dataflow
+Gen2. Les partitions M générées ne reçoivent plus d'enveloppe automatique
+`try ... otherwise` : les erreurs de source ne sont pas volontairement masquées
+par un résultat de remplacement. Une expression fournie explicitement peut
+conserver son propre traitement d'erreur. L'adaptateur rattache la
+requête à une source lorsqu'une référence explicite par nom ou identifiant
+(`id`) se résout de façon unique, ou lorsqu'une seule source est disponible.
+Les requêtes sans référence en contexte multi-source, ou avec une référence
+absente, ambiguë ou non résolue, sont signalées par l'adaptateur et restent
+non rattachées. Dataflow rejette explicitement ces requêtes ; il ne substitue
+pas de connexion fictive (`localhost`/`MyDB`). Le SQL extrait d'une table
+dérivée d'univers peut également alimenter une requête native, mais les objets,
+transformations et définitions métier de l'univers ne prouvent pas que le SQL
+complet exécuté pour le rapport a été extrait. Vérifier ce SQL et sa provenance
+dans les artefacts source.
+
+#### RDL SQL explicite — génération locale et contrôles statiques
+
+La génération SQL est implémentée à partir d'un mapping JSON local sans
+identifiants d'authentification. Son contrat contient exactement `title`,
+`source_kind` (`webi`, `crystal`, `lumira`, `desktop_intelligence`, `xcelsius`,
+`analysis_olap` ou `universe`), `server`, `database`, `sql` et `columns`.
+Ce libellé est une déclaration, pas la preuve que le format a été extrait ni
+que sa sémantique ou sa mise en page a été convertie. Pour les formats sans
+extraction locale du SQL, la requête, ses champs et sa connexion restent à
+fournir manuellement. La sélection directe de fichier reste limitée à WebI,
+Crystal et aux univers ; voir la matrice des limites dans le README.
+Le générateur émet un RDL avec une source SQL Server (`Data Source` et
+`Initial Catalog`), un dataset utilisant le SQL fourni et un tablix construit
+avec les colonnes déclarées. Ces noms de colonnes ne sont pas comparés au
+résultat réel de la requête. Une colonne SQL peut associer explicitement un
+nom technique `field` à un libellé de tableau `label` ; le rapprochement avec
+un objet métier BO reste manuel. Le mapping ne contient aucun secret ; les
+identifiants d'accès sont à configurer séparément dans l'environnement
+d'exécution. Les caractères Unicode et la ponctuation pris en charge dans les
+noms du serveur et de la base sont conservés tels quels ; les points-virgules,
+accolades et caractères de contrôle sont refusés pour protéger la chaîne de
+connexion.
+
+Des contrôles statiques bornés exigent une instruction de forme `SELECT`,
+refusent `SELECT INTO`, les instructions multiples ou séparées par un point-
+virgule interne, les paramètres SQL nommés non liés tels que `@Region` (aucun
+`QueryParameters` RDL n'est déclaré), ainsi que les macros BO `@Prompt` et
+`@Variable`. Les paramètres SQL, prompts et variables BO sont non pris en
+charge et ne sont pas convertis. Un point-virgule terminal est toléré. Ce
+contrôle de forme n'est ni un parseur SQL complet ni une preuve de validité, de
+sûreté ou d'exécution sur SQL Server.
+
+Il est aussi possible de sélectionner par son nom exact une entrée unique
+de `custom_sql.json`, préalablement produit par l'extracteur local WebI,
+Crystal ou univers, avec `--rdl-extracted-sql` et `--rdl-sql-name` (voir le README).
+On peut aussi fournir directement un fichier local `.wid`, `.rpt`, `.unx` ou `.unv`
+avec `--rdl-bo-source` et sélectionner le SQL par son nom exact, sans écrire
+de JSON intermédiaire. Le type du fichier doit correspondre à `source_kind`.
+Pour un univers, seul le SQL d'une table dérivée est repris, pas celui d'un
+rapport reconstruit. Les formats binaires et la couverture complète de
+l'extraction ne sont pas garantis. Pour Crystal, l'extraction `.rpt` repère
+des chaînes ressemblant à des requêtes dans le texte lisible du binaire ;
+`CommandSQL` est un nom synthétique, et l'extraction ne confirme ni l'objet
+Command ni l'intégralité de la requête.
+Un dossier peut être traité avec `--output-format rdl --rdl-batch-config` et
+un mapping explicite par fichier (contrat et exemple dans le README). Les
+archives BIAR ne sont pas converties vers RDL par ce parcours ; leur échec est
+signalé par fichier et les autres sources continuent.
+Le mapping doit alors déclarer les champs réellement renvoyés et la connexion
+SQL Server, mais omettre `sql`. L'extraction est partielle : le SQL sélectionné,
+son origine et son rattachement au rapport doivent être vérifiés manuellement.
+Protéger les fichiers extraits et le RDL, qui peuvent contenir du SQL sensible.
+
+Avec ce même mapping SQL Server, `--rdl-power-query-output fichier.m` génère
+en plus du RDL une expression M locale utilisant la même connexion et le même
+SQL. Les deux fichiers doivent être nouveaux ; un échec d'écriture peut laisser
+un fichier partiel. Les champs et libellés du RDL ne filtrent ni ne renomment
+les colonnes de la requête M. Aucun identifiant d'authentification n'est ajouté.
+La requête native doit être relue avant exécution avec des permissions adaptées :
+les contrôles de forme ne prouvent pas son innocuité. Les macros BO et les
+paramètres SQL non liés restent refusés dans ce parcours.
+
+#### Choisir Desktop ou Desktop optimisé pour Report Server
+
+- **Desktop classique** : générer le PBIP, l'ouvrir et le valider, puis
+  éventuellement l'enregistrer en PBIX depuis Desktop. La génération locale ne
+  prouve pas l'ouverture ni la fidélité.
+- **Desktop pour Report Server** : le format PBIP n'y est pas pris en charge.
+  Créer une requête vide, coller le fichier `.m` dans l'éditeur avancé,
+  configurer la connexion puis reconstruire manuellement le modèle et les
+  visuels, avant d'enregistrer un PBIX avec l'édition RS adaptée au serveur.
+  La compatibilité des fonctionnalités et de la version doit être vérifiée.
+- **Rapport paginé** : le RDL se modifie dans Microsoft Report Builder ou SSDT
+  et se publie séparément ; ce n'est pas un PBIX Desktop.
+
+Microsoft décrit les limites [PBIP](https://learn.microsoft.com/en-us/power-bi/developer/projects/projects-overview),
+l'[édition Desktop pour Report Server](https://learn.microsoft.com/en-us/power-bi/report-server/install-powerbi-desktop)
+et le [parcours RDL](https://learn.microsoft.com/en-us/power-bi/report-server/quickstart-create-paginated-report).
+Le dépôt ne fournit pas de conversion PBIP vers PBIX vérifiée. Ouverture Desktop,
+rafraîchissement, rendu Report Builder et publication restent `not_run`.
+
+Les archives BIAR/LCMBIAR ne sont reconnues que pour les artefacts directement
+identifiables par leur extension dans le ZIP. Si aucun n'est reconnu, le CLI
+échoue sans créer de sortie vide : un contenu segmenté ou encapsulé reste
+inconnu, et cela ne prouve pas que l'archive ne contient aucun rapport BO.
+
+Il s'agit d'un tableau de résultats, pas d'une conversion du rapport BO :
+aucun onglet, visuel ou objet métier n'est automatiquement associé au tableau.
+Les paramètres/prompts, formules, filtres, mise en page et permissions BO ne
+sont pas convertis. Les contrôles statiques ne testent ni l'exécution de la
+requête ni l'ouverture ou le rendu dans Report Builder ; ces vérifications
+restent `not_run`.
+
+L'option RDL existante DAX → modèle sémantique reste distincte : son mapping
+fournit la requête DAX et les champs attendus. L'option `--universe` du CLI
+n'est pas raccordée à la génération d'un rapport et ne remplit aucun des deux
+mappings automatiquement.
+
 ```powershell
 python migrate.py "examples\Enterprise_Sales.wid" --assess
-python migrate.py "examples\Enterprise_Sales.wid" --output-format fabric --output-dir "artifacts\bo-fabric"
-python migrate.py --validate-project "artifacts\bo-fabric\Enterprise_Sales" --quality-output "artifacts\bo-fabric-quality.json"
+python migrate.py "sources" --output-format fabric --output-dir "artifacts\bo-fabric"
+python migrate.py --validate-project "artifacts\bo-fabric" --quality-output "artifacts\bo-fabric-quality.json"
 ```
 
 La génération Fabric échoue avec le code **6** en présence de constats locaux

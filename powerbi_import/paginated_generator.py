@@ -1,19 +1,21 @@
-"""Paginated Report Generator — RDL-style paginated reports from BO report data.
+"""Paginated layouts and explicitly mapped RDL for Power BI.
 
 Extends the existing paginated layout generation in PBIPGenerator with:
 - Multi-page layouts with page breaks
 - Table/matrix visual rendering with row groups and column groups
 - Charts as embedded visuals (image placeholders)
 - Page headers/footers with dynamic fields (page number, date, report name)
-- RDL-compatible JSON output for Power BI paginated reports
+- JSON layout placeholders (not RDL files)
 - Subreport linking for drill-through patterns
 - Expression-based formatting (conditional row colors)
 
-Usage:
+Legacy JSON layout usage:
     from powerbi_import.paginated_generator import PaginatedReportGenerator
 
     gen = PaginatedReportGenerator(project_dir, report_name)
     gen.generate(worksheets, datasources, calculations)
+
+``generate_semantic_model_rdl`` separately creates RDL from an explicit mapping.
 """
 
 import json
@@ -21,6 +23,7 @@ import os
 import re
 import uuid
 from datetime import datetime
+from xml.etree import ElementTree as ET
 
 # ════════════════════════════════════════════════════════════════════
 #  CONSTANTS
@@ -34,6 +37,14 @@ _BODY_HEIGHT = _PAGE_HEIGHT_INCHES - 2 * _MARGIN_INCHES - 1.0  # Reserve for hea
 
 _HEADER_HEIGHT_INCHES = 0.75
 _FOOTER_HEIGHT_INCHES = 0.5
+
+_RDL_BO_SOURCE_KINDS = frozenset({
+    'webi', 'crystal', 'lumira', 'desktop_intelligence', 'xcelsius',
+    'analysis_olap', 'universe',
+})
+_RDL_SQL_PARAMETER_TYPES = frozenset({
+    'Boolean', 'DateTime', 'Float', 'Integer', 'String',
+})
 
 # Visual type → paginated element mapping
 _VISUAL_TO_PAGINATED = {
@@ -69,6 +80,543 @@ def _new_guid():
 def _inches(val):
     """Format a float value as an inches string."""
     return f"{val:.4f}in"
+
+
+def generate_semantic_model_rdl(contract):
+    """Return a self-contained RDL 2016 XML string, without writing or connecting.
+
+    The SQL Server mapping requires ``title``, ``source_kind``, ``server``,
+    ``database``, ``sql`` and ``columns``; it may also declare scalar
+    ``parameters`` for SQL ``@Name`` references.
+    See ``_generate_sql_server_rdl`` for its validation and evidence boundaries.
+
+    The exact contract is a dict with keys ``title``, ``source_kind``,
+    ``workspace``, ``semantic_model``, ``dax`` and ``columns``. Source kind is
+    a declared BO source label, ``bw`` or ``bex``, not parsed metadata.
+    Workspace and model are non-secret names, not URLs,
+    connection strings or IDs. ``dax`` is the caller's complete EVALUATE query;
+    ``columns`` is a nonempty ordered list of exact returned field names.
+    Names in the connection must use letters, numbers, spaces, underscores,
+    hyphens or periods. For this bounded contract DAX comments, parameters,
+    semicolons and string literals are unsupported. Supply no secrets in any
+    field: the checks reject common credential patterns but cannot identify
+    every possible secret. Field names must be distinct ignoring case.
+
+    The output contains one dataset and a simple detail table; it does not
+    convert BO/BW objects, formulas, layouts, security or BEx semantics, nor
+    validate the query or its declared result fields. XMLA capability, Build
+    permission, licensing, Report Builder rendering and execution are not
+    verified. Authentication is not embedded. Configure/verify credentials
+    separately in Report Builder (Microsoft documents "Do not use credentials"
+    for this Analysis Services connection).
+
+    Sources: MS-RDL 2016/01 schema, Microsoft Report Builder connection strings,
+    and Microsoft's Reporting Services Analysis Services extension OLEDB-MD:
+    https://learn.microsoft.com/en-us/openspecs/sql_server_protocols/ms-rdl/52ce3983-2bfc-4e72-9359-42aaf5fe4509
+    https://learn.microsoft.com/en-us/power-bi/paginated-reports/report-data/data-connections-data-sources-connection-strings-report-builder
+    https://learn.microsoft.com/en-us/sql/reporting-services/report-data/data-sources-supported-by-reporting-services-ssrs
+    """
+    sql_keys = {'title', 'source_kind', 'server', 'database', 'sql', 'columns'}
+    if isinstance(contract, dict) and set(contract) in (
+            sql_keys, sql_keys | {'parameters'}):
+        return _generate_sql_server_rdl(contract)
+
+    keys = {'title', 'source_kind', 'workspace', 'semantic_model', 'dax', 'columns'}
+    if not isinstance(contract, dict) or set(contract) != keys:
+        raise ValueError('contract must contain exactly the documented keys')
+
+    def checked_text(value, name, limit):
+        if not isinstance(value, str) or not value.strip() or len(value) > limit:
+            raise ValueError(f'{name} must be a nonempty string of at most {limit} characters')
+        if any(not (c in '\t\n\r' or '\x20' <= c <= '\ud7ff'
+                    or '\ue000' <= c <= '\ufffd' or '\U00010000' <= c <= '\U0010ffff')
+               for c in value):
+            raise ValueError(f'{name} contains invalid XML characters')
+        # Refuse common credential-bearing strings without echoing their contents.
+        if (re.search(r'(?i)(password|passwd|pwd|token|secret|api[_ -]?key|'
+                      r'authorization|credential|private[_ -]?key)\s*[:=]', value)
+                or re.search(r'(?i)\bbearer\s+[a-z0-9._~+/\-]+=*', value)
+                or re.search(r'-----BEGIN (?:[A-Z ]+ )?PRIVATE KEY-----', value)
+                or re.search(r'\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.'
+                             r'[A-Za-z0-9_-]{10,}\b', value)):
+            raise ValueError(f'{name} contains a possible credential')
+        return value
+
+    title = checked_text(contract['title'], 'title', 200)
+    if title != title.strip() or title.startswith('=') or any(c in title for c in '\r\n\t'):
+        raise ValueError('title must be a single literal line without surrounding whitespace')
+    source_kind = contract['source_kind']
+    if not isinstance(source_kind, str) or source_kind not in _RDL_BO_SOURCE_KINDS | {'bw', 'bex'}:
+        raise ValueError('unsupported source_kind')
+    workspace = checked_text(contract['workspace'], 'workspace', 200)
+    model = checked_text(contract['semantic_model'], 'semantic_model', 200)
+    for name, value in (('workspace', workspace), ('semantic_model', model)):
+        if (value != value.strip() or any(not (c.isalnum() or c in ' _-.') for c in value)
+                or value in {'.', '..'}):
+            raise ValueError(f'{name} contains unsupported connection-name characters')
+
+    dax = checked_text(contract['dax'], 'dax', 50000)
+    if (not re.match(r'(?is)^\s*EVALUATE\b', dax)
+            or any(part in dax for part in (';', '"', '--', '//', '/*', '*/', '@'))
+            or '\r' in dax):
+        raise ValueError('dax must be an unparameterized EVALUATE query without comments or string literals')
+    columns = contract['columns']
+    if not isinstance(columns, list) or not 1 <= len(columns) <= 10:
+        raise ValueError('columns must be a list of 1 to 10 returned field names')
+    columns = [checked_text(value, 'column', 200) for value in columns]
+    if any(v != v.strip() or v.startswith('=') or any(c in v for c in '\r\n\t') for v in columns):
+        raise ValueError('column names must be single literal lines without surrounding whitespace')
+    if len({v.casefold() for v in columns}) != len(columns):
+        raise ValueError('column names must be distinct ignoring case')
+
+    ns = 'http://schemas.microsoft.com/sqlserver/reporting/2016/01/reportdefinition'
+    # Local default namespace avoids ElementTree's process-global namespace registry.
+    report = ET.Element('Report', {'xmlns': ns})
+
+    def child(parent, name, text=None, **attributes):
+        elem = ET.SubElement(parent, name, attributes)
+        if text is not None:
+            elem.text = text
+        return elem
+
+    description = (
+        f'Declared source: {source_kind}. Target: Power BI semantic model. '
+        'No BO/BW parsing or conversion; source formulas, layout, parameters, '
+        'security and BEx semantics are not converted. Query, field mapping, '
+        'permissions, rendering and execution are not verified.'
+    )
+    child(report, 'Description', description)
+    ds = child(child(report, 'DataSources'), 'DataSource', Name='SemanticModel')
+    props = child(ds, 'ConnectionProperties')
+    child(props, 'DataProvider', 'OLEDB-MD')
+    child(props, 'ConnectString',
+          f'Data Source=powerbi://api.powerbi.com/v1.0/myorg/{workspace}; Initial Catalog={model}')
+    dataset = child(child(report, 'DataSets'), 'DataSet', Name='ReportData')
+    fields = child(dataset, 'Fields')
+    for index, name in enumerate(columns, 1):
+        field = child(fields, 'Field', Name=f'Field{index}')
+        child(field, 'DataField', name)
+    query = child(dataset, 'Query')
+    child(query, 'DataSourceName', 'SemanticModel')
+    child(query, 'CommandText', dax)
+
+    section = child(child(report, 'ReportSections'), 'ReportSection')
+    body = child(section, 'Body')
+    items = child(body, 'ReportItems')
+
+    def textbox(parent, name, value):
+        box = child(parent, 'Textbox', Name=name)
+        child(box, 'CanGrow', 'true')
+        run = child(child(child(box, 'Paragraphs'), 'Paragraph'), 'TextRuns')
+        child(child(run, 'TextRun'), 'Value', value)
+        return box
+
+    heading = textbox(items, 'ReportTitle', title)
+    child(heading, 'Top', '0in')
+    child(heading, 'Left', '0in')
+    child(heading, 'Height', '0.4in')
+    child(heading, 'Width', '10in')
+    tablix = child(items, 'Tablix', Name='ResultTable')
+    tb = child(tablix, 'TablixBody')
+    widths = child(tb, 'TablixColumns')
+    # Exact decimals sum to 10in even when the column count does not divide 10.
+    width_units = [1000 // len(columns)] * len(columns)
+    for i in range(1000 % len(columns)):
+        width_units[i] += 1
+    for width in width_units:
+        child(child(widths, 'TablixColumn'), 'Width', f'{width / 100:.2f}in')
+    rows = child(tb, 'TablixRows')
+    for is_header in (True, False):
+        row = child(rows, 'TablixRow')
+        child(row, 'Height', '0.3in')
+        cells = child(row, 'TablixCells')
+        for index, name in enumerate(columns, 1):
+            contents = child(child(cells, 'TablixCell'), 'CellContents')
+            textbox(contents, f'{"Header" if is_header else "Value"}{index}',
+                    name if is_header else f'=Fields!Field{index}.Value')
+    col_members = child(child(tablix, 'TablixColumnHierarchy'), 'TablixMembers')
+    for _ in columns:
+        child(col_members, 'TablixMember')
+    row_members = child(child(tablix, 'TablixRowHierarchy'), 'TablixMembers')
+    child(row_members, 'TablixMember')
+    detail = child(row_members, 'TablixMember')
+    child(detail, 'Group', Name='Details')
+    child(tablix, 'DataSetName', 'ReportData')
+    child(tablix, 'Top', '0.5in')
+    child(tablix, 'Left', '0in')
+    child(tablix, 'Height', '0.6in')
+    child(tablix, 'Width', '10in')
+    child(body, 'Height', '1.1in')
+    child(section, 'Width', '10in')
+    page = child(section, 'Page')
+    for name, value in (('PageWidth', '11in'), ('PageHeight', '8.5in'),
+                        ('LeftMargin', '0.5in'), ('RightMargin', '0.5in'),
+                        ('TopMargin', '0.5in'), ('BottomMargin', '0.5in')):
+        child(page, name, value)
+    return ET.tostring(report, encoding='unicode', xml_declaration=True)
+
+
+def _generate_sql_server_rdl(contract):
+    """Generate an RDL from an explicit SQL Server mapping, without connecting.
+
+    The caller must provide exactly ``title``, ``source_kind``, ``server``,
+    ``database``, ``sql`` and ``columns``, with optional ``parameters``.
+    Parameters bind SQL ``@Name`` references to scalar report parameters using
+    one of the RDL types Boolean, DateTime, Float, Integer or String. This is a declared mapping only:
+    it does not extract BusinessObjects metadata or automatically map a BO
+    layout. Credentials are not embedded. Query validity, field mapping,
+    rendering and execution are not verified. The limited SQL-shape validation
+    does not establish that the query is valid for SQL Server or prove that
+    execution would be safe.
+    """
+    def checked_text(value, name, limit):
+        if not isinstance(value, str) or not value.strip() or len(value) > limit:
+            raise ValueError(f'{name} must be a nonempty string of at most {limit} characters')
+        if any(not (c in '\t\n\r' or '\x20' <= c <= '\ud7ff'
+                    or '\ue000' <= c <= '\ufffd' or '\U00010000' <= c <= '\U0010ffff')
+               for c in value):
+            raise ValueError(f'{name} contains invalid XML characters')
+        # Match the existing DAX contract's conservative credential checks.
+        if (re.search(r'(?i)(password|passwd|pwd|token|secret|api[_ -]?key|'
+                      r'authorization|credential|private[_ -]?key)\s*[:=]', value)
+                or re.search(r'(?i)\bbearer\s+[a-z0-9._~+/\-]+=*', value)
+                or re.search(r'-----BEGIN (?:[A-Z ]+ )?PRIVATE KEY-----', value)
+                or re.search(r'\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.'
+                             r'[A-Za-z0-9_-]{10,}\b', value)):
+            raise ValueError(f'{name} contains a possible credential')
+        return value
+
+    title = checked_text(contract['title'], 'title', 200)
+    if title != title.strip() or title.startswith('=') or any(c in title for c in '\r\n\t'):
+        raise ValueError('title must be a single literal line without surrounding whitespace')
+
+    source_kind = contract['source_kind']
+    if not isinstance(source_kind, str) or source_kind not in _RDL_BO_SOURCE_KINDS:
+        raise ValueError('unsupported source_kind')
+
+    server = checked_text(contract['server'], 'server', 200)
+    database = checked_text(contract['database'], 'database', 200)
+    for name, value in (('server', server), ('database', database)):
+        if (value != value.strip() or not value.isprintable()
+                or any(char in value for char in ';{}')):
+            raise ValueError(f'{name} contains unsupported connection-string characters')
+
+    sql = checked_text(contract['sql'], 'sql', 50000)
+    if re.search(r'(?i)@\s*(?:Prompt|Variable)\s*\(', sql):
+        raise ValueError('sql must not contain unresolved BusinessObjects prompt or variable macros')
+
+    # Permit one optional terminal delimiter only. Semicolons elsewhere are
+    # rejected conservatively, including those inside literals or comments.
+    statement = sql.strip()
+    if statement.endswith(';'):
+        statement = statement[:-1].rstrip()
+    if ';' in statement:
+        raise ValueError('sql must contain a single statement without internal semicolons')
+
+    # Tokenize only enough SQL syntax to identify the leading statement and
+    # SELECT INTO, ignoring quoted values/identifiers and comments. This is a
+    # shape check, not a SQL parser or execution-safety proof.
+    tokens = []
+    sql_parameter_references = []
+    index = 0
+    while index < len(statement):
+        if statement.startswith('--', index):
+            newline = statement.find('\n', index + 2)
+            index = len(statement) if newline < 0 else newline + 1
+            continue
+        if statement.startswith('/*', index):
+            depth = 1
+            index += 2
+            while index < len(statement) and depth:
+                if statement.startswith('/*', index):
+                    depth += 1
+                    index += 2
+                elif statement.startswith('*/', index):
+                    depth -= 1
+                    index += 2
+                else:
+                    index += 1
+            continue
+        char = statement[index]
+        if char in "'\"[":
+            closing = ']' if char == '[' else char
+            index += 1
+            while index < len(statement):
+                if statement[index] == closing:
+                    if index + 1 < len(statement) and statement[index + 1] == closing:
+                        index += 2
+                    else:
+                        index += 1
+                        break
+                else:
+                    index += 1
+            continue
+        if char == '@':
+            if index + 1 < len(statement) and statement[index + 1] == '@':
+                # SQL Server system variables use @@ and are not dataset parameters.
+                index += 2
+                while index < len(statement) and (
+                        statement[index].isalnum() or statement[index] in '_@$#'):
+                    index += 1
+                continue
+            if (index + 1 < len(statement)
+                    and (statement[index + 1].isalpha() or statement[index + 1] == '_')):
+                start = index + 1
+                index = start
+                while index < len(statement) and (
+                        statement[index].isalnum() or statement[index] in '_@$#'):
+                    index += 1
+                sql_parameter_references.append(statement[start:index])
+                continue
+            index += 1
+            continue
+        if char.isalpha() or char == '_':
+            start = index
+            index += 1
+            while index < len(statement) and (
+                    statement[index].isalnum() or statement[index] in '_@$#'):
+                index += 1
+            tokens.append(statement[start:index].upper())
+            continue
+        index += 1
+
+    if not tokens or tokens[0] != 'SELECT':
+        raise ValueError('sql must be a single SELECT statement')
+    if 'INTO' in tokens[1:]:
+        raise ValueError('sql must not use SELECT INTO')
+
+    parameters = contract.get('parameters', [])
+    if not isinstance(parameters, list) or len(parameters) > 50:
+        raise ValueError('parameters must be a list of at most 50 scalar parameter mappings')
+    checked_parameters = []
+    parameter_names = set()
+    for parameter in parameters:
+        if not isinstance(parameter, dict) or set(parameter) != {'name', 'data_type'}:
+            raise ValueError('each parameter must contain exactly name and data_type')
+        name = checked_text(parameter['name'], 'parameter name', 128)
+        if not re.fullmatch(r'[A-Za-z_][A-Za-z0-9_]*', name):
+            raise ValueError('parameter names must be ASCII identifiers')
+        if name.casefold() in parameter_names:
+            raise ValueError('parameter names must be distinct ignoring case')
+        parameter_names.add(name.casefold())
+        data_type = parameter['data_type']
+        if not isinstance(data_type, str) or data_type not in _RDL_SQL_PARAMETER_TYPES:
+            raise ValueError('parameter data_type must be a supported scalar RDL type')
+        checked_parameters.append({'name': name, 'data_type': data_type})
+
+    referenced_parameters = {name.casefold() for name in sql_parameter_references}
+    if referenced_parameters - parameter_names:
+        raise ValueError('sql contains undeclared SQL Server parameters')
+    if parameter_names - referenced_parameters:
+        raise ValueError('parameters contains declarations not used by sql')
+
+    columns = contract['columns']
+    if not isinstance(columns, list) or not 1 <= len(columns) <= 10:
+        raise ValueError('columns must be a list of 1 to 10 fields')
+    fields = []
+    labels = []
+    for column in columns:
+        if isinstance(column, str):
+            field, label = column, column
+        elif isinstance(column, dict) and set(column) == {'field', 'label'}:
+            field, label = column['field'], column['label']
+        else:
+            raise ValueError('each column must be a field name or a field/label mapping')
+        label = checked_text(label, 'column label', 200)
+        if label != label.strip() or label.startswith('=') or any(c in label for c in '\r\n\t'):
+            raise ValueError('column labels must be single literal lines without surrounding whitespace')
+        fields.append(field)
+        labels.append(label)
+
+    # Reuse the established DAX validator and tablix construction. The
+    # temporary query and connection are replaced below before returning XML.
+    rdl = generate_semantic_model_rdl({
+        'title': title,
+        'source_kind': 'webi',
+        'workspace': 'SqlMapping',
+        'semantic_model': 'SqlMapping',
+        'dax': 'EVALUATE {1}',
+        'columns': fields,
+    })
+    ns = 'http://schemas.microsoft.com/sqlserver/reporting/2016/01/reportdefinition'
+    qname = lambda name: f'{{{ns}}}{name}'
+    report = ET.fromstring(rdl)
+
+    description = report.find(qname('Description'))
+    description.text = (
+        f'SQL mapping (source: {source_kind}). No automatic BO report layout '
+        'mapping was performed. Credentials are not embedded. SQL query, '
+        'declared fields, permissions, rendering and execution are not verified.'
+    )
+    for index, label in enumerate(labels, 1):
+        header = report.find(
+            f'.//{qname("Textbox")}[@Name="Header{index}"]/'
+            f'{qname("Paragraphs")}/{qname("Paragraph")}/'
+            f'{qname("TextRuns")}/{qname("TextRun")}/{qname("Value")}')
+        if header is None:
+            raise RuntimeError('generated RDL is missing a table header')
+        header.text = label
+    connection = report.find(
+        f'{qname("DataSources")}/{qname("DataSource")}/{qname("ConnectionProperties")}')
+    connection.find(qname('DataProvider')).text = 'SQL'
+        # Keep connection-string keys fixed; only validated values are interpolated.
+    connection.find(qname('ConnectString')).text = (
+        f'Data Source={server};Initial Catalog={database}')
+    query = report.find(f'{qname("DataSets")}/{qname("DataSet")}/{qname("Query")}')
+    command_type = ET.Element(qname('CommandType'))
+    command_type.text = 'Text'
+    query.insert(1, command_type)
+    query.find(qname('CommandText')).text = sql
+    if checked_parameters:
+        query_parameters = ET.Element(qname('QueryParameters'))
+        for parameter in checked_parameters:
+            query_parameter = ET.SubElement(
+                query_parameters, qname('QueryParameter'),
+                {'Name': f"@{parameter['name']}"},
+            )
+            ET.SubElement(query_parameter, qname('Value')).text = (
+                f"=Parameters!{parameter['name']}.Value"
+            )
+        command_text = query.find(qname('CommandText'))
+        query.insert(list(query).index(command_text) + 1, query_parameters)
+
+        report_parameters = ET.Element(qname('ReportParameters'))
+        for parameter in checked_parameters:
+            report_parameter = ET.SubElement(
+                report_parameters, qname('ReportParameter'),
+                {'Name': parameter['name']},
+            )
+            ET.SubElement(report_parameter, qname('DataType')).text = parameter['data_type']
+            ET.SubElement(report_parameter, qname('Prompt')).text = parameter['name']
+        report_sections = report.find(qname('ReportSections'))
+        report.insert(list(report).index(report_sections), report_parameters)
+
+    # XML parsers normalize literal CR, including inside SQL string literals.
+    return ET.tostring(report, encoding='unicode', xml_declaration=True).replace('\r', '&#13;')
+
+
+def _checked_rdl_text(value, name, limit, literal_line=False):
+    if not isinstance(value, str) or not value.strip() or len(value) > limit:
+        raise ValueError(f'{name} must be a nonempty string of at most {limit} characters')
+    if any(not (c in '\t\n\r' or '\x20' <= c <= '\ud7ff'
+                or '\ue000' <= c <= '\ufffd' or '\U00010000' <= c <= '\U0010ffff')
+           for c in value):
+        raise ValueError(f'{name} contains invalid XML characters')
+    if value.startswith('='):
+        raise ValueError(f'{name} must not start with an expression marker')
+    if literal_line and any(c in value for c in '\r\n\t'):
+        raise ValueError(f'{name} must be a single line')
+    if (re.search(r'(?i)(password|passwd|pwd|token|secret|api[_ -]?key|'
+                  r'authorization|credential|private[_ -]?key)\s*[:=]', value)
+            or re.search(r'(?i)\bbearer\s+[a-z0-9._~+/\-]+=*', value)
+            or re.search(r'-----BEGIN (?:[A-Z ]+ )?PRIVATE KEY-----', value)):
+        raise ValueError(f'{name} contains a possible credential')
+    return value
+
+
+def _rdl_identifier(name, used):
+    identifier = re.sub(r'[^0-9A-Za-z_]+', '_', name).strip('_')[:60] or 'Parameter'
+    if identifier[0].isdigit():
+        identifier = f'P_{identifier}'
+    candidate, suffix = identifier, 2
+    while candidate.casefold() in used:
+        candidate = f'{identifier}_{suffix}'
+        suffix += 1
+    used.add(candidate.casefold())
+    return candidate
+
+
+def generate_unbound_rdl(contract):
+    """Return an RDL skeleton with a title, a note and report parameters, but no data.
+
+    The contract has ``title``, ``source_kind``, ``description`` (may be empty)
+    and ``parameters``, a list of dicts with ``name``, ``prompt``, ``multiple``
+    and ``optional``. Parameter names are normalized to RDL identifiers; the
+    original name is kept in the prompt when no prompt was supplied. The BO
+    metadata does not give parameter data types, so every parameter is declared
+    as String and must be reviewed. The output has no data source, dataset or
+    table: it is a starting point, not a converted report. Rendering in Report
+    Builder is not verified.
+    """
+    keys = {'title', 'source_kind', 'description', 'parameters'}
+    if not isinstance(contract, dict) or set(contract) != keys:
+        raise ValueError('contract must contain exactly the documented keys')
+    title = _checked_rdl_text(contract['title'], 'title', 200, literal_line=True)
+    if title != title.strip():
+        raise ValueError('title must not have surrounding whitespace')
+    source_kind = contract['source_kind']
+    if not isinstance(source_kind, str) or source_kind not in _RDL_BO_SOURCE_KINDS:
+        raise ValueError('unsupported source_kind')
+    description = contract['description']
+    if description:
+        description = _checked_rdl_text(description, 'description', 2000)
+    parameters = contract['parameters']
+    if not isinstance(parameters, list) or len(parameters) > 50:
+        raise ValueError('parameters must be a list of at most 50 entries')
+
+    ns = 'http://schemas.microsoft.com/sqlserver/reporting/2016/01/reportdefinition'
+    report = ET.Element('Report', {'xmlns': ns})
+
+    def child(parent, name, text=None, **attributes):
+        elem = ET.SubElement(parent, name, attributes)
+        if text is not None:
+            elem.text = text
+        return elem
+
+    child(report, 'Description',
+          f'Unbound skeleton (source: {source_kind}). No data source, dataset or layout '
+          'was converted; parameter data types are unverified and default to String. '
+          'Rendering and execution are not verified.')
+    if parameters:
+        report_parameters = child(report, 'ReportParameters')
+        used = set()
+        for parameter in parameters:
+            if not isinstance(parameter, dict) or set(parameter) != {
+                    'name', 'prompt', 'multiple', 'optional'}:
+                raise ValueError('each parameter must contain exactly the documented keys')
+            if (type(parameter['multiple']) is not bool
+                    or type(parameter['optional']) is not bool):
+                raise ValueError('parameter multiple and optional must be booleans')
+            original = _checked_rdl_text(parameter['name'], 'parameter name', 200,
+                                         literal_line=True)
+            prompt = parameter['prompt'] or original
+            prompt = _checked_rdl_text(prompt, 'parameter prompt', 500, literal_line=True)
+            element = child(report_parameters, 'ReportParameter',
+                            Name=_rdl_identifier(original, used))
+            child(element, 'DataType', 'String')
+            if parameter['optional']:
+                child(element, 'Nullable', 'true')
+            if parameter['multiple']:
+                child(element, 'MultiValue', 'true')
+            child(element, 'Prompt', prompt)
+
+    section = child(child(report, 'ReportSections'), 'ReportSection')
+    body = child(section, 'Body')
+    items = child(body, 'ReportItems')
+
+    def textbox(name, value, top, height):
+        box = child(items, 'Textbox', Name=name)
+        child(box, 'CanGrow', 'true')
+        run = child(child(child(box, 'Paragraphs'), 'Paragraph'), 'TextRuns')
+        child(child(run, 'TextRun'), 'Value', value)
+        child(box, 'Top', top)
+        child(box, 'Left', '0in')
+        child(box, 'Height', height)
+        child(box, 'Width', '10in')
+
+    textbox('ReportTitle', title, '0in', '0.4in')
+    note = description + '\n\n' if description else ''
+    textbox('MigrationNote',
+            note + 'Not migrated: data source, query, layout and formulas.',
+            '0.5in', '0.8in')
+    child(body, 'Height', '1.4in')
+    child(section, 'Width', '10in')
+    page = child(section, 'Page')
+    for name, value in (('PageWidth', '11in'), ('PageHeight', '8.5in'),
+                        ('LeftMargin', '0.5in'), ('RightMargin', '0.5in'),
+                        ('TopMargin', '0.5in'), ('BottomMargin', '0.5in')):
+        child(page, name, value)
+    return ET.tostring(report, encoding='unicode', xml_declaration=True).replace('\r', '&#13;')
 
 
 # ════════════════════════════════════════════════════════════════════

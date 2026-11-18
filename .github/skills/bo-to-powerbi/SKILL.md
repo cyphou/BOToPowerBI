@@ -10,12 +10,72 @@ Use this repository's migration engine. Prefer the CLI over manually recreating 
 ## BO Procedure
 
 1. Read `.github/copilot-instructions.md`, `.github/agents/shared.instructions.md`, and `docs/AGENTS.md`.
-2. Identify the source artifact, required universe metadata, output format (`pbip` or `fabric`), and output directory. Read `python migrate.py --help` before choosing flags.
+2. Identify the source artifact, required universe metadata, output format (`pbip`, `fabric`, or separately declared `rdl`), and output directory. Read `python migrate.py --help` before choosing flags.
 3. Assess or dry-run first when the source's compatibility is unknown. Use a separate output directory and do not overwrite customer artifacts without confirmation.
 4. Run the existing CLI workflow. Keep BO's 15 extracted object types and adapter contract intact; do not substitute Tableau's schema or subcommands.
 5. Inspect produced artifacts and available validation reports. Fix defects in the owning extractor/converter/generator, not only in output files.
 6. After implementation changes, run a focused test, then `pytest tests/ --tb=short -q`. Report any failures without weakening assertions.
 7. Deployment is separate authorization. Read `.github/skills/fabric-mcp-routing/SKILL.md` and hand off to Deployer before remote writes.
+
+For an authorized CMS, `BOServerClient` can read WebI report tabs, their
+details and elements alongside provider metadata. `get_webi_document_snapshot`
+captures report/provider summaries and details plus each report's elements in
+one local snapshot; opt in to provider query plans/specifications with
+`include_provider_query_metadata=True`. See the README's schema/example.
+Captured plans may contain sensitive SQL. The CLI does not import the snapshot
+and it does not establish report-to-provider links; the Python-only
+`bo_export.webi_snapshot_adapter.extract_webi_snapshot(snapshot, connection)`
+maps verbatim single-statement SQL plus one explicitly declared SQL Server
+connection (name, server, database; no credentials) to the 15 collections,
+inferring no columns or layout, so generation is semantic-model-only.
+`include_element_details=True` requests SAP's `allInfo` option, available from
+BI 4.2 SP04; live version and permission compatibility remain unverified.
+
+For an `.lcmbiar` export, `python migrate_lcm_inventory.py --manifest <file>
+--output-dir <new dir>` reads only the readable `BusinessObjects.xml` metadata:
+document → universe → connection-type links, Crystal prompts, WebI provider
+IDs, and one unbound RDL skeleton per document (parameters default to `String`,
+no data source or layout). It never reads connection strings, owners or values.
+UNX components with an embedded `Cipher` member are CMS-protected: the extractor
+warns and does not decrypt them. Data-bound output needs an authorized CMS or
+verified exports.
+
+For a separately declared paginated target, single-mapping `migrate.py --output-format rdl`
+requires `--rdl-mapping` and `--rdl-output`, and accepts no positional BO file
+or other migration options. It generates the same basic table as `migrate_paginated.py`;
+optionally `--rdl-sql-name` selects one SQL entry from a previously extracted
+`custom_sql.json` via `--rdl-extracted-sql`, or supported local `.wid`, `.unx`
+or `.unv` metadata via `--rdl-bo-source`. Crystal `.rpt` input is scanned
+heuristically for SQL-shaped readable text and exposes the synthetic name
+`CommandSQL`; this is not proof of a Crystal Command object or complete query.
+The explicit SQL Server mapping
+omits `sql` and may declare literal business labels separately from SQL fields.
+Alternatively, `--rdl-webi-plan` accepts a saved WebI API plan with exactly
+one direct SQL statement and a `webi` mapping without `sql`; it cannot be
+combined with `--rdl-extracted-sql` or `--rdl-sql-name`. The optional
+`--rdl-bo-source` in this mode checks only that the WID contains one matching
+provider ID, not document identity or report-to-query linkage. Review the SQL,
+connection and fields independently. See the README's schema, synthetic
+examples and reproducible command.
+Manual SQL and DAX mappings also accept declared BO source labels `crystal`,
+`lumira`, `desktop_intelligence`, `xcelsius`, and `analysis_olap`; this does
+not add parsers or automatic report conversion. Direct source selection remains
+limited to `.wid`, `.rpt`, `.unx` and `.unv`. Crystal selection uses heuristic
+readable-text SQL candidates; inspect the exact selected query before using it.
+`--rdl-power-query-output` can additionally write a new `.m` expression for the
+same validated SQL Server query; it does not apply the RDL column labels.
+Both outputs are local and must be new. Review native SQL and configure
+credentials separately. PBIP is for standard Desktop; Desktop for Report Server
+does not support PBIP and requires manual reconstruction from the M query and
+an RS-compatible PBIX. RDL remains a separate Report Builder/SSDT path.
+The source type must match the mapping. This does not convert BO report layout or business
+semantics, or verify extraction completeness or report-to-query linkage.
+Screenshots, rendering, query execution and source equivalence are not verified.
+For a folder target, use `python migrate.py <folder> --output-format rdl
+--rdl-batch-config <config.json>` instead. Supply a mapping per source, with
+an optional exact SQL name and optional SQL-only Power Query output. RDL batch
+does not convert BIAR contents and fails archive entries explicitly. See the
+README for the config contract; the output directory must be new or empty.
 
 ## CLI Examples
 
@@ -25,8 +85,9 @@ Run from the repository root using the selected project interpreter:
 python migrate.py --help
 python migrate.py examples/Enterprise_Sales.wid --assess
 python migrate.py examples/Enterprise_Sales.wid --dry-run
-python migrate.py examples/Enterprise_Sales.wid --output-dir artifacts/bo-sales
-python migrate.py examples/Enterprise_Sales.wid --output-format fabric --output-dir artifacts/bo-fabric
+python migrate.py sources --output-dir artifacts/bo-sales
+python migrate.py sources --output-format fabric --output-dir artifacts/bo-fabric
+python migrate.py examples --output-dir artifacts/bo-folder
 python migrate.py --batch examples --output-dir artifacts/bo-batch
 python migrate.py --biar examples/Enterprise_Export.biar --output-dir artifacts/bo-biar
 python migrate.py --shared-model examples/Enterprise_Sales.wid examples/Financial_Report.wid --model-name Sales
@@ -38,14 +99,24 @@ python -m powerbi_import.mcp_server --list
 These are BO flag-based entry points. Do not copy Tableau's `batch`, `fabric`, `quality`, or `parity` subcommands.
 `--assess` is assessment-only; an explicit output directory saves the assessment JSON.
 `--dry-run` performs inspection using temporary extraction and leaves no persistent outputs.
+BO generation through the main CLI and local MCP `migrate` requires a directory;
+individual report files remain valid for assessment, not generation. Archive,
+shared-model and separately declared RDL paths remain distinct.
 Batch outputs are isolated by relative source filename and include `batch_manifest.json`;
-partial failures return a nonzero exit code with per-source diagnostics.
+partial failures return a nonzero exit code with per-source diagnostics. Unsupported
+extensions and symbolic links are logged and listed as skipped, not migrated.
+Positional folder/BIAR outputs must be new or empty; legacy PBIP/Fabric `--batch`
+can reuse an output and may overwrite existing artifacts. Duplicate archive entry
+base names are rejected before generation.
 Shared-model merging retains isolated source tables and their known schema,
 connection, and provenance. Same-named distinct physical sources require explicit
 mapping and are rejected before generation; do not override this by assuming a
 connection or dropping a source. Direct Lake date enrichments need upstream
 materialization, unlike the Import path's automatic Calendar/date parts.
 BIAR uses temporary file extraction and the same generation API as individual sources.
+Only directly named supported artifact entries are recognized; an archive with
+no recognized entries returns an error without creating a migration output.
+Embedded/segmented content and archive completeness remain unverified.
 Fabric outputs are quality-gated after generation. Blocking findings return code
 6 for file/BIAR/batch/shared-model CLI workflows and preserve per-project
 `quality_report.json`; warnings alone do not block unless a separate strict
@@ -220,6 +291,7 @@ cutover/rollback, switch consumers, shut down BW, or authorize retirement.
 | Surface | Agent | Source |
 |---------|-------|--------|
 | CLI, batch, pipeline coordination | Orchestrator | `migrate.py`, BW CLIs including `migrate_bw_wave_assess.py` |
+| Cross-cutting WebI-to-Power BI migration | WebI Migration | Coordination only; existing source, target and evidence owners remain responsible |
 | Local BO extraction and adapter | Extractor | `bo_export/` parsing modules |
 | BO CMS/server client | BusinessObjects | `bo_export/server_client.py` |
 | BO formulas to DAX | Dax | `bo_export/dax_converter.py`, `powerbi_import/dax_optimizer.py` |
@@ -258,3 +330,7 @@ This server never deploys to Fabric. Read `docs/FABRIC_MCP_SETUP.md` before enab
 Successful generation is not Desktop openability, visual parity, refreshed data, or successful Fabric execution.
 Record what ran, against which source/target, its status, and what remains `not_run`.
 Copilot agents are development roles; do not claim the CLI automatically invokes them.
+
+<!-- demo-studio:integration:start -->
+For requested demos or presentations, follow [the Demo Studio guide](../../../docs/DEMO_STUDIO.md); this Skill's domain rules, tool restrictions and evidence gates remain authoritative.
+<!-- demo-studio:integration:end -->

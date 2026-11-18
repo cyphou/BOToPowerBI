@@ -1,13 +1,44 @@
 # Development Plan — BO to Power BI Migration
 
-> **Last reviewed**: 2026-11-16
+> **Last reviewed**: 2026-11-18
 > The March 2026 version 3.0 plan is retained below as historical planning evidence,
 > not a current release or a certification that every phase exit criterion passed.
 
-## Current Evidence - 2026-11-16
+## Current Evidence - 2026-11-18
 
-- Full local suite: `python -m pytest tests\ --tb=short -q -o addopts=''`:
-        **563 passed, 531 subtests passed**. Coverage/hosted CI was not measured by this run.
+- Full local suite: `python -m pytest tests --tb=short -q -o addopts=''`:
+        **714 passed, 752 subtests passed**. Coverage/hosted CI was not measured by this run.
+- Real-sample replay on four public LCM BIAR exports kept outside the repository
+        (3 UNX, 2 UNV, 39 Crystal reports, 1 WebI): all 45 PBIP migrations failed
+        with no datasource. The three UNX `.dfx`/`.blx`/`.cns` components carry a
+        `Cipher` member and are not read (no decryption is attempted); Crystal
+        contents are opaque; the UNVs expose only table/column names. Together with
+        the 13 downloaded WIDs, 58 real sources produced no PBIP.
+- What the readable CMS manifest does give is now extracted by
+        `migrate_lcm_inventory.py`: document → universe → connection type links,
+        Crystal prompts and WebI provider IDs, plus 40 unbound RDL skeletons
+        (title, description, parameters as `String`). A one-time local check
+        validated them against the official RDL 2016/01 schema (no schema-backed
+        test is in the repository). They contain no data source or layout.
+- `extract_webi_snapshot()` turns a saved CMS snapshot into extraction input
+        (verbatim single-statement SQL plus a declared SQL Server connection); on the
+        synthetic fixture it yields a semantic-model-only PBIP. Not tested against a
+        live CMS. The remaining blocker for real parity is an authorized CMS or
+        verified exports (columns, connections, report-provider links, layouts).
+
+## Previous Evidence - 2026-11-17
+
+- Full local suite at that date: **703 passed, 730 subtests passed**.
+- Local native WebI DOCSPEC extraction now records partial section and
+        table-like element structure. On 13 downloaded WIDs kept outside the
+        repository, it found 29 report tabs, 6 sections, and 61 recognized
+        containers (56 `VTABLE`, 2 `HTABLE`, 3 `XTABLE`). SQL, connections,
+        report-provider linkage and source completeness remain unverified;
+        PBIP generation and RDL mapping remain blocked for these samples.
+- A subsequent folder replay persisted 12 native provider records and 18
+        structural `PARAMSERVER` entries across those WIDs. All 13 PBIP
+        migrations failed; no datasource or SQL was recovered. These entries
+        are not converted prompts or evidence of source completeness.
 - Earlier local measurement on 2026-11-12: **558 passed, 518 subtests passed
         in 20.36s**.
 - BW-0 through BW-8 local contracts and synthetic assessments are present;
@@ -31,9 +62,16 @@
         declaration; exit 0 alone does not prove a `not_run` evaluation passed.
         Only rule-referenced input values are type-checked; unused input values
         are not. This evaluation does not execute SAP, Spark or Fabric.
-- 22 specialist development roles with an ownership contract; not runtime CLI stages.
+- 23 specialist development roles with an ownership contract; not runtime CLI stages.
 - Local assessment, dry-run, file/batch/BIAR/shared generation, six-tool guarded
         MCP, and PBIP/Fabric quality reporting are exercised by local tests.
+- `BOServerClient` has a bounded, read-only WebI CMS snapshot slice: report
+        lists/details/elements and data-provider lists/details, with the
+        optional SAP `allInfo` element option (BI 4.2 SP04+). An explicit option
+        also captures provider plans/specifications. Its versioned JSON contract
+        and synthetic fixture do not establish live CMS behavior; report-to-
+        provider links, generation integration, and parity remain unverified or
+        out of scope.
 - Forced eFashion/HR shared generation: 11 Fabric ingestion tables, quality WARN,
         exit 0; PBIP emits a model and two thin-report descriptors. Without explicit
         force approval this low-overlap pair is declined. Distinct same-named source
@@ -48,9 +86,10 @@
 
 | Priority | Status | Gate | Owner |
 |----------|--------|------|-------|
-| P1 | Open | Redact source-embedded credentials before persistence; prove with export regression tests. Current output can contain secrets. | Extractor |
-| P1 | Open | Server assessment/dry-run must not download/extract unexpectedly; wire portfolio assessment and generation or reject unsupported flag combinations. | Orchestrator / BusinessObjects / Assessor |
-| P1 | Open | Wire or reject shared deployment flags; propagate remote failures rather than equating local exit 0 with publication. | Orchestrator / Deployer |
+| P1 | Delivered — bounded local behavior | Sanitize recognized credential-named datasource properties and recognized authentication components in `connectionString` at extraction return, JSON persistence, and legacy JSON load boundaries. Coverage is pattern-bounded; exhaustive secret removal is not established, and unrecognized or out-of-scope values may remain. | Extractor / Deployer / Tester |
+| P1 | Delivered — bounded rejection | With `--server`, reject `--assess`, `--global-assess`, and `--dry-run` before server migration starts. Server portfolio assessment and target generation remain unsupported; CMS download mode still downloads/extracts. | Orchestrator |
+| P1 | Delivered — bounded rejection | Main CLI rejects `--deploy`, `--deploy-refresh`, and `--deploy-bundle` before migration in batch, shared, and single-file contexts. Standard CLI deployment is not reliably wired; deployment and remote publication remain unsupported/unverified. The separate `--multi-tenant` path was not changed or verified. | Orchestrator |
+| P1 | Open | If standard CLI deployment is reintroduced, wire remote failure propagation and prove publication outcomes rather than equating local exit 0 with publication. | Orchestrator / Deployer |
 | P2 | Open | Explicit source-qualified mapping for ambiguous shared queries; never bypass identity checks with force-merge. | Merger |
 | P2 | Open | Prove sample generation and any planned staging/production gates in CI; current final job checks only help. | Tester / Deployer |
 | P2 | Not run | Validate clean-environment developer installation, Desktop rendering, refresh, security semantics, and deployed workload execution in approved environments. | Tester / Semantic / Visual / Deployer |
@@ -58,6 +97,278 @@
 See [current gaps](GAP_ANALYSIS.md), [workflow boundaries](ENTERPRISE_GUIDE.md),
 and [unreleased changes](../CHANGELOG.md). Keep this document canonical; do not
 copy Tableau release numbers or create a competing roadmap.
+
+### Local increment — WebI coordination and prompt evidence (2026-11-17; bounded slice)
+
+- **Outcome / scope:** the user-invocable `WebI Migration` coordinator routes
+  source, query, model, visual and evidence work without changing engine
+  ownership. Native provider extraction retains recognized `PARAMSERVER`
+  structure and member provenance, without prompt labels, IDs or values.
+- **Evidence:** synthetic tests cover both provider variants, malformed and
+  unknown records, provider ambiguity and JSON persistence. The 13-WID folder
+  replay retained 12 provider records and 18 structural prompt entries; all 13
+  PBIP targets failed with no datasource or SQL recovered.
+- **Owners:** `Extractor` for local parsing and adapter behavior, `Tester` for
+  regressions; `WebI Migration` coordinates cross-cutting work. The agent's
+  actual invocation and nested delegation are not verified.
+- **Open gate:** obtain and verify source queries, connections and
+  report-to-provider bindings before generation can be evaluated. Native
+  structure does not generate prompts, prove source completeness or establish
+  semantic/visual parity. CMS access, query execution, Desktop rendering and
+  refresh remain `not_run`.
+
+### Local increment — Read-only WebI CMS snapshot (2026-11-17; delivered bounded slice)
+
+- **Outcome / scope:** `BOServerClient` reads, without modifying CMS content,
+  the WebI report list, report details, report elements (with optional SAP
+  `allInfo` from BI 4.2 SP04), and data-provider lists and details. It produces
+  a versioned JSON snapshot containing `reports` summary/details/elements and
+  `data_providers` summary/details. An explicit opt-in adds each provider's
+  raw query plan and query specification to the snapshot.
+- **Current evidence:** the snapshot contract is
+  `docs/schemas/webi_document_snapshot.schema.json`, with a synthetic fixture.
+  No CMS-real test evidence was provided; CMS runtime behavior is `not_run`.
+- **First change / cohesive scope:** a read-only CMS metadata retrieval path
+  and its versioned snapshot contract/fixture. This remains source inspection:
+  it does not convert the metadata, generate target artifacts, or report
+  source-to-target fidelity.
+- **Owner:** `BusinessObjects` for the CMS client and read-only retrieval.
+- **Dependencies:** an authorized CMS session and compatible SAP Business
+ Objects version for runtime verification; the optional `allInfo` behavior
+  requires BI 4.2 SP04 or later. No runtime target was authorized or tested
+  for this increment.
+- **Validation / exit:** delivered only for the stated local snapshot contract
+  and synthetic fixture. A real-CMS check is `not_run`; the WebI P1 gate and
+  source/target parity evidence remain open.
+- **Risks / non-goals:** query plans/specifications are opt-in and may contain
+  sensitive SQL. The snapshot does not connect reports to providers, feed
+  the CLI, or establish completeness, semantic fidelity, or parity (the later
+  Python-only `extract_webi_snapshot()` can use it, see 2026-11-18). No
+  write operation or live CMS behavior is claimed.
+
+### Local increment — Native WebI structure extraction (2026-11-17; delivered bounded slice)
+
+- **Outcome / scope:** native WebI document specification v2.5 extraction now
+  retains `SECTION` IDs and a partial inventory of `VTABLE`, `HTABLE` and
+  `XTABLE` report elements. When present, element IDs are copied from `BID`;
+  `row_info_count` and `column_info_count` count descendant `ROWINFO` and
+  `COLINFO` descriptors, not data rows or converted layout.
+- **Current evidence:** extraction of 13 downloaded WIDs stored outside the
+  repository yielded 29 report tabs, 6 sections and 61 recognized elements
+  (56 `VTABLE`, 2 `HTABLE`, 3 `XTABLE`). All recovered structures are marked
+  `native_wid_partial`. Focused WebI validation passed **17 tests and 15
+  subtests**; the full local suite passed **697 tests and 720 subtests in
+  27.57s**. These are local parser/test results, not customer or CMS evidence.
+- **First change / cohesive scope:** bounded structure extraction in
+  `bo_export/webi_extractor.py`, with synthetic regression tests in
+  `tests/test_webi_extractor.py` and corresponding README/Changelog updates.
+- **Owner:** `Extractor` for local WID parsing.
+- **Dependencies:** none for local parsing; the existing 15 collection
+  contract is preserved. No CMS access or external runtime was used.
+- **Validation / exit:** parser results were checked across all 13 sample
+  files; report count remains 29 and all extracted sections/elements are marked
+  partial. PBIP generation failed for all 13 files with `No datasources found`.
+  The RDL batch attempt failed for all 13 with the error
+  `No RDL mapping configured for this source`; its `sources` mapping was empty.
+  Zero `.rdl` and zero `.m` files were produced. SQL execution is `not_run`.
+- **Risks / non-goals:** this does not reconstruct full report layouts, cell
+  content, expressions, formatting or object bindings; infer SQL, datasource
+  connections or report-to-provider links; or prove source completeness,
+  rendering or source-target equivalence.
+
+### Local increment — CMS inspection-flags gate (2026-11-16; delivered bounded slice)
+
+- **Outcome / scope:** when `--server` is combined with any of `--assess`,
+  `--global-assess`, or `--dry-run`, the CLI raises a clear `ValueError` before
+  `_run_server_migration`. No CMS connection, download, or extraction starts
+  for these unsupported combinations.
+- **Current evidence:** `tests/test_cli.py::test_server_rejects_inspection_modes_before_download`
+  passed **1 test with 3 subtests**, covering all three flags and verifying
+  server migration is not called. The full local suite
+  `python -m pytest tests\ --tb=short -q -o addopts=''` passed
+  **630 tests and 636 subtests in 11.52s**. This is local test evidence only.
+- **First change / cohesive scope:** the pre-dispatch rejection in `migrate.py`
+  and its CLI regression in `tests/test_cli.py`; no source extraction,
+  conversion, target generation, reporting, or remote-operation behavior is
+  added or changed.
+- **Owner:** `Orchestrator`.
+- **Dependencies:** existing `--server` and inspection-mode CLI flags and the
+  server migration dispatch boundary (`_run_server_migration`); no CMS
+  connection or other external dependency is needed to validate rejection.
+- **Validation / exit:** the focused regression and full local suite passed.
+  The gate is delivered only for rejecting these unsupported flag
+  combinations. Desktop and runtime checks remain `not_run`.
+- **Limits / non-goals:** server portfolio assessment and target generation
+  remain unsupported. CMS download mode still downloads and extracts.
+  This increment does not establish CMS runtime behavior, Desktop behavior,
+  or target parity.
+
+### Local increment — Main CLI deployment-flag rejection (2026-11-16; delivered bounded slice)
+
+- **Outcome / scope:** the main CLI rejects `--deploy`, `--deploy-refresh`,
+  and `--deploy-bundle` before migration because standard CLI deployment is
+  not reliably wired and could otherwise appear successful without proving
+  publication. The rejection covers batch, shared, and single-file contexts.
+  Migration dispatch does not start for these flagged invocations.
+- **Current evidence:** focused validation
+  `python -m pytest tests\test_cli.py -k "main_rejects_unwired_deployment_flags_before_migration or single_file_migration_requires_directory" --tb=short -q -o addopts=''`
+  passed **2 tests / 7 subtests**. The regressions verify the three options
+  across the stated CLI contexts and verify migration dispatch is not started.
+  The full local suite
+  `python -m pytest tests\ --tb=short -q -o addopts=''` passed
+  **631 tests / 640 subtests in 12.97s**. This is local test evidence only.
+- **First change / cohesive scope:** reject only the three named deployment
+  options at the main CLI boundary in `migrate.py`, before migration dispatch,
+  with corresponding CLI regression coverage in `tests/test_cli.py`. No
+  extraction, conversion, target generation, reporting, deployment, or remote
+  operation is implemented by this increment.
+- **Owner:** `Orchestrator`.
+- **Dependencies:** the main CLI argument and dispatch paths, including batch,
+  shared, and single-file invocation contexts; no remote service is required
+  to validate the pre-migration rejection.
+- **Validation / exit:** the focused and full local suites passed as stated.
+  The bounded main-CLI rejection is delivered for `--deploy`,
+  `--deploy-refresh`, and `--deploy-bundle` only. Desktop and remote checks
+  remain `not_run`.
+- **Limits / non-goals:** do not claim deployment or remote publication was
+  implemented or occurred. The separate `--multi-tenant` path was not changed
+  or verified. This increment does not establish remote failure propagation,
+  publication, Desktop behavior, or runtime results; those checks remain
+  `not_run`.
+
+### Local increment — Bounded datasource credential redaction (2026-11-16; delivered bounded slice)
+
+- **Outcome / implementation scope:** sanitize recognized credential-named
+  properties in datasource records and recognized authentication components
+  in `connectionString` at extraction return, JSON persistence, and legacy
+  JSON load boundaries. The load path sanitizes returned data without
+  rewriting the legacy file. The `powerbi_import/security_validator.py` helper
+  is pattern-based and explicitly is not a complete parser.
+- **Current evidence:** the full local suite
+  `python -m pytest tests\ --tb=short -q -o addopts=''` passed
+  **629 tests and 633 subtests, with no failures**. The focused
+  `python -m pytest tests\test_extraction.py --tb=short -q -o addopts=''`
+  passed **12 tests**. Synthetic regressions in `tests/test_extraction.py`
+  cover returned data, persistence, quoted/braced/URI connection-string
+  credentials, and legacy JSON loading. Loading sanitizes returned data; it
+  does not rewrite the legacy file. This is local test evidence only.
+- **First change / cohesive scope:** the bounded sanitization behavior in
+  `bo_export/extract_bo_data.py`, the pattern-based helper in
+  `powerbi_import/security_validator.py`, and its synthetic extraction
+  regressions. Keep extraction-boundary behavior distinct from conversion,
+  target generation, reporting, and remote operations.
+- **Owner:** `Extractor` owns `bo_export/extract_bo_data.py`;
+  `Deployer` owns `powerbi_import/security_validator.py`; `Tester` owns the
+  regression tests in `tests/test_extraction.py`.
+- **Dependencies:** existing datasource record extraction, JSON persistence,
+  and legacy JSON loading paths, plus the helper's recognized credential and
+  authentication patterns. No external service or new dependency is required
+  for this local slice.
+- **Validation / exit:** the focused and full local suites passed with
+  12 extraction tests and 629 total tests / 633 subtests. The bounded behavior
+  at the named extraction boundaries is delivered. Desktop and runtime checks
+  are `not_run`; this increment does not establish exhaustive secret handling.
+- **Remaining risks / non-goals:** pattern matching is not a complete parser
+  or exhaustive secret detector. This does not establish that all artifacts,
+  arbitrary SQL or text, or values outside the named datasource boundaries
+  are secret-free. No claim is made about unrecognized credential forms,
+  other artifact types, Desktop behavior, deployed execution, or remote
+  validation.
+
+### Increment — Consolidated HTML report for BO batch targets (P1; local slice delivered)
+
+- **Outcome / delivered scope:** a local HTML summary for a completed
+  directory batch, driven by `batch_manifest.json`, covers each source and its
+  PBIP/Fabric and optional paginated RDL target. It reports per-source and
+  per-target outcomes, available generation/quality diagnostics, skipped
+  inputs, and contained local artifact links without rerunning migration.
+- **Evidence:** targeted validation
+  `python -m pytest tests/test_agent_contracts.py tests/test_cli.py tests/test_crystal_pipeline.py --tb=short -q -o addopts=''`
+  passed **75 tests**; the full local suite passed **621 tests** with
+  `python -m pytest tests\ --tb=short -q -o addopts=''`; `git diff --check`
+  was clean. This delivers the bounded local batch-reporting slice, not
+  complete TableauToPowerBI parity. The folder CLI now uses the manifest-driven
+  report path in `migrate.py`'s `_run_batch_migration` workflow to produce
+  `batch_report.html` and attempts to create it outside dry-run. Known report
+  generation errors are logged as warnings and do not modify source statuses.
+  The separate `generate_report.py` workflow remains autonomous and unchanged.
+- **Implementation scope delivered:** `Extractor` owns the batch-report module
+  `bo_export/batch_report.py`; `Orchestrator` integrated it into the folder CLI
+  workflow in `migrate.py` (`_run_batch_migration`). The existing standalone
+  `generate_report.py` workflow was not changed. Manifest compatibility is
+  preserved; missing metadata and unresolved local artifacts remain explicit
+  rather than being inferred or linked outside their expected roots.
+- **Owner:** `Extractor` (primary for `bo_export/batch_report.py`);
+  `Orchestrator` (primary for `migrate.py` and CLI report integration;
+  existing primary owner of unchanged `generate_report.py`); `Evidence`
+  (collaborator for status and evidence interpretation); `Web Designer`
+  (collaborator for HTML presentation).
+- **Validation / exit:** delivered for the stated local scope based on the
+  targeted tests, full suite, and clean diff-check above. No remote target or
+  service validation was part of this increment.
+- **Evidence limits / risks:** classify generation and static-quality results
+  only from manifest evidence; absent checks remain `not_run`. HTML presence,
+  successful generation, links, or aggregate counts do not imply visual
+  equivalence, Desktop/Report Builder rendering, semantic correctness, refresh,
+  or runtime execution. Desktop/Report Builder, refresh, runtime, and
+  equivalence remain `not_run`; those checks are separate and require
+  authorized execution and explicit evidence. Avoid stale links and path
+  traversal when resolving local artifacts.
+- **Non-goals:** alter extraction, conversion, target generation, RDL feature
+  support, quality metrics, deployment, or remote operations; replace the
+  existing comparison/quality reports; or claim parity beyond this bounded
+  batch-reporting capability.
+
+### Paginated reports: source-family preparation
+
+The local RDL generator accepts explicit source labels and SQL Server or
+semantic-model DAX mappings, but creates only a basic table. This is a manual
+starting point, not automatic migration of every BO report.
+
+| Priority | Work required | Exit evidence |
+|----------|---------------|---------------|
+| P0 | Inventory actual versions, source dependencies and report features by family; retain unknowns as blockers. | Representative, authorized fixtures and source-owner review per family. |
+| P1 | WebI: preserve report-to-query links and supported tabs, tables, filters and prompts; validate universe dependencies. The snapshot can opt in to provider plans/specifications but does not link reports to providers. | Source/target query and layout comparisons for representative reports; unresolved items remain explicit. The snapshot is not generation or parity evidence. |
+| P1 | Crystal: replace heuristic-only extraction with a trustworthy source export; capture sections, grouping, formulas, parameters and subreports. | Version-specific fixtures, extraction checks and Report Builder result comparisons. |
+| P2 | Lumira Discovery/Designer: inventory data bindings, charts and interactions; define paginated equivalents or manual dispositions. | Representative fixtures and reviewed feature-by-feature dispositions, including non-paginated interactions. |
+| P2 | Desktop Intelligence, Xcelsius and Analysis for OLAP: establish supported export contracts and classify incompatible interactions/OLAP semantics. | Version-specific source evidence and reproducible extraction/conversion tests, or explicit unsupported findings. |
+| P2 | Expand RDL parameters, grouping, layouts, and data-source coverage only with documented contracts and failure diagnostics. | RDL schema checks plus Report Builder open/render, data and security tests in an authorized environment. |
+| P3 | Validate each migration wave against its BO source. | Reconciled results, visual/functional review, security and owner approval; deployment is separately authorized. |
+
+BIAR/LCMBIAR unpacking and CMS exports need separate source coverage: direct
+archive entries are not proof of complete contents. No gate above is closed
+by successful local RDL generation.
+
+### Local increment — Manually declared SQL Server RDL scalar parameters (2026-11-16; delivered)
+
+- **Outcome / delivered scope:** explicit SQL Server RDL mappings may include
+  an optional `parameters` list. Each entry must contain exactly `name` and
+  `data_type`; supported scalar types are `Boolean`, `DateTime`, `Float`,
+  `Integer`, and `String`. Declared SQL `@Name` references bind to RDL
+  `QueryParameters` and corresponding report parameters/prompts. Parameterized
+  mappings are rejected for Power Query output.
+- **Evidence:** focused validation
+  `python -m pytest tests/test_sql_server_rdl.py tests/test_webi_sql_binding.py tests/test_paginated_rdl.py --tb=short -q -o addopts=''`
+  passed **42 tests / 89 subtests**. Full local validation
+  `python -m pytest tests\ --tb=short -q -o addopts=''` passed
+  **625 tests / 633 subtests**.
+- **First change / cohesive scope:** add the optional parameter declaration
+  and SQL-to-RDL bindings for explicit SQL Server mappings, while rejecting
+  parameterized mappings on the Power Query output path. Keep source extraction
+  and conversion separate.
+- **Owner:** `Visual` owns local RDL generation; `Orchestrator` owns the CLI
+  and output-path integration; `Tester` owns the focused regression tests.
+- **Dependencies:** the existing explicit SQL Server RDL mapping and its output
+  selection path; no BO prompt extraction, DAX conversion, or remote service.
+- **Validation / exit:** the stated local test gates passed for this slice.
+  Automatic BusinessObjects prompt extraction or DAX prompt conversion is
+  not implemented. Report Builder validation, broader RDL schema checks,
+  rendering, data execution and runtime verification remain open or
+  `not_run`; this increment does not close the paginated-report gates above.
+- **Risks / non-goals:** a generated RDL and passing local tests do not prove
+  query correctness, source/target equivalence, Report Builder acceptance,
+  or runtime behavior. No automatic BO prompt/DAX conversion, broader
+  parameter semantics, layout work, or remote validation is claimed.
 
 ## Separate roadmap: SAP BW/BW/4HANA to Fabric and BW retirement
 
@@ -472,6 +783,24 @@ evidence of delivery. The existing BO backlog and gates remain unchanged.
   Desktop/Service rendering and refresh are `not_run` until actually tested.
 - **Risks / non-goals:** totals, exception aggregation and authorization can
   differ despite matching detail rows; no blanket claim of BEx parity.
+- **Local paginated target:** `migrate.py --output-format rdl` and
+  `migrate_paginated.py` create a basic RDL table
+  from an explicit DAX/field mapping and semantic-model reference, for declared
+  Crystal/WebI or BW/BEx sources. The source kind is a label, not a parser or
+  adapter; BO prompts, formulas, layouts and security are not automatically
+  converted. Manually declared SQL Server scalar parameters are a separate
+  local slice; see the 2026-11-16 increment above. Model binding, Report Builder
+  rendering, execution and equivalence remain `not_run`. The future
+  consumer-replacement gate still requires the source-to-target evidence
+  described above.
+- **BO visual fidelity next steps:** obtain representative non-sensitive Crystal
+  and WebI examples and supported source renderers; extract page dimensions,
+  positioned objects and styles with traceable provenance; map supported elements
+  to RDL with explicit unsupported-item diagnostics. Then implement opt-in,
+  document-bound local captures for BO and Power BI Desktop or Report Builder,
+  explicit page pairing and bounded pixel diagnostics. Captures, query execution
+  and business equivalence remain separate evidence; no pixel-perfect claim
+  follows from static metadata or a generated RDL.
 - **Local slice delivered (2026-11-11):** the separate versioned BEx semantic
   contract, synthetic partial example and `migrate_bw_bex_assess.py` capture
   declarations for variables/prompts, filters, hierarchies, master-data

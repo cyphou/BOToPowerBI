@@ -305,6 +305,103 @@ class TestMigrationQuality(unittest.TestCase):
             self.assertIn('{{WORKSPACE_ID}}', expressions)
             self.assertIn('ref expression DirectLakeSource', (definition / 'model.tmdl').read_text(encoding='utf-8'))
 
+    def test_explicit_physical_columns_are_materialized_before_direct_lake(self):
+        data = {'datasources': [{'name': 'Warehouse',
+                'connection': {'type': 'SQL Server', 'server': 'sql.example.invalid', 'database': 'Sales'},
+                'tables': [{'name': 'DIM_TIME', 'columns': [
+                    {'name': 'Business Year', 'sourceColumn': 'FISCAL_YEAR', 'datatype': 'integer'},
+                    {'name': 'ID', 'sourceColumn': 'ID', 'datatype': 'integer'},
+                    {'name': 'Display Label', 'datatype': 'string'},
+                ]}]}]}
+        with tempfile.TemporaryDirectory() as temporary:
+            result = FabricProjectGenerator(temporary).generate_project('Sales', data)
+            self.assertTrue(result['validation']['valid'], result['validation']['errors'])
+            project = Path(result['project_path'])
+            lakehouse = json.loads((project / 'Sales.Lakehouse/lakehouse_definition.json').read_text(encoding='utf-8'))
+            self.assertEqual(
+                [column['name'] for column in lakehouse['tables'][0]['columns']],
+                ['Business_Year', 'ID', 'Display_Label'],
+            )
+            table = (project / 'Sales.SemanticModel/definition/tables/DIM_TIME.tmdl').read_text(encoding='utf-8')
+            year = table.split("\tcolumn 'Business Year'", 1)[1].split('\n\tcolumn ', 1)[0]
+            self.assertIn('sourceColumn: Business_Year', year)
+            self.assertNotIn('sourceColumn: FISCAL_YEAR', year)
+            mashup = (project / 'Sales.Dataflow/mashup.pq').read_text(encoding='utf-8')
+            individual = (project / 'Sales.Dataflow/queries/DIM_TIME.m').read_text(encoding='utf-8')
+            for query in (mashup, individual):
+                self.assertIn('List.Difference({"FISCAL_YEAR", "ID"}, Table.ColumnNames(SourceTable))', query)
+                self.assertIn('Table.RenameColumns(CheckedSource, {{"FISCAL_YEAR", "Business_Year"}})', query)
+                self.assertIn('Table.RenameColumns(PhysicalRenamedColumns, {{"Display Label", "Display_Label"}}, MissingField.Ignore)', query)
+
+    def test_file_ingestion_requires_and_renames_explicit_source_columns(self):
+        from unittest.mock import MagicMock
+
+        data = {'datasources': [{'name': 'File', 'connection': {'type': 'CSV', 'details': {'filename': 'time.csv'}},
+                'tables': [{'name': 'Time', 'columns': [
+                    {'name': 'Business Year', 'sourceColumn': 'FISCAL_YEAR'},
+                    {'name': 'ID', 'sourceColumn': 'ID'},
+                ]}]}]}
+        with tempfile.TemporaryDirectory() as temporary:
+            NotebookGenerator(temporary, 'Sales').generate(data)
+            notebook = json.loads((Path(temporary) / 'Sales.Notebook/etl_pipeline.ipynb').read_text(encoding='utf-8'))
+        code = next(''.join(cell['source']).split('\n# Preview', 1)[0]
+                    for cell in notebook['cells']
+                    if cell['cell_type'] == 'code' and '.saveAsTable("time")' in ''.join(cell['source']))
+
+        def execute(columns):
+            frame = MagicMock()
+            frame.columns = columns[:]
+
+            def rename(old, new):
+                frame.columns = [new if name == old else name for name in frame.columns]
+                return frame
+
+            frame.withColumnRenamed.side_effect = rename
+            reader = MagicMock()
+            reader.format.return_value = reader
+            reader.option.return_value = reader
+            reader.load.return_value = frame
+            spark = MagicMock()
+            spark.read = reader
+            exec(code, {'spark': spark})
+            return frame.columns
+
+        self.assertEqual(execute(['FISCAL_YEAR', 'ID']), ['Business_Year', 'ID'])
+        with self.assertRaisesRegex(ValueError, 'FISCAL_YEAR'):
+            execute(['ID'])
+        with self.assertRaisesRegex(ValueError, 'ID'):
+            execute(['FISCAL_YEAR'])
+        with self.assertRaisesRegex(ValueError, 'conflicts with an existing column'):
+            execute(['FISCAL_YEAR', 'Business_Year', 'ID'])
+
+    def test_fabric_rejects_ambiguous_explicit_source_mappings(self):
+        cases = [
+            [{'name': 'Year', 'sourceColumn': 'FISCAL_YEAR'},
+             {'name': 'Other Year', 'sourceColumn': 'FISCAL_YEAR'}],
+            [{'name': 'B', 'sourceColumn': 'A'}, {'name': 'C', 'sourceColumn': 'B'}],
+            [{'name': 'Year', 'sourceColumn': 'FISCAL_YEAR'},
+             {'name': 'Year', 'sourceColumn': 'FISCAL_YEAR'}],
+        ]
+        for connection_type in ('CSV', 'SQL Server'):
+            for columns in cases:
+                with self.subTest(connection_type=connection_type, columns=columns), tempfile.TemporaryDirectory() as temporary:
+                    data = {'datasources': [{'connection': {'type': connection_type},
+                            'tables': [{'name': 'Time', 'columns': columns}]}]}
+                    generator = NotebookGenerator if connection_type == 'CSV' else DataflowGenerator
+                    with self.assertRaisesRegex(ValueError, 'multiple Delta columns|Ambiguous Fabric column rename|is duplicated'):
+                        generator(temporary, 'Sales').generate(data)
+
+    def test_dataflow_escapes_explicit_source_names_as_m_literals(self):
+        data = {'datasources': [{'connection': {'type': 'SQL Server'},
+                'tables': [{'name': 'Time', 'columns': [
+                    {'name': 'Year', 'sourceColumn': 'FISCAL#(lf)"YEAR'},
+                ]}]}]}
+        with tempfile.TemporaryDirectory() as temporary:
+            DataflowGenerator(temporary, 'Sales').generate(data)
+            mashup = (Path(temporary) / 'Sales.Dataflow/mashup.pq').read_text(encoding='utf-8')
+        self.assertIn('{"FISCAL#(#)(lf)""YEAR", "Year"}', mashup)
+        self.assertIn('List.Difference({"FISCAL#(#)(lf)""YEAR"}, Table.ColumnNames(SourceTable))', mashup)
+
     def test_import_generation_remains_import(self):
         from powerbi_import.tmdl_generator import generate_tmdl
 
@@ -365,8 +462,11 @@ class TestMigrationQuality(unittest.TestCase):
                  patch('powerbi_import.import_to_powerbi.PowerBIImporter') as importer, \
                  patch.dict('sys.modules', {'powerbi_import.deploy.deployer': deployment_module}):
                 importer.return_value.import_all.return_value = result['project_path']
-                code = main(['source.wid', '--output-format', 'fabric', '--output-dir', temporary,
-                             '--no-optimize-dax', '--deploy', 'synthetic-workspace'])
+                from migrate import MigrationStats, _run_single_migration, build_parser
+                args = build_parser().parse_args(['source.wid', '--output-format', 'fabric',
+                                                  '--output-dir', temporary, '--no-optimize-dax',
+                                                  '--deploy', 'synthetic-workspace'])
+                code = _run_single_migration(args, MigrationStats())
                 self.assertEqual(code, EXIT_VALIDATION_ERROR)
                 deployment_module.FabricDeployer.assert_not_called()
             report_path = Path(result['project_path']) / 'quality_report.json'

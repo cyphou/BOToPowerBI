@@ -139,7 +139,7 @@ still require syntax and semantic validation:
 | WebI Variable (Dimension) | Calculated Column |
 | WebI Prompt | Slicer + Parameter Table |
 | WebI Input Control | Slicer |
-| WebI Report Tab | Report Page |
+| WebI Report Tab | Report Page (when layout evidence is available) |
 | WebI Section | Group in Matrix |
 | WebI Break | Group in Visual |
 | WebI Alerter | Conditional Formatting Rule |
@@ -151,6 +151,11 @@ still require syntax and semantic validation:
 | BO Scheduled Instance | PBI Refresh Schedule |
 | BO Security Profile | RLS Role |
 | BO Folder/Category | Workspace / App |
+
+These are conceptual mappings, not guarantees of complete extraction. In
+particular, a partial native WID report without an extracted chart does not
+produce a fallback worksheet; the adapter preserves the partial source evidence
+and warns that the visual layout was not fully extracted.
 
 ## Security Architecture
 

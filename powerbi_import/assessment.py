@@ -5,7 +5,7 @@ Runs a comprehensive checklist against an extracted BO artifact
 and produces a structured readiness report with:
 
 - **Overall readiness score** (GREEN / YELLOW / RED)
-- **Category-level checks** across 8 dimensions
+- **Category-level checks** across migration dimensions
 - **Per-item findings** with severity (pass / warn / fail / info)
 - **Recommendations** for manual review or remediation
 - JSON + console output
@@ -27,6 +27,7 @@ import json
 import logging
 import os
 import re
+from collections import Counter
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Dict, List, Optional
@@ -46,6 +47,7 @@ PASS = "pass"
 INFO = "info"
 WARN = "warn"
 FAIL = "fail"
+_SQL_BINDING_CHECK = "Custom SQL binding"
 
 # ── Connector support tiers ─────────────────────────────────────────
 
@@ -263,21 +265,38 @@ def _check_datasources(extracted: Dict) -> CategoryResult:
 
     if not datasources:
         cat.checks.append(CheckItem(
-            cat.name, "No datasources found", WARN,
-            "No datasource definitions were extracted.",
-            "Verify the BO artifact contains at least one datasource.",
+            cat.name, "No datasources found", FAIL,
+            "No datasource definitions were extracted; the folder importer "
+            "cannot generate a PBIP or Fabric project without an adapted datasource.",
+            "Recover and verify datasource metadata from the BO source. "
+            "Missing extraction does not establish that the source has no datasource.",
         ))
         return cat
 
+    synthetic_count = sum(bool(ds.get("is_synthetic")) for ds in datasources)
+    if synthetic_count:
+        count_detail = (
+            f"{len(datasources) - synthetic_count} extracted datasource(s); "
+            f"{synthetic_count} generated placeholder(s)."
+        )
+    else:
+        count_detail = f"{len(datasources)} datasource(s) detected."
     cat.checks.append(CheckItem(
-        cat.name, "Datasource count", INFO,
-        f"{len(datasources)} datasource(s) detected.",
+        cat.name, "Datasource count", INFO, count_detail,
     ))
 
     # Connection types
     connector_types: Dict[str, list] = {}
     for ds in datasources:
         ds_name = ds.get("name") or "?"
+        if ds.get("is_synthetic"):
+            cat.checks.append(CheckItem(
+                cat.name, f"Placeholder datasource: {ds_name}", WARN,
+                "A synthetic ODBC placeholder was created from table metadata; "
+                "the original datasource and connector type were not extracted.",
+                "Recover and configure the actual source connection before refresh.",
+            ))
+            continue
         # Skip Parameters-only datasource — not a real connector
         if ds_name == "Parameters" or ds_name.startswith("Parameters."):
             continue
@@ -375,11 +394,32 @@ def _check_datasources(extracted: Dict) -> CategoryResult:
     if custom_sql:
         cat.checks.append(CheckItem(
             cat.name, "Custom SQL", INFO,
-            f"{len(custom_sql)} custom SQL query/queries detected. "
-            "Auto-converted: embedded as native SQL passthrough in Power Query M.",
-            "Review the generated Power Query M for SQL compatibility "
-            "with the target database.",
+            f"{len(custom_sql)} custom SQL query/queries detected in extracted "
+            "metadata; binding, Power Query generation and execution are not verified.",
         ))
+        matching_tables = Counter(
+            (table.get("name"), table.get("sql"))
+            for ds in datasources if not ds.get("is_synthetic")
+            for table in ds.get("tables", [])
+            if isinstance(table.get("name"), str)
+            and isinstance(table.get("sql"), str)
+            and table["sql"].strip()
+        )
+        unmatched = 0
+        for query in custom_sql:
+            name, sql = query.get("name"), query.get("sql")
+            key = (name, sql) if isinstance(name, str) and isinstance(sql, str) else None
+            if key is not None and matching_tables[key]:
+                matching_tables[key] -= 1
+            else:
+                unmatched += 1
+        if unmatched:
+            cat.checks.append(CheckItem(
+                cat.name, _SQL_BINDING_CHECK, WARN,
+                f"{unmatched} SQL query/queries have no matching SQL-bearing "
+                "table on an extracted datasource.",
+                "Review datasource and query bindings and inspect generated Power Query.",
+            ))
     else:
         cat.checks.append(CheckItem(
             cat.name, "Custom SQL", PASS,
@@ -1056,12 +1096,15 @@ _SENSITIVE_PATTERNS = [
 def _check_connection_strings(extracted: Dict) -> CategoryResult:
     """Category 9: Connection String Security Audit."""
     cat = CategoryResult(name="Connection String Security")
-    datasources = extracted.get("datasources", [])
+    datasources = [
+        ds for ds in extracted.get("datasources", [])
+        if not ds.get("is_synthetic")
+    ]
 
     if not datasources:
         cat.checks.append(CheckItem(
-            cat.name, "No datasources", PASS,
-            "No datasource connections to audit.",
+            cat.name, "No extracted datasources", INFO,
+            "No extracted datasource connections were available; credentials were not audited.",
         ))
         return cat
 
@@ -1305,7 +1348,16 @@ def _check_multi_datasource(extracted: Dict) -> CategoryResult:
     cat = CategoryResult(name="Multi-Datasource")
 
     worksheets = extracted.get("worksheets", [])
-    datasources = extracted.get("datasources", [])
+    datasources = [
+        ds for ds in extracted.get("datasources", [])
+        if not ds.get("is_synthetic")
+    ]
+    if not datasources:
+        cat.checks.append(CheckItem(
+            cat.name, "No extracted datasources", INFO,
+            "No extracted datasource connections were available for comparison.",
+        ))
+        return cat
 
     # Build column→datasource mapping
     col_ds_map: Dict[str, str] = {}

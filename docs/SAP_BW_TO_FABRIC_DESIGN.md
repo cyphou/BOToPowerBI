@@ -289,7 +289,8 @@ report-write failure. This is local comparison logic, not the BW-2 exit gate.
 ## BW-3 offline handoff evaluation
 
 `migrate_bw_handoff.py` evaluates the local, synthetic
-[snapshot-to-delta manifest](fixtures/sap_bw_handoff.example.json):
+[snapshot-to-delta manifest](fixtures/sap_bw_handoff.example.json), described by
+the [version 1.0 JSON Schema](schemas/sap_bw_handoff.schema.json):
 
 ```powershell
 python migrate_bw_handoff.py `
@@ -307,6 +308,10 @@ resulting local state with the declared target. It reports late and
 out-of-order events for review; their presence alone does not fail the check.
 Input contract conflicts are rejected, while continuity, schema and state
 mismatches produce a failing report.
+The JSON Schema describes the structural contract. The evaluator additionally
+checks cross-field rules that the schema cannot express, including matching
+record fields to the declared source schema, unique record keys, conflicting
+event IDs or positions, exact replay consistency, and watermark ordering.
 
 This is deliberately a **normalized offline test contract**, not a universal
 CDC interface. Only use it when the selected source's owner confirms that its
@@ -599,6 +604,14 @@ or target queries, compare result vectors, validate performance, or approve
 consumer acceptance. Query execution, source/target result comparison,
 consumer acceptance and Desktop/Service rendering remain `not_run`. This is a
 contract and gap report, not a BEx converter or BW-5 exit gate.
+
+For a print-oriented consumer, `migrate.py --output-format rdl` or the separate
+`migrate_paginated.py` can create
+a basic RDL table from an explicitly supplied semantic-model connection, DAX
+query and field mapping; see the [README example](../README.md#local-paginated-rdl-from-a-declared-mapping).
+The `bex` source kind is a declaration, not a BEx parser or semantic
+conversion. Report Builder rendering, query execution, permissions and
+source-to-target equivalence are `not_run`; this does not close BW-5.
 
 ## BW-6 offline security, planning, and compliance controls
 

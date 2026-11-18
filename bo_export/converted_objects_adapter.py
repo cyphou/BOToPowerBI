@@ -13,7 +13,9 @@ Usage::
 
 from __future__ import annotations
 
+from collections import Counter
 import logging
+import re
 from typing import Any
 
 from bo_export.dax_converter import convert_bo_formula_to_dax
@@ -55,7 +57,7 @@ def adapt_bo_to_converted_objects(extracted: dict[str, list]) -> dict[str, Any]:
         "hierarchies": _adapt_hierarchies(extracted),
         "sort_orders": _adapt_sorts(extracted),
         "aliases": _adapt_aliases(extracted),
-        "custom_sql": extracted.get("custom_sql", []),
+        "custom_sql": _top_level_custom_sql(extracted),
         "relationships": _adapt_relationships_toplevel(extracted),
         "user_filters": [],
         "hyper_files": [],
@@ -76,9 +78,36 @@ def _adapt_datasources(extracted: dict) -> list[dict]:
     bo_datasources = extracted.get("datasources", [])
     bo_tables = extracted.get("tables", [])
     bo_columns = extracted.get("columns", [])
+    bo_queries = [
+        query for query in extracted.get("queries", [])
+        if not query.get("native_wid_evidence_only")
+    ]
     bo_joins = extracted.get("joins", [])
     bo_formulas = extracted.get("formulas", [])
     bo_custom_sql = extracted.get("custom_sql", [])
+
+    # Resolve SQL sources once, so a query is attached to at most one
+    # datasource and ambiguity warnings are not repeated for each datasource.
+    sql_routes: dict[int, int] = {}
+    for sql_index, sql_item in enumerate(bo_custom_sql):
+        source_index = _resolve_sql_source(
+            sql_item.get("datasource", ""), bo_datasources,
+            f"custom SQL {sql_item.get('name') or sql_index + 1!r}",
+        )
+        if source_index is not None:
+            sql_routes[sql_index] = source_index
+
+    derived_routes: dict[int, int] = {}
+    for table_index, table in enumerate(bo_tables):
+        if table.get("type") != "derived" or not table.get("sql"):
+            continue
+        source_index = _resolve_sql_source(
+            table.get("datasource", table.get("connection", "")),
+            bo_datasources,
+            f"derived table {table.get('name') or table_index + 1!r}",
+        )
+        if source_index is not None:
+            derived_routes[table_index] = source_index
 
     # Index columns by table name (case-insensitive)
     columns_by_table: dict[str, list[dict]] = {}
@@ -86,9 +115,59 @@ def _adapt_datasources(extracted: dict) -> list[dict]:
         tname = (col.get("table") or "").lower()
         columns_by_table.setdefault(tname, []).append(col)
 
+    sql_name_counts = Counter(
+        item["name"].casefold()
+        for item in bo_custom_sql
+        if isinstance(item.get("name"), str) and item["name"]
+    )
+    sql_by_name = {
+        item["name"].casefold(): item
+        for item in bo_custom_sql
+        if isinstance(item.get("name"), str) and item["name"]
+    }
+    existing_table_names = {
+        table["name"].casefold()
+        for table in bo_tables
+        if isinstance(table.get("name"), str) and table["name"]
+    }
+    sql_column_table_names = {
+        name for name, count in sql_name_counts.items()
+        if count == 1 and name not in existing_table_names and sql_by_name[name].get("sql")
+    }
+    query_name_counts = Counter(
+        query["name"].casefold()
+        for query in bo_queries
+        if isinstance(query.get("name"), str) and query["name"]
+    )
+    for query in bo_queries:
+        query_name = query.get("name")
+        if not isinstance(query_name, str) or query_name.casefold() not in sql_column_table_names:
+            continue
+        name = query_name.casefold()
+        sql_item = sql_by_name[name]
+        query_source = query.get("datasource") or ""
+        sql_source = sql_item.get("datasource") or ""
+        if (query_name_counts[name] != 1
+                or query.get("sql") != sql_item.get("sql")
+                or not isinstance(query_source, str) or not isinstance(sql_source, str)
+                or query_source.casefold() != sql_source.casefold()):
+            sql_column_table_names.discard(name)
+
+    referenced_sql_names = {
+        column["table"].casefold()
+        for column in bo_columns
+        if isinstance(column.get("table"), str) and column["table"]
+    }
+    for name in sorted(referenced_sql_names & sql_name_counts.keys()
+                       - existing_table_names - sql_column_table_names):
+        logger.warning(
+            "Cannot bind columns to SQL query %r: query name or provider metadata "
+            "is ambiguous or incomplete", sql_by_name[name]["name"],
+        )
+
     result = []
 
-    for ds in bo_datasources:
+    for ds_index, ds in enumerate(bo_datasources):
         ds_name = ds.get("name", "")
 
         # Build connection dict
@@ -102,7 +181,19 @@ def _adapt_datasources(extracted: dict) -> list[dict]:
             connection["connectionString"] = ds["connection_string"]
 
         # Build tables with nested columns
-        tables = _build_tables(ds_name, bo_tables, columns_by_table, bo_custom_sql)
+        datasource_tables = [
+            table for table_index, table in enumerate(bo_tables)
+            if not (table.get("type") == "derived" and table.get("sql"))
+            or derived_routes.get(table_index) == ds_index
+        ]
+        datasource_sql = [
+            item for sql_index, item in enumerate(bo_custom_sql)
+            if sql_routes.get(sql_index) == ds_index
+        ]
+        tables = _build_tables(
+            ds_name, datasource_tables, columns_by_table, datasource_sql,
+            sql_column_table_names,
+        )
 
         # If no tables found from the tables list, create one from the DS itself
         if not tables and ds_name:
@@ -135,9 +226,16 @@ def _adapt_datasources(extracted: dict) -> list[dict]:
 
     # If no datasources were extracted, create a synthetic one from tables
     if not result and bo_tables:
-        tables = _build_tables("", bo_tables, columns_by_table, bo_custom_sql)
+        # With no extracted source, SQL cannot be assigned reliably. Keep it
+        # in the top-level custom_sql collection rather than inventing a link.
+        non_sql_tables = [
+            table for table in bo_tables
+            if not (table.get("type") == "derived" and table.get("sql"))
+        ]
+        tables = _build_tables("", non_sql_tables, columns_by_table, [], set())
         result.append({
             "name": "BO_DataSource",
+            "is_synthetic": True,
             "connection": {"type": "odbc", "server": "", "database": ""},
             "connection_map": {},
             "tables": tables,
@@ -150,8 +248,70 @@ def _adapt_datasources(extracted: dict) -> list[dict]:
     return result
 
 
+def _resolve_sql_source(reference: str, datasources: list[dict],
+                        description: str) -> int | None:
+    """Resolve a SQL source by exact case-insensitive name/id, or safe singleton."""
+    if reference:
+        normalized = str(reference).casefold()
+        matches = []
+        for index, datasource in enumerate(datasources):
+            identifiers = (
+                datasource.get("name"),
+                datasource.get("id"),
+                datasource.get("connection_id"),
+                datasource.get("connectionId"),
+            )
+            if any(value is not None and str(value).casefold() == normalized
+                   for value in identifiers):
+                matches.append(index)
+        if len(matches) == 1:
+            return matches[0]
+        if len(matches) > 1:
+            logger.warning(
+                "SQL %s has ambiguous datasource reference %r; it was not attached",
+                description, reference,
+            )
+        else:
+            logger.warning(
+                "SQL %s references unknown datasource %r; it was not attached",
+                description, reference,
+            )
+        return None
+
+    if len(datasources) == 1:
+        return 0
+    if not datasources:
+        reason = "no datasource is available"
+    else:
+        reason = "multiple datasources exist and no source reference was provided"
+    logger.warning("SQL %s is unattachable: %s", description, reason)
+    return None
+
+
+def _top_level_custom_sql(extracted: dict) -> list[dict]:
+    """Preserve extracted SQL and add derived-table SQL missing from that list."""
+    custom_sql = list(extracted.get("custom_sql", []))
+    identities = {
+        (item.get("name", ""), item.get("sql", ""), item.get("datasource", ""))
+        for item in custom_sql
+    }
+    for table in extracted.get("tables", []):
+        if table.get("type") != "derived" or not table.get("sql"):
+            continue
+        item = {
+            "name": table.get("name", ""),
+            "sql": table["sql"],
+            "datasource": table.get("datasource", table.get("connection", "")),
+        }
+        identity = (item["name"], item["sql"], item["datasource"])
+        if identity not in identities:
+            custom_sql.append(item)
+            identities.add(identity)
+    return custom_sql
+
+
 def _build_tables(ds_name: str, bo_tables: list, columns_by_table: dict,
-                  bo_custom_sql: list) -> list[dict]:
+                  bo_custom_sql: list, sql_column_table_names: set[str]) -> list[dict]:
     """Build the tables[] list with nested columns."""
     tables = []
 
@@ -161,7 +321,11 @@ def _build_tables(ds_name: str, bo_tables: list, columns_by_table: dict,
             continue
 
         # Match columns to this table
-        pbi_columns = [_adapt_column(c) for c in columns_by_table.get(tname.lower(), [])]
+        physical_table = tbl.get("type") not in ("derived", "custom_sql", "sql")
+        pbi_columns = [
+            _adapt_column(c, physical_table=physical_table)
+            for c in columns_by_table.get(tname.lower(), [])
+        ]
 
         table_dict: dict[str, Any] = {
             "name": tname,
@@ -184,7 +348,11 @@ def _build_tables(ds_name: str, bo_tables: list, columns_by_table: dict,
         if sql and not any(t["name"] == name for t in tables):
             tables.append({
                 "name": name,
-                "columns": [],
+                "columns": [
+                    {**_adapt_column(column), "sourceColumn": column["name"]}
+                    for column in columns_by_table.get(name.lower(), [])
+                    if isinstance(column.get("name"), str) and column["name"]
+                ] if name.casefold() in sql_column_table_names else [],
                 "sql": sql,
                 "type": "custom_sql",
             })
@@ -192,7 +360,7 @@ def _build_tables(ds_name: str, bo_tables: list, columns_by_table: dict,
     return tables
 
 
-def _adapt_column(bo_col: dict) -> dict:
+def _adapt_column(bo_col: dict, *, physical_table: bool = False) -> dict:
     """Convert a BO column dict to the generation-expected column shape."""
     qualification = bo_col.get("qualification", "dimension")
     role = "measure" if qualification == "measure" else "dimension"
@@ -202,7 +370,7 @@ def _adapt_column(bo_col: dict) -> dict:
     if str(bo_col.get('data_type', '')).strip().lower() == 'date':
         source_type = 'date'
 
-    return {
+    column = {
         "name": bo_col.get("name", ""),
         "dataType": data_type,
         "datatype": source_type,
@@ -212,6 +380,26 @@ def _adapt_column(bo_col: dict) -> dict:
         "description": bo_col.get("description", ""),
         "semantic_role": bo_col.get("semantic_role", ""),
     }
+    select_sql = bo_col.get("select_sql") or ""
+    if select_sql:
+        identifier = r'(?:\[[^\[\]]+\]|"[^"]+"|(?:[^\W\d]|_)[\w$]*)'
+        reference = re.fullmatch(
+            rf"(?P<table>{identifier})\s*\.\s*(?P<column>{identifier})",
+            select_sql.strip(),
+        )
+        if reference:
+            table, source = reference.group("table", "column")
+            if table[0] in ('"', "["):
+                table = table[1:-1]
+            if source[0] in ('"', "["):
+                source = source[1:-1]
+        if physical_table and reference and table == bo_col.get("table"):
+            column["sourceColumn"] = source
+        else:
+            column["source_expression_untranslated"] = True
+    if bo_col.get("where_clause"):
+        column["source_expression_untranslated"] = True
+    return column
 
 
 def _adapt_formula_to_calc(formula: dict, ds_name: str) -> dict:
@@ -317,7 +505,8 @@ def _adapt_worksheets(extracted: dict) -> list[dict]:
     """Convert BO reports/charts to worksheet dicts.
 
     Each chart becomes its own worksheet so multi-chart report tabs produce
-    multiple visuals. Reports with no charts get a default tableEx worksheet.
+    multiple visuals. Generic reports with no charts get a default tableEx
+    worksheet; partial native WID reports do not get an inferred fallback.
     """
     reports = extracted.get("reports", [])
     charts = extracted.get("charts", [])
@@ -325,15 +514,22 @@ def _adapt_worksheets(extracted: dict) -> list[dict]:
     # Index charts by report/tab name
     charts_by_report: dict[str, list[dict]] = {}
     for chart in charts:
-        report_ref = chart.get("report", chart.get("tab", ""))
+        report_ref = chart.get("report") or chart.get("tab") or ""
         charts_by_report.setdefault(report_ref, []).append(chart)
 
     worksheets = []
     for report in reports:
         report_name = report.get("name", "Report")
-        report_charts = charts_by_report.get(report_name, [])
+        report_charts = charts_by_report.get(report_name, []) if report_name else []
 
         if not report_charts:
+            if report.get("native_wid_partial") or report.get("cms_snapshot_layout_unconverted"):
+                logger.warning(
+                    "Skipping fallback worksheet for WebI report %r with unconverted layout; "
+                    "its visual layout was not fully extracted",
+                    report_name,
+                )
+                continue
             # No charts → one tableEx worksheet per report tab
             worksheets.append(_make_worksheet(
                 name=report_name,
@@ -364,16 +560,35 @@ def _adapt_worksheets(extracted: dict) -> list[dict]:
                     datasource=report.get("datasource", ""),
                 ))
 
-    # If no reports but we have charts, create worksheets from charts
-    if not worksheets and charts:
-        for i, chart in enumerate(charts):
+    if charts:
+        report_names = {report.get("name", "Report") for report in reports}
+        used_names = {worksheet["name"] for worksheet in worksheets}
+        unlinked = [
+            chart for chart in charts
+            if not (chart.get("report") or chart.get("tab"))
+            or (chart.get("report") or chart.get("tab")) not in report_names
+        ]
+        for i, chart in enumerate(unlinked):
+            chart_name = chart.get("name") or f"Chart_{i + 1}"
+            name = chart_name
+            suffix = 2
+            while name in used_names:
+                name = f"{chart_name} ({suffix})"
+                suffix += 1
+            used_names.add(name)
             worksheets.append(_make_worksheet(
-                name=chart.get("name", f"Chart_{i + 1}"),
+                name=name,
                 chart_type=_map_bo_chart_type(chart.get("type", "table")),
                 fields=_extract_fields_from_chart(chart),
-                title=chart.get("name", ""),
+                title=chart.get("title") or chart_name,
                 datasource="",
+                source_chart_unlinked=True,
             ))
+        if unlinked:
+            logger.warning(
+                "%d chart(s) have no matching report/tab; original page placement is unknown",
+                len(unlinked),
+            )
 
     # Enrich matrix worksheets with Crystal groups as dimensions/measures
     bo_groups = extracted.get("groups", [])
@@ -554,13 +769,21 @@ def _map_bo_chart_type(bo_type: str) -> str:
 
 def _adapt_dashboards(extracted: dict, adapted_worksheets: list[dict] | None = None) -> list[dict]:
     """Create dashboard(s) wrapping all worksheets and prompt slicers."""
-    if adapted_worksheets:
-        worksheet_names = [ws.get("name", "") for ws in adapted_worksheets if ws.get("name")]
+    unlinked_names = []
+    if adapted_worksheets is not None:
+        worksheet_names = [
+            ws["name"] for ws in adapted_worksheets
+            if ws.get("name") and not ws.get("source_chart_unlinked")
+        ]
+        unlinked_names = [
+            ws["name"] for ws in adapted_worksheets
+            if ws.get("name") and ws.get("source_chart_unlinked")
+        ]
     else:
         reports = extracted.get("reports", [])
         worksheet_names = [r.get("name", "") for r in reports if r.get("name")]
 
-    if not worksheet_names:
+    if not worksheet_names and not unlinked_names:
         return []
 
     # Build dashboard objects: worksheet references + prompt slicers
@@ -586,13 +809,40 @@ def _adapt_dashboards(extracted: dict, adapted_worksheets: list[dict] | None = N
                 "field": prompt.get("associated_dimension", pname),
             })
 
-    return [{
-        "name": "BO_Dashboard",
-        "worksheets": worksheet_names,
-        "objects": objects,
-        "theme": {},
-        "size": {"width": 1280, "height": 720},
-    }]
+    dashboards = []
+    if worksheet_names:
+        dashboards.append({
+            "name": "BO_Dashboard",
+            "worksheets": worksheet_names,
+            "objects": objects,
+            "theme": {},
+            "size": {"width": 1280, "height": 720},
+        })
+    if unlinked_names:
+        grid_columns = min(2, len(unlinked_names))
+        grid_rows = (len(unlinked_names) + grid_columns - 1) // grid_columns
+        width, height = 1280 / grid_columns, 720 / grid_rows
+        dashboards.append({
+            "name": "BO_Unassigned_Charts",
+            "worksheets": unlinked_names,
+            "objects": [
+                {
+                    "type": "worksheetReference",
+                    "worksheetName": name,
+                    "name": name,
+                    "position": {
+                        "x": (index % grid_columns) * width,
+                        "y": (index // grid_columns) * height,
+                        "w": width,
+                        "h": height,
+                    },
+                }
+                for index, name in enumerate(unlinked_names)
+            ] + (objects if not worksheet_names else []),
+            "theme": {},
+            "size": {"width": 1280, "height": 720},
+        })
+    return dashboards
 
 
 # ───────────────────────────────────────────────────────────────

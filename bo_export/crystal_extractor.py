@@ -12,12 +12,11 @@ import struct
 
 logger = logging.getLogger(__name__)
 
-# Crystal formula field reference pattern: {Table.Field}
-FIELD_REF_PATTERN = re.compile(r"\{(\w+)\.(\w+)\}")
-# Crystal formula reference: {@FormulaName}
-FORMULA_REF_PATTERN = re.compile(r"\{@(\w+)\}")
-# Crystal parameter reference: {?ParameterName}
-PARAM_REF_PATTERN = re.compile(r"\{\?(\w+)\}")
+# Keep field names intact; only braces and the separator dot delimit a reference.
+FIELD_REF_PATTERN = re.compile(r"\{([^{}.\r\n]+)\.([^{}.\r\n]+)\}")
+# Keep formula and parameter names intact inside their reference delimiters.
+FORMULA_REF_PATTERN = re.compile(r"\{@([^{}\r\n]+)\}")
+PARAM_REF_PATTERN = re.compile(r"\{\?([^{}\r\n]+)\}")
 
 
 def extract_crystal(input_path, artifact_data=None):
@@ -103,11 +102,11 @@ def extract_crystal(input_path, artifact_data=None):
 
 # ── Binary marker patterns found in .rpt files ──────────────────────
 _GROUP_MARKER = re.compile(
-    r"Group\s*#?(\d+)\s*[-–:]?\s*(?:on\s+)?\{?(\w+\.\w+)\}?",
+    r"Group\s*#?(\d+)\s*[-–:]?\s*(?:on\s+)?(\{[^{}\r\n]+\}|[\w.]+)",
     re.IGNORECASE,
 )
 _SORT_MARKER = re.compile(
-    r"Sort\s+(?:on\s+)?\{?(\w+(?:\.\w+)?)\}?\s*(Ascending|Descending|A-Z|Z-A)?",
+    r"Sort\s+(?:on\s+)?(\{[^{}\r\n]+\}|[\w.]+)\s*(Ascending|Descending|A-Z|Z-A)?",
     re.IGNORECASE,
 )
 _CHART_MARKER = re.compile(
@@ -185,7 +184,7 @@ def _parse_rpt_file(input_path):
         for m in _GROUP_MARKER.finditer(full_text):
             metadata["group_markers"].append({
                 "index": int(m.group(1)),
-                "field": m.group(2),
+                "field": m.group(2).strip("{}"),
             })
         for m in _SORT_MARKER.finditer(full_text):
             direction = (m.group(2) or "ascending").lower()
@@ -194,7 +193,7 @@ def _parse_rpt_file(input_path):
             elif direction in ("a-z",):
                 direction = "ascending"
             metadata["sort_markers"].append({
-                "field": m.group(1),
+                "field": m.group(1).strip("{}"),
                 "direction": direction,
             })
         for m in _CHART_MARKER.finditer(full_text):

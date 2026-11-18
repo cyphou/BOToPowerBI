@@ -20,7 +20,7 @@ from .calc_column_utils import (
 from .fabric_naming import make_python_var as _make_var_name
 from .fabric_naming import sanitize_table_name, sanitize_column_name
 from .fabric_item import write_platform
-from .fabric_sources import table_connection, is_file_connection
+from .fabric_sources import table_connection, is_file_connection, column_source_mappings
 
 # Connection type → PySpark read snippet
 _SPARK_READ_TEMPLATES = {
@@ -335,10 +335,22 @@ class NotebookGenerator:
                     f'df_{table_var} = spark.createDataFrame([], schema=StructType([]))\n'
                 )
 
-            for column in table_info['columns']:
-                original_name = column.get('name', '')
-                normalized_name = sanitize_column_name(original_name)
-                if original_name and original_name != normalized_name:
+            mappings = column_source_mappings(table_info)
+            required = list(dict.fromkeys(source for source, _, explicit in mappings if explicit))
+            if required:
+                code += (f'missing_columns = [name for name in {json.dumps(required)} '
+                         f'if name not in df_{table_var}.columns]\n'
+                         'if missing_columns:\n'
+                         '    raise ValueError("Missing explicit BO source columns: " + ", ".join(missing_columns))\n')
+            for original_name, normalized_name, _ in mappings:
+                if original_name != normalized_name:
+                    if required:
+                        message = f'Fabric column rename {original_name!r} to {normalized_name!r} conflicts with an existing column'
+                        code += (f'if {json.dumps(original_name)} in df_{table_var}.columns and any(\n'
+                                 f'    name.casefold() == {json.dumps(normalized_name.casefold())} '
+                                 f'and name != {json.dumps(original_name)} for name in df_{table_var}.columns\n'
+                                 '):\n'
+                                 f'    raise ValueError({json.dumps(message)})\n')
                     code += (f'df_{table_var} = df_{table_var}.withColumnRenamed('
                              f'{json.dumps(original_name)}, {json.dumps(normalized_name)})\n')
             code += f'\n# Preview\ndf_{table_var}.printSchema()\n'

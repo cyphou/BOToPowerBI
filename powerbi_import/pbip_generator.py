@@ -4291,8 +4291,8 @@ class PowerBIProjectGenerator:
         - ``header.json`` / ``footer.json``: Placeholder header/footer definitions
 
         Paginated reports use fixed positioning (inches/cm) rather than
-        responsive layout.  This is a starting point that users can refine
-        in Power BI Report Builder.
+        responsive layout. These JSON placeholders are not RDL files and
+        cannot be opened directly in Power BI Report Builder.
         """
         pag_dir = os.path.join(project_dir, 'PaginatedReport')
         pages_dir = os.path.join(pag_dir, 'pages')

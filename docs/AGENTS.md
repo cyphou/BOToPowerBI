@@ -13,8 +13,9 @@ The authoritative, machine-checked ownership map is
 
 | Agent | Invoke When | Owns |
 |-------|-------------|------|
-| **@orchestrator** | Pipeline coordination, CLI, batch | `migrate.py`, `migrate_bw.py`, `migrate_bw_convert.py`, `migrate_bw_assess.py`, `migrate_bw_reconcile.py`, `migrate_bw_handoff.py`, `migrate_bw_transform_validate.py`, `migrate_bw_bex_assess.py`, `migrate_bw_controls_assess.py`, `migrate_bw_wave_assess.py`, `migrate_bw_cutover_assess.py`, orchestration modules |
-| **@extractor** | Parsing BusinessObjects source artifacts | `bo_export/` extraction modules |
+| **@orchestrator** | Pipeline coordination, CLI, batch | `migrate.py`, `migrate_paginated.py`, `migrate_bw.py`, `migrate_bw_convert.py`, `migrate_bw_assess.py`, `migrate_bw_reconcile.py`, `migrate_bw_handoff.py`, `migrate_bw_transform_validate.py`, `migrate_bw_bex_assess.py`, `migrate_bw_controls_assess.py`, `migrate_bw_wave_assess.py`, `migrate_bw_cutover_assess.py`, `migrate_lcm_inventory.py`, orchestration modules |
+| **[WebI Migration](../.github/agents/webi-migration.agent.md)** | Cross-cutting WebI-to-Power BI migration and parity blockers | Coordination only; delegates to existing source, target and evidence owners |
+| **@extractor** | Parsing BusinessObjects source artifacts | `bo_export/` extraction modules, including `webi_snapshot_adapter.py` and `lcm_manifest.py` |
 | **BusinessObjects** | Live CMS/BI platform client, auth, inventory, download | `bo_export/server_client.py` |
 | **@converter** | Formula/expression conversion (coordination layer) | Delegates to @dax and @wiring |
 | **@dax** | DAX/formula correctness, conversion, optimization | DAX conversion modules |
@@ -65,7 +66,10 @@ See [setup and verification](FABRIC_MCP_SETUP.md) for external prerequisites.
 **Generator** coordinates Semantic, Visual, and Fabric; it does not own every file
 in `powerbi_import/`. **Fabric** owns local Fabric artifact generation, while
 **Deployer** owns authorized remote delivery. Local file extraction stays with
-Extractor; the CMS client belongs to BusinessObjects.
+Extractor; the CMS client belongs to BusinessObjects. **WebI Migration** is a
+user-invocable coordinator for cross-cutting WebI work, not a new parser or a
+runtime pipeline stage; it does not transfer module ownership or establish
+WebI parity.
 The BW inventory-assessment, historical-landing, normalized-transformation,
 reconciliation, handoff, transformation-vector, BEx semantic-capture, BW-6 controls-assessment,
 BW-7 wave-evidence and BW-8 cutover-assessment CLIs are separate from the BO
@@ -78,6 +82,16 @@ declarations; the bounded conversion generator can optionally compare local
 definition bytes and plan rules with a declared ledger, but does not verify
 source-rule completeness or runtime outcomes. None implies ownership of live SAP discovery
 or authorization to deploy, switch consumers, or retire BW.
+The RDL choice in `migrate.py` and the separate `migrate_paginated.py` use
+Visual's RDL generator with explicit mappings, not automatic BO/BEx conversion.
+BusinessObjects owns the read-only CMS WebI report/element/plan client,
+versioned document snapshot and saved-plan schemas. The snapshot preserves raw
+API structures but is not connected to the CLI and does not establish
+report-to-provider links; Extractor owns the Python-only
+`webi_snapshot_adapter.py`, which maps single-statement SQL and a declared
+connection to the BO collections. The orchestrator can pass a reviewed,
+single-statement plan to the SQL Server RDL generator. A native WID provider-ID
+match does not establish document identity or a query-to-report-tab relationship.
 **AgentTools** owns the six-tool local MCP surface; **Evidence** owns the unified
 local quality report. The MCP server does not invoke Copilot agents: handoffs
 return findings for an external operator/agent to act on.
@@ -85,6 +99,17 @@ Coordinators enable the `agent` tool and use exact frontmatter names such as
 `Dax`, `Semantic`, and `Fabric`, not their lowercase documentation shorthand.
 Specialists without delegation tools return out-of-scope recommendations to the coordinator.
 Reviewer has no edit or execution tools and returns findings instead of applying fixes.
+The contract tests validate declared names and tools, not runtime invocation.
+In the VS Code Local harness, `agents` restricts the available subagents;
+the Copilot harness does not accept that field as an allowlist. Local
+subagents cannot delegate further by default: nested invocation requires
+`chat.subagents.allowInvocationsFromSubagents` and has a maximum depth of five.
+Tool availability and delegation depend on the active harness and its
+configuration; actual invocation of WebI Migration has not been verified.
+If delegation is unavailable, return an owner-specific handoff instead of
+claiming that another agent ran. See the [VS Code custom agent
+reference](https://code.visualstudio.com/docs/agents/reference/custom-agent-file-reference)
+and [subagent guidance](https://code.visualstudio.com/docs/agents/run/subagents).
 
 Copilot agent roles are development workflows, not runtime stages invoked by the
 CLI. Generated artifacts, passing tests, Desktop rendering, refresh, and Fabric

@@ -227,7 +227,11 @@ def _m_escape_string(value):
     """Escape a string for use in M query literals."""
     if not value:
         return ""
-    return value.replace('"', '""').replace("\\", "\\\\")
+    return (value.replace("#(", "#(#)(")
+            .replace('"', '""')
+            .replace("\r", "#(cr)")
+            .replace("\n", "#(lf)")
+            .replace("\t", "#(tab)"))
 
 
 def _get_last_step_name(m_text):

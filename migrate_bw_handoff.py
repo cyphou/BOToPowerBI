@@ -20,21 +20,29 @@ def main(argv=None):
     )
     args = parser.parse_args(argv)
 
+    output_path = Path(args.output)
+    output_created = False
     try:
         report = evaluate_handoff(load_handoff(args.handoff))
         content = json.dumps(report, ensure_ascii=False, indent=2) + "\n"
         content.encode("utf-8")
-        with Path(args.output).open("x", encoding="utf-8", newline="\n") as handle:
+        with output_path.open("x", encoding="utf-8", newline="\n") as handle:
+            output_created = True
             handle.write(content)
     except BWHandoffError as error:
         print(f"BW handoff evaluation failed: {error}", file=sys.stderr)
         return 2
-    except (OSError, UnicodeError, ValueError):
-        print(
-            "BW handoff evaluation failed while writing the report; "
-            "check the output path and any partial file.",
-            file=sys.stderr,
+    except (OSError, UnicodeError, ValueError) as error:
+        message = (
+            f"BW handoff evaluation failed: unable to write report "
+            f"{output_path}: {error}"
         )
+        if output_created:
+            try:
+                output_path.unlink()
+            except OSError as cleanup_error:
+                message += f"; unable to remove incomplete report: {cleanup_error}"
+        print(message, file=sys.stderr)
         return 2
 
     print(

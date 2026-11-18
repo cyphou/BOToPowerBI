@@ -17,7 +17,7 @@ def _tool_catalogue():
          {'directory': string}, ['directory'], True),
         ('assess', 'Assess one BO artifact without persisting extraction or generating a project.',
          {'file': string}, ['file'], True),
-        ('migrate', 'Generate local projects. Requires server --allow-write, confirm=true and an empty output directory.',
+        ('migrate', 'Generate local projects from a source directory. Requires server --allow-write, confirm=true and an empty output directory.',
          {'source': string, 'output_dir': string, 'output_format': {'type': 'string', 'enum': ['pbip', 'fabric']},
           'confirm': {'type': 'boolean'}}, ['source', 'output_dir', 'confirm'], False),
         ('shared_model', 'Generate a shared model and thin reports from at least two BO sources. Local writes only.',
@@ -58,7 +58,7 @@ class MigrationTools:
         if path.suffix.lower() not in SUPPORTED_EXTENSIONS:
             raise ValueError('Unsupported BO source extension')
         if SUPPORTED_EXTENSIONS[path.suffix.lower()] == 'biar':
-            raise ValueError('Use the --biar CLI workflow for archives; MCP assess/migrate accepts report or universe files')
+            raise ValueError('Use the --biar CLI workflow for archives; MCP assess accepts report or universe files')
         return path
 
     def _output(self, arguments):
@@ -112,12 +112,11 @@ class MigrationTools:
             output = self._output(arguments)
             if name == 'migrate':
                 source = self._path(arguments['source'])
-                if source.is_dir():
-                    if any(path.is_symlink() for path in source.rglob('*')):
-                        raise ValueError('Symlink entries are not supported in MCP source trees')
-                    command = ['--batch', str(source)]
-                else:
-                    command = [str(self._source(arguments['source']))]
+                if not source.is_dir():
+                    raise ValueError('Migration source must be a directory; individual files are not supported')
+                if any(path.is_symlink() for path in source.rglob('*')):
+                    raise ValueError('Symlink entries are not supported in MCP source trees')
+                command = ['--batch', str(source)]
                 command.extend(['--output-format', arguments.get('output_format', 'pbip')])
             else:
                 model_name = arguments['model_name']

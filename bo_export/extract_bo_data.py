@@ -7,9 +7,21 @@ extractor and produces 15 intermediate JSON files for the generation pipeline.
 import json
 import logging
 import os
+import re
+import tempfile
 import zipfile
 
+from powerbi_import.security_validator import redact_connection_string
+
 logger = logging.getLogger(__name__)
+
+_REDACTED = "***REDACTED***"
+_CREDENTIAL_FIELDS = frozenset({
+    "password", "passwd", "pwd", "user", "userid", "username", "uid",
+    "token", "accesstoken", "secret", "clientsecret", "credential",
+    "credentials", "apikey", "accesskey", "accountkey",
+    "sharedaccesssignature", "privatekey", "authorization",
+})
 
 # Supported file extensions and their extractors
 SUPPORTED_EXTENSIONS = {
@@ -35,7 +47,8 @@ def extract_bo_data(input_path, output_dir=None, verbose=False):
     """Extract data from a Business Objects artifact.
 
     Args:
-        input_path: Path to .wid, .rpt, .unx, .unv, .biar, .lumx, or .lums file.
+        input_path: Path to one .wid, .rpt, .unx, .unv, .lumx, or .lums file.
+            Use ``extract_from_biar`` for BIAR/LCMBIAR archives.
         output_dir: Directory for JSON output. Defaults to input filename directory.
         verbose: Enable debug logging.
 
@@ -55,6 +68,9 @@ def extract_bo_data(input_path, output_dir=None, verbose=False):
             f"Unsupported file type: {ext}. "
             f"Supported: {', '.join(SUPPORTED_EXTENSIONS.keys())}"
         )
+    extractor_type = SUPPORTED_EXTENSIONS[ext]
+    if extractor_type == "biar":
+        raise ValueError("Use extract_from_biar() to extract BIAR/LCMBIAR archives")
 
     # Determine output directory
     if output_dir is None:
@@ -63,7 +79,6 @@ def extract_bo_data(input_path, output_dir=None, verbose=False):
     os.makedirs(output_dir, exist_ok=True)
 
     # Route to appropriate extractor
-    extractor_type = SUPPORTED_EXTENSIONS[ext]
     extracted_data = _route_extraction(extractor_type, input_path, verbose)
 
     # Write JSON files
@@ -84,9 +99,19 @@ def extract_from_biar(biar_path, output_dir, verbose=False):
     Returns:
         list[dict]: List of extracted data dicts, one per artifact.
     """
-    from bo_export.biar_reader import read_biar_archive
+    from bo_export.biar_reader import extract_artifact_from_biar, read_biar_archive
 
     artifacts = read_biar_archive(biar_path)
+    names = set()
+    for artifact in artifacts:
+        artifact_name = artifact.get("name", "unknown")
+        key = artifact_name.casefold()
+        if key in names:
+            raise ValueError(
+                f"BIAR contains artifacts with the same output name: {artifact_name}"
+            )
+        names.add(key)
+
     results = []
 
     for artifact in artifacts:
@@ -95,7 +120,11 @@ def extract_from_biar(biar_path, output_dir, verbose=False):
         os.makedirs(artifact_output, exist_ok=True)
 
         ext_type = artifact.get("type", "webi")
-        extracted = _route_extraction(ext_type, artifact.get("path", ""), verbose, artifact_data=artifact)
+        with tempfile.TemporaryDirectory(prefix="bo_biar_") as temporary_dir:
+            source = extract_artifact_from_biar(
+                biar_path, artifact["path"], temporary_dir,
+            )
+            extracted = _route_extraction(ext_type, source, verbose)
         _write_json_outputs(extracted, artifact_output)
         results.append(extracted)
 
@@ -119,9 +148,7 @@ def _route_extraction(extractor_type, input_path, verbose, artifact_data=None):
         extracted = extract_universe(input_path, artifact_data=artifact_data)
 
     elif extractor_type == "biar":
-        from bo_export.biar_reader import read_biar_archive
-        # BIAR handled at higher level; this is for single-artifact routing
-        extracted = {t: [] for t in EXTRACTED_TYPES}
+        raise ValueError("Use extract_from_biar() to extract BIAR/LCMBIAR archives")
 
     elif extractor_type == "lumira":
         from bo_export.lumira_extractor import extract_lumira
@@ -130,11 +157,12 @@ def _route_extraction(extractor_type, input_path, verbose, artifact_data=None):
     else:
         logger.warning("Unknown extractor type: %s", extractor_type)
 
-    return extracted
+    return _sanitize_extracted_datasources(extracted)
 
 
 def _write_json_outputs(extracted_data, output_dir):
     """Write extracted data to individual JSON files."""
+    extracted_data = _sanitize_extracted_datasources(extracted_data)
     for obj_type in EXTRACTED_TYPES:
         data = extracted_data.get(obj_type, [])
         output_path = os.path.join(output_dir, f"{obj_type}.json")
@@ -160,4 +188,34 @@ def load_extracted_data(project_dir):
                 extracted[obj_type] = json.load(f)
         else:
             extracted[obj_type] = []
-    return extracted
+    return _sanitize_extracted_datasources(extracted)
+
+
+def _sanitize_extracted_datasources(extracted_data):
+    """Redact recognized datasource credentials before reuse or persistence."""
+    if not isinstance(extracted_data, dict):
+        return extracted_data
+    datasources = extracted_data.get("datasources")
+    if not isinstance(datasources, list):
+        return extracted_data
+
+    sanitized = dict(extracted_data)
+    sanitized["datasources"] = _sanitize_datasource_value(datasources)
+    return sanitized
+
+
+def _sanitize_datasource_value(value):
+    if isinstance(value, dict):
+        sanitized = {}
+        for key, item in value.items():
+            normalized_key = re.sub(r"[^a-z0-9]", "", str(key).casefold())
+            if normalized_key in _CREDENTIAL_FIELDS:
+                sanitized[key] = _REDACTED if item not in (None, "") else item
+            elif normalized_key == "connectionstring" and isinstance(item, str):
+                sanitized[key] = redact_connection_string(item)
+            else:
+                sanitized[key] = _sanitize_datasource_value(item)
+        return sanitized
+    if isinstance(value, list):
+        return [_sanitize_datasource_value(item) for item in value]
+    return value

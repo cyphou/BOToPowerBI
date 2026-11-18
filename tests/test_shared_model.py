@@ -1,7 +1,7 @@
 """Physical schema preservation across shared-model merging."""
 
-import copy
 import contextlib
+import copy
 import io
 import json
 import tempfile
@@ -9,12 +9,12 @@ import unittest
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
-from powerbi_import.shared_model import assess_merge, merge_semantic_models, build_table_fingerprints
 from bo_export.converted_objects_adapter import adapt_bo_to_converted_objects
-from powerbi_import.fabric_project_generator import FabricProjectGenerator
 from bo_export.universe_extractor import _extract_connections
-from migrate import main, EXIT_SUCCESS, EXIT_UNSUPPORTED_FORMAT
+from migrate import EXIT_SUCCESS, EXIT_UNSUPPORTED_FORMAT, main
+from powerbi_import.fabric_project_generator import FabricProjectGenerator
 from powerbi_import.merge_assessment import print_merge_summary
+from powerbi_import.shared_model import assess_merge, build_table_fingerprints, merge_semantic_models
 
 
 class TestSharedModelMetadata(unittest.TestCase):
@@ -34,13 +34,44 @@ class TestSharedModelMetadata(unittest.TestCase):
             self.assertNotEqual(json.loads((project / 'quality_report.json').read_text(encoding='utf-8'))['status'], 'FAIL')
 
     def test_real_report_shared_cli_rejects_ambiguous_custom_sql_before_generation(self):
-        repository = Path(__file__).resolve().parents[1]
         with tempfile.TemporaryDirectory() as temporary, contextlib.redirect_stdout(io.StringIO()):
-            code = main(['--shared-model', str(repository / 'examples/Enterprise_Sales.wid'),
-                         str(repository / 'examples/Financial_Report.wid'), '--force-merge',
-                         '--output-format', 'fabric', '--output-dir', temporary])
+            temporary = Path(temporary)
+            input_dir = temporary / "inputs"
+            input_dir.mkdir()
+            output_dir = temporary / "output"
+            sources = [
+                (
+                    input_dir / "Sales.wid",
+                    """<document>
+                      <connection id="sales-source" name="Sales DB" type="SQL Server"
+                                  server="sales.example.invalid" database="Sales"/>
+                      <dataProvider id="sales-query" name="Same SQL Query" type="sql"
+                                    connectionId="sales-source">
+                        <sql>SELECT 1 AS Value</sql>
+                      </dataProvider>
+                    </document>""",
+                ),
+                (
+                    input_dir / "Finance.wid",
+                    """<document>
+                      <connection id="finance-source" name="Finance DB" type="SQL Server"
+                                  server="finance.example.invalid" database="Finance"/>
+                      <dataProvider id="finance-query" name="Same SQL Query" type="sql"
+                                    connectionId="finance-source">
+                        <sql>SELECT 2 AS Value</sql>
+                      </dataProvider>
+                    </document>""",
+                ),
+            ]
+            for path, xml in sources:
+                path.write_text(xml, encoding="utf-8")
+
+            code = main(['--shared-model', *(str(path) for path, _ in sources),
+                         '--force-merge', '--output-format', 'fabric',
+                         '--output-dir', str(output_dir)])
+
             self.assertEqual(code, EXIT_UNSUPPORTED_FORMAT)
-            self.assertEqual(list(Path(temporary).rglob('fabric_project_metadata.json')), [])
+            self.assertFalse(output_dir.exists(), "Ambiguous SQL must be rejected before project generation")
 
     def test_universe_connection_container_is_not_a_datasource_and_duplicates_are_exact(self):
         connections = ET.fromstring('<Connections><Connection name="Warehouse" type="sqlserver" server="db.example.invalid" database="Sales" /></Connections>')

@@ -1,5 +1,110 @@
 # Gap Analysis — BO to Power BI Migration
 
+## Real-sample findings and CMS metadata — 2026-11-18
+
+Four public LCM BIAR exports (3 UNX, 2 UNV, 39 Crystal reports, 1 WebI) and
+the 13 earlier WIDs were migrated locally. None generated a PBIP: no SQL,
+datasource or column metadata was readable. The UNX components are marked with
+a `Cipher` member and the extractor now says so instead of returning nothing;
+Crystal `.rpt` streams are opaque and the UNVs expose only names. Decryption
+is not attempted, and these samples are not redistributed.
+
+The CMS `BusinessObjects.xml` manifest is readable and gives bounded lineage:
+which document declares which universe, which connection type (network layer
+and database type) a universe uses, Crystal prompt names and flags, and WebI
+provider IDs. `migrate_lcm_inventory.py` exports it with one unbound RDL
+skeleton per document. In a one-time local check (no schema-backed test is in
+the repository) the skeletons validated against the RDL 2016/01 schema,
+declare parameters as `String` (types are not in the metadata) and contain no
+data source, query or layout. A saved CMS snapshot can additionally feed
+`extract_webi_snapshot()` for a semantic-model-only PBIP. Data-bound reports,
+columns and layouts still require an authorized CMS or verified exports;
+Report Builder rendering, Desktop opening and refresh remain `not_run`.
+
+## Native WebI prompt evidence — 2026-11-17
+
+The local WID parser inventories recognized `PARAMSERVER` structure with
+provider/member provenance, excluding prompt labels, IDs and values. It does
+not convert these records into prompts or infer a query, connection or
+report-provider link. A replay of 13 downloaded WIDs persisted 12 provider
+records and 18 structural prompt entries, but recovered no SQL or datasource;
+all 13 PBIP migrations failed. Source completeness, runtime behavior and
+equivalence remain unverified.
+
+## Bounded datasource credential redaction — 2026-11-16
+
+The local extraction path now masks recognized credential-named properties in
+datasource records and recognized authentication components in `connectionString`
+values before returning extracted data or writing JSON. Loading earlier
+extraction JSON also masks returned datasource data without modifying the
+existing files. Synthetic regression tests cover direct datasource fields,
+semicolon-delimited SQL/ODBC strings, quoted/braced values, and JDBC URI
+credentials.
+
+This is pattern-based, not a complete parser or secret scanner. Credentials in
+arbitrary SQL/text, unsupported connection-string dialects, unrecognized keys,
+or encodings may remain. It does not certify every generated artifact as
+secret-free; review and restrict extracted/generated outputs before sharing.
+
+## CMS inspection flags — 2026-11-16
+
+The CLI now rejects `--assess`, `--global-assess` and `--dry-run` when combined
+with `--server`, before starting the server migration path. A synthetic
+regression verifies all three combinations fail without calling the download
+workflow. This prevents a read-only/assessment expectation from silently
+triggering CMS downloads.
+
+Server portfolio assessment and Power BI target generation are still not
+implemented in this path. Without those inspection flags, the server workflow
+continues to download and extract artifacts; this guard does not change its
+authorization, scope, or output-directory requirements.
+
+## Main CLI deployment guard — 2026-11-16
+
+The main migration CLI now rejects `--deploy`, `--deploy-refresh`, and
+`--deploy-bundle` before migration. This avoids silently ignoring unsupported
+shared/bundle deployment options or returning a success-shaped local result
+after a failed deployment integration. The local regression suite verifies
+that migration dispatch does not begin for these options.
+
+This is a rejection, not a deployment implementation. No remote call was made
+or tested; the separate `--multi-tenant` workflow was not changed or verified.
+Deployment and refresh results remain `not_run`.
+
+## Paginated RDL - 2026-11-16
+
+The main CLI RDL choice and separate local generator accept an explicit
+DAX/field mapping and emit a basic RDL table over a Power BI semantic model.
+SQL Server mappings can also declare scalar parameters and bind SQL
+`@Name` references to RDL report prompts. This is manual mapping, not automatic
+BO prompt conversion; parameters are not supported for DAX or the Power Query
+handoff. The generator does not automatically convert Crystal, WebI or BEx
+report layouts or verify runtime execution. Automated screenshots and pixel
+comparison are not implemented.
+
+The explicit SQL Server and semantic-model DAX mappings accept declared
+WebI, Crystal, Lumira, Desktop Intelligence, Xcelsius, Analysis for OLAP and
+universe origins; DAX also accepts BW and BEx. These labels add no extraction
+or report-feature conversion. Supported `.wid`, `.rpt`, `.unx` and `.unv` metadata/candidates can be used for
+direct SQL selection (Crystal candidates are heuristic readable-text matches);
+BIAR/LCMBIAR is an archive
+and cannot be passed to the RDL selector. See the README source-preparation
+matrix for manual steps and remaining gaps. SQL result/field linkage, Report
+Builder rendering, execution and equivalence remain unverified.
+The folder RDL dispatcher applies per-source mappings and reports archive
+entries as unsupported; it does not infer a report's query, convert its layout
+or unpack BIAR for RDL.
+
+## Consolidated Batch Report — 2026-11-16
+
+Non-dry-run folder migrations now attempt to emit `batch_report.html` from the
+generated `batch_manifest.json`. Known report I/O or manifest-validation errors
+are logged as warnings without changing per-source target statuses. The report
+summarizes per-source Power BI and paginated target statuses, errors, warnings,
+skipped inputs, and contained local links to available outputs. It is local
+generation evidence only: PBIP/RDL opening and rendering, refresh, runtime
+execution, and semantic/visual equivalence remain separate and unverified.
+
 ## TableauToPowerBI Comparison - 2026-10-27
 
 This is a scoped capability comparison, not a claim of full parity with the
@@ -63,9 +168,11 @@ file availability; files still need to be provided in the configured lakehouse.
 Local smoke runs cover WebI, BIAR, directory batch, shared Fabric models, a
 Universe, and PBIP nonregression. WebI/BIAR/batch examples with unsupported
 semantics return 6 with saved quality reports; the eFashion Universe with warnings
-returns 0. PBIP WebI and BIAR generation remains successful. The legacy UNV example
-still has no usable datasource. A real stdio MCP subprocess test verifies that a
-blocked Fabric migration returns structured failure without polluting stdout.
+returns 0. PBIP WebI and BIAR generation succeeded for those repository examples;
+this does not extend to the downloaded native WIDs described above. The legacy
+UNV example still has no usable datasource. A real stdio MCP subprocess test
+verifies that a blocked Fabric migration returns structured failure without
+polluting stdout.
 
 ### Shared Physical Schema Repair - 2026-10-28
 
@@ -95,7 +202,12 @@ unsupported formula/group semantics have not been declared fixed.
 Without `--force-merge`, these low-overlap pairs are declined before generation
 with exit 5. Force approval bypasses a recommendation, not source identity checks.
 
-### Documentation And Operational Boundaries - 2026-10-28
+### Historical Documentation And Operational Boundaries - 2026-10-28
+
+This dated snapshot is not the current status. The redaction, CMS inspection
+flag and CLI deployment statements below have been superseded by the bounded
+changes documented at the start of this file; their remaining limitations
+still apply.
 
 - Exported connection strings are not guaranteed redacted and can contain source
 	credentials. Treat extraction JSON and generated artifacts as sensitive. Automatic
@@ -126,26 +238,29 @@ calculated-column names, is blocked rather than written to an invented table or
 overwriting a column. Warnings and missing runtime evidence remain distinct from
 blocking source/model findings.
 
-## Supported Conversions (✅)
+## Conversion Coverage (Format-Dependent)
+
+The mappings below apply only where the relevant metadata is recognized; they
+do not establish complete source coverage or runtime equivalence.
 
 ### Web Intelligence
 | Feature | Status | Notes |
 |---------|--------|-------|
-| Data providers (queries) | ✅ | Universe-based and freehand SQL |
-| Variables (Measure) | ✅ | → DAX measures |
-| Variables (Dimension) | ✅ | → Calculated columns or columns |
-| Variables (Detail) | ✅ | → Columns associated with dimension |
-| Report tabs | ✅ | → Report pages |
-| Prompts | ✅ | → Slicers + parameter tables |
-| Query filters | ✅ | → M query filters or DAX filters |
-| Report filters | ✅ | → Page/visual-level filters |
-| Charts (bar, line, pie) | ✅ | → PBI chart visuals |
-| Tables | ✅ | → PBI table visual |
-| Cross-tabs | ✅ | → PBI matrix visual |
-| Breaks | ✅ | → Groups in matrix |
-| Sorts | ✅ | → Visual sort configuration |
-| Input controls | ✅ | → Slicers |
-| Alerters | ✅ | → Conditional formatting rules |
+| Data providers (queries) | ⚠️ | Recognized metadata only; native result objects do not recover SQL or connections |
+| Variables (Measure) | ⚠️ | Supported formulas can become DAX candidates |
+| Variables (Dimension) | ⚠️ | Recognized variables can become calculated columns or columns |
+| Variables (Detail) | ⚠️ | Association with a dimension requires available metadata |
+| Report tabs | ⚠️ | Native IDs and names are partial; layout is not reconstructed, and partial native or snapshot tabs get no fallback visual |
+| Prompts | ⚠️ | Generic metadata may produce parameters; native `PARAMSERVER` is structural evidence only |
+| Query filters | ⚠️ | Supported mappings require recognized metadata and review |
+| Report filters | ⚠️ | Supported mappings require recognized metadata and review |
+| Charts (bar, line, pie) | ⚠️ | Supported visual mappings require recognized metadata and review |
+| Tables | ⚠️ | Native table inventory is not a reconstructed visual |
+| Cross-tabs | ⚠️ | Supported matrix mapping requires recognized metadata and review |
+| Breaks | ⚠️ | Group mapping requires recognized metadata and review |
+| Sorts | ⚠️ | Visual sort mapping requires recognized metadata and review |
+| Input controls | ⚠️ | Slicer mapping requires recognized metadata and review |
+| Alerters | ⚠️ | Conditional formatting mapping requires recognized metadata and review |
 | Calculations (BO formula subset) | ⚠️ | DAX candidates require formula-level validation |
 
 ### Crystal Reports
@@ -163,8 +278,8 @@ blocking source/model findings.
 ### Universe
 | Feature | Status | Notes |
 |---------|--------|-------|
-| Business layer objects | ✅ | → Columns + measures |
-| Data foundation tables | ✅ | → M partitions |
+| Business layer objects | ⚠️ | → Columns + measures; UNX with CMS-protected (`Cipher`) components yield nothing |
+| Data foundation tables | ⚠️ | → M partitions; same UNX limit |
 | Joins | ✅ | → Relationships |
 | Derived tables | ✅ | → M custom SQL |
 | Contexts | ⚠️ | → ALLEXCEPT patterns (partial) |
@@ -180,7 +295,7 @@ blocking source/model findings.
 | **Crystal cross-tab** | Nested row/column groups partially supported | Matrix visual with manual group configuration |
 | **Crystal subreport parameters** | Parameter linking partially mapped | Drill-through filter parameterization |
 | **Dynamic alerters** | Multi-condition alerters simplified | Single conditional formatting rule per alerter |
-| **WebI sections** | Nested sections lose exact layout | Flatten to visual groups on page |
+| **WebI sections** | Native section inventory does not reconstruct layout | Rebuild and validate visual groups manually |
 | **Input control (slider)** | Numeric range input controls | PBI numeric slicer (range mode) |
 | **Linked universes** | Multi-universe linking not automated | Manual relationship setup between semantic models |
 
@@ -196,7 +311,7 @@ blocking source/model findings.
 | **BO Audit trail** | Server-level audit data not migrated | PBI admin API provides equivalent monitoring |
 | **Universe connection pooling** | Server-side connection management | PBI gateway handles connection pooling |
 | **Crystal formula timing** | `WhilePrintingRecords` / `WhileReadingRecords` evaluation | DAX is declarative — evaluation timing handled by engine |
-| **Crystal Page N of M** | Crystal-specific pagination | PBI handles pagination differently (paginated reports for exact) |
+| **Crystal Page N of M** | Crystal-specific pagination | Paginated reports are a possible target, but automatic pagination conversion is not implemented |
 | **Lumira Designer apps** | Custom SDK-based applications | Rebuild as Power BI embedded / Power Apps |
 | **OLAP universes (BW)** | SAP BW-specific OLAP queries | A direct BW connector can support coexistence; it does not migrate BW semantics or enable warehouse retirement |
 
@@ -236,8 +351,8 @@ and `DaysBetween` outputs require manual correction and validation.
 
 ## Recommendations
 
-1. **Start with WebI documents** — highest conversion fidelity
-2. **Universe-first approach** — extract universe metadata to build the semantic model, then map reports
+1. **Assess each WebI document first** — verify coverage, SQL, connections and report-provider links before generation; no cross-format fidelity ranking is established
+2. **Universe-first where supported** — review extracted universe metadata and unresolved bindings before mapping reports
 3. **Crystal Reports** — use the SDK or manual export for complex reports
 4. **Lumira Designer** — rebuild as Power BI Embedded apps
 5. **Validate running calculations** — BO running totals have sort-dependent behavior that may need manual DAX tuning

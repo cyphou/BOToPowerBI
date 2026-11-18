@@ -19,6 +19,7 @@ See `docs/AGENTS.md` for the full architecture diagram and `.github/agents/` for
 - **Planning/docs gates**: Roadmap Planner uses `docs/DEVELOPMENT_PLAN.md`; Documentation Guardian checks changed claims before and after a task
 - **Quality/repair/AI**: Evidence owns deterministic reports, Healing recovery behavior, AI optional provider/pattern work, AgentTools local MCP transport
 - **Source server**: BusinessObjects owns the CMS client; Extractor owns local formats and the BO adapter
+- **WebI migration**: WebI Migration coordinates source-to-target work without taking over those owners
 - **Migration skill**: `.github/skills/bo-to-powerbi/SKILL.md`
 - **Fabric/MCP routing**: `.github/skills/fabric-mcp-routing/SKILL.md`; setup in `docs/FABRIC_MCP_SETUP.md`
 - **Fabric ownership**: Fabric handles local generators; Deployer handles explicitly authorized remote writes. Local tests do not prove Desktop or Fabric execution.

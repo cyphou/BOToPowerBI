@@ -1,0 +1,10 @@
+{
+  "title": "Synthetic sales by region",
+  "source_kind": "webi",
+  "server": "sql.example.invalid",
+  "database": "SalesWarehouse",
+  "columns": [
+    {"field": "Region", "label": "Région"},
+    {"field": "Net Sales", "label": "Chiffre d'affaires"}
+  ]
+}

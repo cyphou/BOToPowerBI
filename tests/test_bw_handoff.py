@@ -8,6 +8,8 @@ import unittest
 from contextlib import redirect_stderr, redirect_stdout
 from io import StringIO
 from pathlib import Path
+from unittest.mock import patch
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
@@ -106,6 +108,15 @@ class TestBWHandoff(unittest.TestCase):
         self.assertEqual(report["checks"]["target_state_matches"], "fail")
         self.assertEqual(report["summary"]["target_differing_records"], 1)
 
+    def test_target_comparison_distinguishes_nested_booleans_from_numbers(self):
+        manifest = copy.deepcopy(self.manifest)
+        manifest["events"][-1]["values"]["amount"] = {"flag": True}
+        manifest["target"]["records"][0]["values"]["amount"] = {"flag": 1}
+        report = evaluate_handoff(manifest)
+        self.assertEqual(report["handoff_status"], "fail")
+        self.assertEqual(report["checks"]["target_state_matches"], "fail")
+        self.assertEqual(report["summary"]["target_differing_records"], 1)
+
     def test_rejects_conflicting_replay_position_and_contract(self):
         mutations = []
         conflict = copy.deepcopy(self.manifest)
@@ -128,6 +139,22 @@ class TestBWHandoff(unittest.TestCase):
             with self.subTest(manifest=manifest):
                 with self.assertRaises(BWHandoffError):
                     evaluate_handoff(manifest)
+
+    def test_rejects_replay_with_boolean_number_type_conflict(self):
+        manifest = copy.deepcopy(self.manifest)
+        event = next(event for event in manifest["events"] if event["position"] == 13)
+        event["values"]["amount"] = {"flag": 1}
+        target_record = next(
+            record for record in manifest["target"]["records"]
+            if record["key"] == "sale-3"
+        )
+        target_record["values"]["amount"] = {"flag": 1}
+        conflicting_replay = copy.deepcopy(event)
+        conflicting_replay["values"]["amount"] = {"flag": True}
+        manifest["events"].append(conflicting_replay)
+
+        with self.assertRaisesRegex(BWHandoffError, "conflicting replay"):
+            evaluate_handoff(manifest)
 
     def test_rejects_invalid_scope_credentials_and_duplicate_snapshot_keys(self):
         mutations = []
@@ -190,6 +217,71 @@ class TestBWHandoff(unittest.TestCase):
                 json.loads(failed_path.read_text(encoding="utf-8"))["handoff_status"],
                 "fail",
             )
+
+    def test_cli_rejects_non_string_event_operations(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            for index, operation in enumerate(([], {})):
+                manifest = copy.deepcopy(self.manifest)
+                manifest["events"][0]["operation"] = operation
+                manifest_path = root / f"manifest-{index}.json"
+                report_path = root / f"report-{index}.json"
+                manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+                stdout, stderr = StringIO(), StringIO()
+
+                with self.subTest(operation=operation):
+                    with redirect_stdout(stdout), redirect_stderr(stderr):
+                        result = main([
+                            "--handoff", str(manifest_path),
+                            "--output", str(report_path),
+                        ])
+
+                    self.assertEqual(result, 2)
+                    self.assertFalse(report_path.exists())
+                    self.assertIn("BW handoff evaluation failed:", stderr.getvalue())
+
+    def test_cli_removes_partial_output_after_write_failure(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            manifest_path = root / "manifest.json"
+            report_path = root / "report.json"
+            manifest_path.write_text(json.dumps(self.manifest), encoding="utf-8")
+            original_open = Path.open
+            test_case = self
+
+            class FailingWriter:
+                def __init__(self, handle):
+                    self.handle = handle
+
+                def __enter__(self):
+                    return self
+
+                def __exit__(self, exc_type, exc_value, traceback):
+                    self.handle.close()
+                    return False
+
+                def write(self, content):
+                    self.handle.write(content[:10])
+                    self.handle.flush()
+                    test_case.assertTrue(report_path.exists())
+                    test_case.assertGreater(report_path.stat().st_size, 0)
+                    raise OSError("simulated write failure")
+
+            def open_with_write_failure(path, *args, **kwargs):
+                if path == report_path and args and args[0] == "x":
+                    return FailingWriter(original_open(path, *args, **kwargs))
+                return original_open(path, *args, **kwargs)
+
+            stdout, stderr = StringIO(), StringIO()
+            with patch.object(Path, "open", open_with_write_failure):
+                with redirect_stdout(stdout), redirect_stderr(stderr):
+                    result = main([
+                        "--handoff", str(manifest_path),
+                        "--output", str(report_path),
+                    ])
+
+            self.assertEqual(result, 2)
+            self.assertFalse(report_path.exists())
 
 
 if __name__ == "__main__":

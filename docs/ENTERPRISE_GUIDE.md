@@ -20,10 +20,16 @@
 **Objective**: Score each report for migration complexity and readiness.
 
 - Assess downloaded local sources: `python migrate.py examples/Enterprise_Sales.wid --assess`
-- The server path currently ignores `--global-assess` and still downloads/extracts;
-	a server portfolio-assessment workflow is not connected to this CLI path.
-- Review 9-category scoring per report (datasource, formula, visual, filter, model, interactivity, security, scope, crystal-specific)
-- Classify reports: GREEN (automated), YELLOW (semi-automated), RED (manual)
+- The CMS CLI rejects `--assess`, `--global-assess` and `--dry-run` before
+	contacting the server. Portfolio assessment is not connected to that path;
+	server migration still downloads/extracts and does not generate target projects.
+- Review readiness checks per report, including sources, formulas, visuals,
+	filters, models, interactivity, security and scope.
+- Classify reports from extracted metadata as GREEN, YELLOW, or RED. An absent
+	adapted datasource blocks the folder importer; an inferred ODBC placeholder
+	requires connection review, as does SQL without a matching source table. A
+	score does not prove extraction completeness, successful generation, or
+	equivalence.
 - Estimate effort per report
 
 **Deliverable**: Migration assessment report (HTML dashboard)
@@ -46,7 +52,7 @@
 **Objective**: Migrate a pilot wave to validate the approach.
 
 - Select 5–10 representative reports from Wave 1
-- Run automated migration: `python migrate.py report.wid --output-dir pilot/`
+- Put pilot reports in a source folder, then run `python migrate.py pilot-sources --output-dir pilot/`
 - Validate output in Power BI Desktop
 - Compare visuals side-by-side: source BO vs generated PBI
 - Identify gaps and calibrate conversion rules
@@ -59,7 +65,7 @@
 
 - Batch migrate per wave: `python migrate.py --batch wave1/ --output-dir output/wave1/`
 - For shared universes: `python migrate.py --shared-model r1.wid r2.wid --model-name "Sales"`
-- Run DAX optimization: `python migrate.py report.wid --no-optimize-dax` (disable if manual review preferred)
+- DAX optimization runs during folder migration; use `python migrate.py pilot-sources --no-optimize-dax` to disable it for manual review.
 - Generate comparison reports for each workbook
 
 **Deliverable**: Migrated .pbip projects per wave
@@ -81,9 +87,10 @@
 
 **Objective**: Deploy validated reports to Power BI Service / Fabric.
 
-- Deploy to workspace: `python migrate.py report.wid --deploy WORKSPACE_ID`
-- Shared CLI generation does not invoke deployment: `--deploy` on that path is
-	ignored, and standalone `--deploy-bundle` has no source/project input and fails.
+- The main CLI rejects `--deploy`, `--deploy-refresh`, and `--deploy-bundle`
+	before starting migration because a verified deployment path is not wired.
+	The separate `--multi-tenant` workflow is not covered by this guard or this
+	local validation.
 	Do not use either as evidence of shared-bundle publication. Hand off validated
 	artifacts to Deployer for a separately authorized, environment-verified workflow.
 - Configure gateways for on-premises data sources

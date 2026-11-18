@@ -1,0 +1,14 @@
+{
+  "document_id": "synthetic-document",
+  "provider_id": "DP0",
+  "status": "available",
+  "xml": "<queryplan><statement index=\"1\">SELECT [Region], [Net Sales] FROM [dbo].[Sales]</statement></queryplan>",
+  "statements": [
+    {
+      "index": "1",
+      "sql": "SELECT [Region], [Net Sales] FROM [dbo].[Sales]",
+      "operators": []
+    }
+  ],
+  "single_statement": true
+}

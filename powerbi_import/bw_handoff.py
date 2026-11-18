@@ -115,13 +115,28 @@ def _record_map(value: Any, path: str, schema_fields: list[str]) -> dict[str, di
     return records
 
 
+def _json_values_equal(left: Any, right: Any) -> bool:
+    if isinstance(left, bool) or isinstance(right, bool):
+        return type(left) is type(right) and left == right
+    if isinstance(left, dict) and isinstance(right, dict):
+        return left.keys() == right.keys() and all(
+            _json_values_equal(left[key], right[key]) for key in left
+        )
+    if isinstance(left, list) and isinstance(right, list):
+        return len(left) == len(right) and all(
+            _json_values_equal(left_value, right_value)
+            for left_value, right_value in zip(left, right)
+        )
+    return left == right
+
+
 def _event(value: Any, path: str) -> dict:
     event = _object(value, path, _EVENT_FIELDS)
     event_id = _text(event["event_id"], f"{path}.event_id")
     position = _watermark(event["position"], f"{path}.position")
     event_time = _utc_datetime(event["event_time_utc"], f"{path}.event_time_utc")
     operation = event["operation"]
-    if operation not in {"upsert", "delete"}:
+    if not isinstance(operation, str) or operation not in {"upsert", "delete"}:
         _fail(f"{path}.operation", "must be 'upsert' or 'delete'")
     key = _text(event["key"], f"{path}.key")
     schema_version = _text(event["schema_version"], f"{path}.schema_version")
@@ -184,7 +199,7 @@ def evaluate_handoff(manifest: Any) -> dict:
         event = _event(raw_event, f"$.events[{index}]")
         prior = events_by_id.get(event["event_id"])
         if prior is not None:
-            if prior != event:
+            if not _json_values_equal(prior, event):
                 _fail(f"$.events[{index}].event_id", "conflicting replay for event ID")
             continue
         at_position = events_by_position.get(event["position"])
@@ -263,7 +278,7 @@ def evaluate_handoff(manifest: Any) -> dict:
     missing_keys = set(expected_state) - set(state)
     extra_keys = set(state) - set(expected_state)
     differing_values = sum(
-        state[key] != expected_state[key]
+        not _json_values_equal(state[key], expected_state[key])
         for key in set(state).intersection(expected_state)
     )
     target_matches = not missing_keys and not extra_keys and not differing_values

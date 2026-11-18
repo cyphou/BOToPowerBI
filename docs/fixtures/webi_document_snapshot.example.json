@@ -1,0 +1,63 @@
+{
+  "schema_version": "1.0",
+  "document_id": "synthetic-document",
+  "reports": [
+    {
+      "summary": {
+        "id": "1",
+        "name": "Overview"
+      },
+      "details": {
+        "id": "1",
+        "name": "Overview",
+        "pageSettings": {
+          "format": {
+            "@orientation": "Landscape"
+          }
+        }
+      },
+      "elements": [
+        {
+          "id": "19",
+          "@type": "Cell",
+          "name": "Sales table",
+          "reference": "1.J",
+          "parentId": "1",
+          "position": {
+            "@x": "15.322",
+            "@y": "0.104"
+          }
+        }
+      ]
+    }
+  ],
+  "data_providers": [
+    {
+      "summary": {
+        "id": "DP0",
+        "name": "Sales",
+        "dataSourceType": "unx"
+      },
+      "details": {
+        "id": "DP0",
+        "name": "Sales",
+        "dictionary": {}
+      },
+      "query_plan": {
+        "document_id": "synthetic-document",
+        "provider_id": "DP0",
+        "status": "available",
+        "xml": "<queryplan><statement index=\"1\">SELECT [Region] FROM [dbo].[Sales]</statement></queryplan>",
+        "statements": [
+          {
+            "index": "1",
+            "sql": "SELECT [Region] FROM [dbo].[Sales]",
+            "operators": []
+          }
+        ],
+        "single_statement": true
+      },
+      "query_specification_xml": "<QuerySpec dataProviderId=\"DP0\"/>"
+    }
+  ]
+}
