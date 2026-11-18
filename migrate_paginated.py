@@ -11,15 +11,16 @@ from powerbi_import.paginated_generator import generate_semantic_model_rdl
 
 def _mapping_with_sql(mapping, sql):
     keys = {"title", "source_kind", "server", "database", "columns"}
-    if not isinstance(mapping, dict) or set(mapping) not in (
-            keys, keys | {"parameters"}):
+    optional_keys = {"parameters", "layout"}
+    if (not isinstance(mapping, dict) or not keys <= set(mapping)
+            or not set(mapping) <= keys | optional_keys):
         raise ValueError("SQL source mode requires the documented SQL mapping without sql")
     if not isinstance(sql, str) or not sql.strip():
         raise ValueError("selected SQL source must contain SQL text")
     return {**mapping, "sql": sql}
 
 
-def _mapping_with_extracted_sql(mapping, entries, sql_name):
+def _mapping_with_extracted_sql(mapping, entries, sql_name, allow_unverified=False):
     if not sql_name or not sql_name.strip():
         raise ValueError("extracted SQL name must not be empty")
     if not isinstance(entries, list) or not all(isinstance(item, dict) for item in entries):
@@ -27,7 +28,23 @@ def _mapping_with_extracted_sql(mapping, entries, sql_name):
     matches = [item for item in entries if item.get("name") == sql_name]
     if len(matches) != 1:
         raise ValueError("extracted SQL name must match exactly one entry")
-    return _mapping_with_sql(mapping, matches[0].get("sql"))
+    selected = matches[0]
+    if "sql_status" in selected:
+        captured = (
+            selected["sql_status"] == "captured"
+            and type(selected.get("sql_error")) is int
+            and selected["sql_error"] == 0
+        )
+        reviewed_rep_candidate = (
+            allow_unverified
+            and selected["sql_status"] == "unverified"
+            and "sql_error" not in selected
+        )
+        if not captured and not reviewed_rep_candidate:
+            raise ValueError("selected SQL capture must have captured status and zero sql_error")
+    elif "sql_error" in selected:
+        raise ValueError("selected SQL capture has sql_error without sql_status")
+    return _mapping_with_sql(mapping, selected.get("sql"))
 
 
 def _sql_from_bo_file(source_path, mapping):
@@ -40,9 +57,10 @@ def _sql_from_bo_file(source_path, mapping):
         ".rpt": "crystal",
         ".unx": "universe",
         ".unv": "universe",
+        ".rep": "desktop_intelligence",
     }
     if suffix not in source_kinds:
-        raise ValueError("BO source must be a .wid, .rpt, .unx or .unv file")
+        raise ValueError("BO source must be a .wid, .rpt, .rep, .unx or .unv file")
     expected_kind = source_kinds[suffix]
     if not isinstance(mapping, dict) or mapping.get("source_kind") != expected_kind:
         raise ValueError("source_kind must match the BO source file type")
@@ -52,6 +70,20 @@ def _sql_from_bo_file(source_path, mapping):
     elif expected_kind == "crystal":
         from bo_export.crystal_extractor import extract_crystal
         extracted = extract_crystal(str(source))
+    elif expected_kind == "desktop_intelligence":
+        from bo_export.desktop_intelligence_extractor import (
+            desktop_intelligence_sql_selector,
+            inspect_desktop_intelligence,
+        )
+        inventory = inspect_desktop_intelligence(str(source))
+        return [
+            {
+                "name": desktop_intelligence_sql_selector(candidate),
+                "sql": candidate["sql"],
+                "sql_status": candidate["sql_status"],
+            }
+            for candidate in inventory["sql_candidates"]
+        ]
     else:
         from bo_export.universe_extractor import extract_universe
         extracted = extract_universe(str(source))
@@ -74,7 +106,15 @@ def main(argv=None):
     parser.add_argument("--output", required=True, help="New .rdl file; existing files are not overwritten")
     parser.add_argument("--power-query-output", help="Optional new .m file for the same SQL Server mapping")
     parser.add_argument("--extracted-sql", help="Previously extracted custom_sql.json")
-    parser.add_argument("--bo-source", help="Local .wid, .rpt, .unx or .unv file with extractable SQL")
+    parser.add_argument(
+        "--bo-source",
+        help="Local .wid, .rpt, .rep, .unx or .unv file with extractable SQL",
+    )
+    parser.add_argument(
+        "--accept-unverified-rep-sql",
+        action="store_true",
+        help="Allow the selected .rep SQL candidate into a draft; review it before use",
+    )
     parser.add_argument("--webi-plan", help="Saved WebI API query-plan JSON")
     parser.add_argument("--sql-name", help="Exact name of one extracted SQL entry")
     args = parser.parse_args(argv)
@@ -83,6 +123,9 @@ def main(argv=None):
         if args.extracted_sql is not None and (
                 args.bo_source is not None or args.webi_plan is not None):
             raise ValueError("--extracted-sql cannot be combined with another SQL source")
+        if args.accept_unverified_rep_sql and (
+                args.bo_source is None or Path(args.bo_source).suffix.lower() != ".rep"):
+            raise ValueError("--accept-unverified-rep-sql requires a .rep --bo-source")
         if args.webi_plan is not None:
             if args.sql_name is not None:
                 raise ValueError("--sql-name cannot be combined with --webi-plan")
@@ -105,7 +148,10 @@ def main(argv=None):
         elif args.bo_source is not None:
             if args.webi_plan is None:
                 entries = _sql_from_bo_file(args.bo_source, mapping)
-                mapping = _mapping_with_extracted_sql(mapping, entries, args.sql_name)
+                mapping = _mapping_with_extracted_sql(
+                    mapping, entries, args.sql_name,
+                    allow_unverified=args.accept_unverified_rep_sql,
+                )
         if args.webi_plan is not None:
             from bo_export.server_client import load_webi_query_plan
             if not isinstance(mapping, dict) or mapping.get("source_kind") != "webi":
@@ -159,6 +205,11 @@ def main(argv=None):
     if args.webi_plan is not None:
         print("WebI plan identity is declared; document, provider and report associations "
               "remain unverified.")
+    if args.accept_unverified_rep_sql:
+        print(
+            "The selected REP SQL remains an unverified candidate; review its SQL, "
+            "provider association, connection and result fields before use."
+        )
     print(f"Local {targets} generated from declarations; Desktop opening, report rendering, "
           "query execution and source equivalence are not_run.")
     return 0

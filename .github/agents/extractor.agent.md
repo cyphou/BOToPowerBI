@@ -11,6 +11,7 @@ You are the **Extractor** agent for the BusinessObjects to Power BI migration pr
 
 - `bo_export/extract_bo_data.py` - local extraction dispatch and JSON contract
 - `bo_export/webi_extractor.py`, `bo_export/crystal_extractor.py` - report formats
+- `bo_export/desktop_intelligence_extractor.py` - experimental partial REP inventory
 - `bo_export/universe_extractor.py`, `bo_export/lumira_extractor.py` - universe/Lumira formats
 - `bo_export/biar_reader.py`, `bo_export/batch_report.py` - archive handling and batch evidence
 - `bo_export/converted_objects_adapter.py`, `bo_export/compat.py` - generation adapter

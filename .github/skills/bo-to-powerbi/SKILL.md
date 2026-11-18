@@ -1,6 +1,6 @@
 ---
 name: bo-to-powerbi
-description: "Use when: migrating SAP BusinessObjects Web Intelligence .wid, Crystal .rpt, universes .unx/.unv, BIAR archives, or Lumira .lumx/.lums to Power BI PBIP or Fabric; preparing staged SAP BW history for Fabric; assessing readiness, batch migration, shared models, debugging BO formulas, or preparing deployment. Not for Tableau workbooks or Power BI authoring unrelated to BO/BW."
+description: "Use when: migrating SAP BusinessObjects Web Intelligence .wid, Crystal .rpt, universes .unx/.unv, BIAR archives, or Lumira .lumx/.lums to Power BI PBIP or Fabric; inspecting experimental Desktop Intelligence .rep inventories; preparing staged SAP BW history for Fabric; assessing readiness, batch migration, shared models, debugging BO formulas, or preparing deployment. Not for Tableau workbooks or Power BI authoring unrelated to BO/BW."
 ---
 
 # BusinessObjects To Power BI
@@ -21,7 +21,8 @@ For an authorized CMS, `BOServerClient` can read WebI report tabs, their
 details and elements alongside provider metadata. `get_webi_document_snapshot`
 captures report/provider summaries and details plus each report's elements in
 one local snapshot; opt in to provider query plans/specifications with
-`include_provider_query_metadata=True`. See the README's schema/example.
+`include_provider_query_metadata=True`. See the advanced migration reference
+linked from the README for the schema/example.
 Captured plans may contain sensitive SQL. The CLI does not import the snapshot
 and it does not establish report-to-provider links; the Python-only
 `bo_export.webi_snapshot_adapter.extract_webi_snapshot(snapshot, connection)`
@@ -40,6 +41,56 @@ UNX components with an embedded `Cipher` member are CMS-protected: the extractor
 warns and does not decrypt them. Data-bound output needs an authorized CMS or
 verified exports.
 
+For Desktop Intelligence, the experimental local `python migrate_deski_inspect.py
+--source <report.rep> --output <new.json>` inventory is under implementation.
+It reads REP ZIP, including prefixed ZIP, or OLE via Windows Structured Storage
+on Windows. It inventories partial candidates for sheets, providers, objects,
+SQL, formulas, literal prompt/variable arguments in SQL and structural markers.
+Unsupported containers are rejected; encountered non-UTF-8 strings and
+unsupported internal formats are flagged. A recognized `Query;` header may name
+a possible universe, not a verified universe or connection. The output must be
+a new JSON file.
+
+Optionally supply `--migration-report <new.json>` and/or
+`--html-report <new.html>` for a local pre-migration summary. Candidate counts,
+SQL selectors, review actions and `not_run` checks apply only to this
+inspection; zero matches do not establish absence and no fidelity score is
+assigned. The reports omit SQL text, literal prompt/variable arguments and
+formula expressions, but their names and other metadata can be sensitive.
+Keep every output local and protected; sanitization is not guaranteed. The
+inventory is still written separately and may contain sensitive SQL. All
+outputs must be new; failed writes attempt cleanup and report cleanup failures.
+
+The reader opens selected metadata streams, not data-cache or macro streams,
+but hashes the whole source as raw bytes; it executes no macros and does not
+refresh. Keep the JSON local, protected and out of version control: SQL and
+metadata can be sensitive, and sanitization is not guaranteed. The inventory
+does not enable automatic REP-to-PBIP generation and does not verify
+report-to-provider links. Its JSON object is not the VBA export's list and
+cannot be passed directly to `--rdl-extracted-sql`. Separately,
+`migrate_paginated.py --bo-source <report.rep> --sql-name <provider-or-unresolved@offset>`
+can generate an RDL only with the explicit
+`--accept-unverified-rep-sql` acknowledgement and a manually declared SQL
+Server mapping. This does not authenticate or validate the candidate SQL,
+provider association, source type, connection, fields or equivalence. BO
+variables remain unresolved. The manual mapping may also declare page
+dimensions, column widths, basic styling and SQL parameter prompts, but these
+are not extracted REP layout or BO prompt semantics. Independently review SQL,
+bindings, completeness and equivalence. The advanced migration reference
+linked from the README describes an eight-file
+local count replay and separately reported byte-framing observation; neither
+establishes source authenticity, rendering or equivalence.
+
+For Desktop Intelligence XI 3.1, the optional
+`examples/desktop_intelligence_export.bas` is an experimental VBA macro for
+capturing active-document provider SQL into the existing extracted-SQL list.
+It has not been tested with a real Desktop Intelligence client or `.rep`.
+Review the macro, SQL, connection and fields, then use the advanced reference's explicit
+RDL mapping and exact SQL-name selector. The macro does not parse `.rep`, recover
+layout or establish report/query linkage. Capture status must be `captured`
+with integer `sql_error` zero; this does not authenticate the inventory.
+BO prompt conversion in the RDL handoff remains unsupported.
+
 For a separately declared paginated target, single-mapping `migrate.py --output-format rdl`
 requires `--rdl-mapping` and `--rdl-output`, and accepts no positional BO file
 or other migration options. It generates the same basic table as `migrate_paginated.py`;
@@ -55,13 +106,16 @@ one direct SQL statement and a `webi` mapping without `sql`; it cannot be
 combined with `--rdl-extracted-sql` or `--rdl-sql-name`. The optional
 `--rdl-bo-source` in this mode checks only that the WID contains one matching
 provider ID, not document identity or report-to-query linkage. Review the SQL,
-connection and fields independently. See the README's schema, synthetic
+connection and fields independently. See the advanced reference's schema, synthetic
 examples and reproducible command.
 Manual SQL and DAX mappings also accept declared BO source labels `crystal`,
 `lumira`, `desktop_intelligence`, `xcelsius`, and `analysis_olap`; this does
-not add parsers or automatic report conversion. Direct source selection remains
-limited to `.wid`, `.rpt`, `.unx` and `.unv`. Crystal selection uses heuristic
-readable-text SQL candidates; inspect the exact selected query before using it.
+not add parsers or automatic report conversion. Direct source selection accepts
+`.wid`, `.rpt`, `.unx`, `.unv` and experimental `.rep`. A `.rep` candidate
+requires `--rdl-accept-unverified-rep-sql`, an exact selector and a manual
+SQL Server mapping; this acknowledgement is not accepted for folder mode.
+Crystal selection uses heuristic readable-text SQL candidates; inspect the exact
+selected query before using it.
 `--rdl-power-query-output` can additionally write a new `.m` expression for the
 same validated SQL Server query; it does not apply the RDL column labels.
 Both outputs are local and must be new. Review native SQL and configure
@@ -73,9 +127,13 @@ semantics, or verify extraction completeness or report-to-query linkage.
 Screenshots, rendering, query execution and source equivalence are not verified.
 For a folder target, use `python migrate.py <folder> --output-format rdl
 --rdl-batch-config <config.json>` instead. Supply a mapping per source, with
-an optional exact SQL name and optional SQL-only Power Query output. RDL batch
-does not convert BIAR contents and fails archive entries explicitly. See the
-README for the config contract; the output directory must be new or empty.
+an optional exact SQL name and optional SQL-only Power Query output. A `.rep`
+entry with `sql_name` must additionally declare
+`"accept_unverified_rep_sql": true`; the batch manifest retains an explicit
+unverified-candidate warning. This works only for RDL-only folder mode, not a
+PBIP/Fabric sidecar run. RDL batch does not convert BIAR contents and fails
+archive entries explicitly. See the advanced reference for the config contract; the output
+directory must be new or empty.
 
 ## CLI Examples
 
@@ -321,6 +379,9 @@ Use the exact frontmatter names for delegation, including spaces in those names.
 
 The workspace configuration launches the six-tool local engine in read-only mode.
 Use `inventory`, `assess`, and `quality_report` before considering generation.
+For DeskI `.rep`, `inventory` lists local files and `assess` returns only the
+partial pre-migration summary, without raw SQL, formula expressions or literal
+prompt arguments. This is inspection only; keep the metadata protected.
 Local `migrate` and `shared_model` require server `--allow-write`, per-call
 `confirm=true`, and a new or empty output directory within the configured root.
 This server never deploys to Fabric. Read `docs/FABRIC_MCP_SETUP.md` before enabling writes.

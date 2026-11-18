@@ -6,8 +6,23 @@
 
 ## Current Evidence - 2026-11-18
 
-- Full local suite: `python -m pytest tests --tb=short -q -o addopts=''`:
-        **714 passed, 752 subtests passed**. Coverage/hosted CI was not measured by this run.
+- Full local suite on Windows: `python -m pytest tests --tb=short -q -o addopts=''`:
+        **736 passed, 1 skipped, 770 subtests passed** after the DeskI report
+        update. The earlier RDL layout/prompt run had 728 passed, 1 skipped
+        and 767 subtests passed. Coverage/hosted CI was not measured.
+- DeskI, RDL, paginated and agent-contract focused tests:
+        **68 passed, 1 skipped, 414 subtests passed**. The earlier three-file
+        RDL-focused run had 53 passed, 1 skipped and 115 subtests passed.
+        The skipped test covers
+        the non-Windows OLE error path; the Windows OLE test passed with
+        synthetic input. Ruff, Python compilation and `git diff --check` passed
+        for the changed DeskI/RDL implementation and tests. These checks do
+        not establish source type, Report Builder rendering, runtime behavior
+        or equivalence.
+- Desktop Intelligence XI 3.1: an experimental VBA provider-SQL capture and
+        synthetic RDL/M handoff were added. The macro has not been run on a
+        Desktop Intelligence client or real `.rep`; source extraction and parity
+        remain unverified.
 - Real-sample replay on four public LCM BIAR exports kept outside the repository
         (3 UNX, 2 UNV, 39 Crystal reports, 1 WebI): all 45 PBIP migrations failed
         with no datasource. The three UNX `.dfx`/`.blx`/`.cns` components carry a
@@ -322,8 +337,9 @@ copy Tableau release numbers or create a competing roadmap.
 ### Paginated reports: source-family preparation
 
 The local RDL generator accepts explicit source labels and SQL Server or
-semantic-model DAX mappings, but creates only a basic table. This is a manual
-starting point, not automatic migration of every BO report.
+semantic-model DAX mappings. SQL mappings can declare base page/table styling
+and report prompts; the output is still a manual starting point, not automatic
+migration of every BO report.
 
 | Priority | Work required | Exit evidence |
 |----------|---------------|---------------|
@@ -331,13 +347,26 @@ starting point, not automatic migration of every BO report.
 | P1 | WebI: preserve report-to-query links and supported tabs, tables, filters and prompts; validate universe dependencies. The snapshot can opt in to provider plans/specifications but does not link reports to providers. | Source/target query and layout comparisons for representative reports; unresolved items remain explicit. The snapshot is not generation or parity evidence. |
 | P1 | Crystal: replace heuristic-only extraction with a trustworthy source export; capture sections, grouping, formulas, parameters and subreports. | Version-specific fixtures, extraction checks and Report Builder result comparisons. |
 | P2 | Lumira Discovery/Designer: inventory data bindings, charts and interactions; define paginated equivalents or manual dispositions. | Representative fixtures and reviewed feature-by-feature dispositions, including non-paginated interactions. |
-| P2 | Desktop Intelligence, Xcelsius and Analysis for OLAP: establish supported export contracts and classify incompatible interactions/OLAP semantics. | Version-specific source evidence and reproducible extraction/conversion tests, or explicit unsupported findings. |
-| P2 | Expand RDL parameters, grouping, layouts, and data-source coverage only with documented contracts and failure diagnostics. | RDL schema checks plus Report Builder open/render, data and security tests in an authorized environment. |
+| P2 | Desktop Intelligence, Xcelsius and Analysis for OLAP: establish supported export contracts and classify incompatible interactions/OLAP semantics. Desktop Intelligence has an unverified SDK capture prototype, a standalone REP inventory with pre-migration reports, and a gated candidate-to-basic-RDL draft route requiring manual SQL Server mappings. | Version-specific source evidence and reproducible extraction/conversion tests, or explicit unsupported findings. For the inventory, check format, encoding and existing-output boundaries and independently review candidates against authorized source evidence. |
+| P2 | Grouping, automatic BO layout/prompt extraction, and broader RDL data-source coverage; explicit SQL prompt labels, multi-value bindings and base page/table styling are available as manual declarations only. | RDL schema checks plus Report Builder open/render, data and security tests in an authorized environment; source-derived layout and prompts need representative BO evidence. |
 | P3 | Validate each migration wave against its BO source. | Reconciled results, visual/functional review, security and owner approval; deployment is separately authorized. |
 
 BIAR/LCMBIAR unpacking and CMS exports need separate source coverage: direct
 archive entries are not proof of complete contents. No gate above is closed
 by successful local RDL generation.
+
+The standalone DeskI `.rep` candidate inventory is under implementation. Its
+command and security boundaries are described in the [migration reference](MIGRATION_REFERENCE.md#desktop-intelligence-experimental-local-rep-inventory-in-progress).
+It is not automatic report conversion: candidate SQL, bindings, completeness
+and equivalence need independent review, and BO variables remain unresolved. A
+separate paginated CLI can create a basic RDL from one explicitly selected
+candidate only with an unverified-SQL acknowledgement and manually declared
+connection/fields plus optional manually declared layout/prompts; it does not
+create PBIP, recover the source design or validate query execution. A
+`Query;` source name is only a possible universe, not a verified universe or
+connection. The [reported 2026-11-18 observations](GAP_ANALYSIS.md) and
+one-sample draft do not close this gate; broad corpus replay and source
+equivalence remain `not_run` for this update.
 
 ### Local increment — Manually declared SQL Server RDL scalar parameters (2026-11-16; delivered)
 
@@ -369,6 +398,50 @@ by successful local RDL generation.
   query correctness, source/target equivalence, Report Builder acceptance,
   or runtime behavior. No automatic BO prompt/DAX conversion, broader
   parameter semantics, layout work, or remote validation is claimed.
+
+### Local increment — Declared REP-to-RDL prompts and presentation (2026-11-18; bounded)
+
+- **Outcome / delivered scope:** explicit SQL Server RDL mappings now support
+  literal report-prompt labels and opt-in multi-value parameters, declared
+  page dimensions/margins, per-column widths, and selected font/color tokens.
+  The generated table uses a styled title/header and alternating detail rows.
+- **Evidence:** synthetic RDL/CLI regression tests cover scalar and multi-value
+  parameter bindings, prompt labels, page dimensions, widths, style output, and
+  invalid declarations. The current full-suite result is recorded in
+  `docs/GAP_ANALYSIS.md`.
+- **Owner:** `Visual` owns the RDL generator; `Orchestrator` owns direct source
+  SQL selection; `Tester` owns the contract tests.
+- **Dependencies:** explicit SQL Server connection, reviewed SQL and fields,
+  and caller-declared page/layout/prompt metadata. No CMS or remote service.
+- **Validation / exit:** generated XML is parsed locally and contract tests
+  pass. REP extraction still records only broad sheet/structure markers and
+  literal SQL macro arguments; it does not recover coordinates, formatting,
+  grouping, sorts, page breaks, prompt value lists or dependencies. BO SQL
+  macros must be reviewed and rewritten before they can bind to SQL parameters.
+- **Risks / non-goals:** this is a manually configured approximation, not an
+  identical visual or prompt-dialog conversion. Report Builder schema/open,
+  rendering, data execution, security and source/target equivalence remain
+  `not_run`.
+
+### Local increment — DeskI pre-migration reports (2026-11-18; bounded)
+
+- **Outcome / delivered scope:** the standalone REP inspection can optionally
+  write deterministic JSON and HTML reports with partial candidates, unverified
+  selectors, review actions and checks scoped to the current inspection.
+- **Evidence:** synthetic tests cover candidates, missing SQL/markers, escaped
+  metadata, sensitive-content omission, unresolved selectors, overwrite and
+  write-cleanup failures. Eight locally retained REP examples produced reports;
+  source hashes and candidate counts were checked as described in the gap analysis.
+- **Owner:** `Evidence` owns the report module; `Orchestrator` owns the CLI;
+  `Extractor` owns the inventory and SQL-selector contract.
+- **Dependencies:** a locally readable REP and new output paths. The original
+  inventory may contain SQL; all outputs may contain sensitive metadata.
+- **Validation / exit:** inspection reports do not generate or validate a
+  target. Zero candidates do not prove absence; source authenticity, prompt
+  behavior, layout, data, runtime security and equivalence remain unverified.
+- **Risks / non-goals:** no fidelity score or automatic layout/prompt recovery;
+  RDL/PBIP rendering, query execution, refresh, deployment and Fabric execution
+  remain `not_run` by this inspection.
 
 ## Separate roadmap: SAP BW/BW/4HANA to Fabric and BW retirement
 

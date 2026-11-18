@@ -6,7 +6,9 @@ import tempfile
 import unittest
 import xml.etree.ElementTree as ET
 import zipfile
-from io import BytesIO
+from contextlib import redirect_stderr, redirect_stdout
+from decimal import Decimal
+from io import BytesIO, StringIO
 from pathlib import Path
 from unittest.mock import patch
 
@@ -15,8 +17,7 @@ from bo_export.server_client import BOServerClient, load_webi_query_plan
 from bo_export.webi_extractor import extract_webi
 from migrate import main
 from migrate_paginated import main as paginated_main
-from powerbi_import.paginated_generator import generate_semantic_model_rdl
-
+from powerbi_import.paginated_generator import _generate_sql_server_rdl, generate_semantic_model_rdl
 
 NS = {
     "r": "http://schemas.microsoft.com/sqlserver/reporting/2016/01/reportdefinition",
@@ -73,6 +74,125 @@ def _make_native_wid(path, provider_id="DP0"):
 
 
 class SqlServerRdlTests(unittest.TestCase):
+    def test_deski_provider_inventory_generates_explicit_rdl_and_m(self):
+        fixtures = Path(__file__).resolve().parent.parent / "docs" / "fixtures"
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            report_path = root / "report.rdl"
+            query_path = root / "query.m"
+            result = main([
+                "--output-format", "rdl",
+                "--rdl-mapping", str(fixtures / "deski_rdl_mapping.example.json"),
+                "--rdl-extracted-sql", str(fixtures / "deski_providers.example.json"),
+                "--rdl-sql-name", "Ventes régionales",
+                "--rdl-output", str(report_path),
+                "--rdl-power-query-output", str(query_path),
+            ])
+            self.assertEqual(result, 0)
+            sql = "SELECT [Region], [Net Sales] FROM [dbo].[Sales]"
+            report = ET.parse(report_path).getroot()
+            self.assertEqual(report.findtext(".//r:CommandText", namespaces=NS), sql)
+            self.assertEqual(
+                [field.text for field in report.findall(".//r:Fields/r:Field/r:DataField", NS)],
+                ["Region", "Net Sales"],
+            )
+            self.assertEqual(
+                [column.findtext("r:Width", namespaces=NS)
+                 for column in report.findall(".//r:TablixColumns/r:TablixColumn", NS)],
+                ["4.0000in", "6.0000in"],
+            )
+            self.assertEqual(
+                report.findtext('.//r:Textbox[@Name="Header1"]/r:Style/r:BackgroundColor',
+                                namespaces=NS),
+                "#1F4E78",
+            )
+            self.assertIn(sql, query_path.read_text(encoding="utf-8"))
+
+    def test_deski_inventory_requires_unique_nonempty_supported_sql(self):
+        mapping = _sql_mapping("desktop_intelligence")
+        del mapping["sql"]
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            mapping_path = root / "mapping.json"
+            mapping_path.write_text(json.dumps(mapping), encoding="utf-8")
+            source = root / "providers.json"
+            report = root / "report.rdl"
+            for entries in (
+                [{"name": "Provider", "sql": "", "sql_status": "unavailable"}],
+                [{"name": "Provider", "sql": "SELECT 1", "sql_status": "unavailable",
+                  "sql_error": -1}],
+                [{"name": "Provider", "sql": "SELECT 1", "sql_status": "captured",
+                  "sql_error": -1}],
+                [{"name": "Provider", "sql": "SELECT 1", "sql_status": "captured",
+                  "sql_error": False}],
+                [{"name": "Provider", "sql": "SELECT 1", "sql_error": 0}],
+                [{"name": "Provider", "sql": "SELECT 1"},
+                 {"name": "Provider", "sql": "SELECT 2"}],
+                [{"name": "Provider", "sql": "SELECT @Prompt('Date', 'D',,Mono,Free)"}],
+            ):
+                with self.subTest(entries=entries):
+                    source.write_text(json.dumps(entries), encoding="utf-8")
+                    self.assertEqual(paginated_main([
+                        "--mapping", str(mapping_path), "--output", str(report),
+                        "--extracted-sql", str(source), "--sql-name", "Provider",
+                    ]), 2)
+                    self.assertFalse(report.exists())
+
+    def test_rep_sql_generation_requires_explicit_unverified_candidate_acknowledgement(self):
+        sql = "SELECT [Region], [Net Sales] FROM [dbo].[Sales]"
+        inventory = {
+            "sql_candidates": [{
+                "sql": sql,
+                "sql_status": "unverified",
+                "possible_provider_id": "#DP#1",
+                "stream_offset": 1419,
+            }],
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "report.rep"
+            source.write_bytes(b"synthetic REP")
+            mapping = _sql_mapping("desktop_intelligence")
+            del mapping["sql"]
+            mapping_path = root / "mapping.json"
+            mapping_path.write_text(json.dumps(mapping), encoding="utf-8")
+            output = root / "report.rdl"
+            base = [
+                "--mapping", str(mapping_path),
+                "--output", str(output),
+                "--bo-source", str(source),
+                "--sql-name", "#DP#1@1419",
+            ]
+            stdout = StringIO()
+            with patch(
+                "bo_export.desktop_intelligence_extractor.inspect_desktop_intelligence",
+                return_value=inventory,
+            ), redirect_stdout(stdout), redirect_stderr(StringIO()):
+                self.assertEqual(paginated_main(base), 2)
+            self.assertFalse(output.exists())
+
+            with patch(
+                "bo_export.desktop_intelligence_extractor.inspect_desktop_intelligence",
+                return_value=inventory,
+            ), redirect_stdout(stdout), redirect_stderr(StringIO()):
+                self.assertEqual(
+                    paginated_main(base + ["--accept-unverified-rep-sql"]),
+                    0,
+                )
+
+            report = ET.parse(output).getroot()
+            self.assertEqual(
+                report.findtext(".//r:CommandText", namespaces=NS),
+                sql,
+            )
+            self.assertIn("not verified", report.findtext("r:Description", namespaces=NS))
+            self.assertIn("remains an unverified candidate", stdout.getvalue())
+
+            self.assertEqual(
+                paginated_main(base + ["--accept-unverified-rep-sql"]),
+                2,
+            )
+
     def test_api_query_plan_and_native_wid_generate_rdl_and_power_query(self):
         sql = "SELECT [Region], [Net Sales] FROM [dbo].[Sales] WHERE [Net Sales] > 0"
         plan = _webi_api_plan(
@@ -464,7 +584,7 @@ class SqlServerRdlTests(unittest.TestCase):
             "-- @Comment\nAND @@SPID > 0"
         )
         mapping["parameters"] = [
-            {"name": "Region", "data_type": "String"},
+            {"name": "Region", "data_type": "String", "prompt": "Choose a region"},
             {"name": "MinimumSales", "data_type": "Float"},
             {"name": "IsActive", "data_type": "Boolean"},
             {"name": "StartDate", "data_type": "DateTime"},
@@ -478,7 +598,8 @@ class SqlServerRdlTests(unittest.TestCase):
               parameter.findtext("r:DataType", namespaces=NS),
               parameter.findtext("r:Prompt", namespaces=NS))
              for parameter in root.findall(".//r:ReportParameters/r:ReportParameter", NS)],
-            [(parameter["name"], parameter["data_type"], parameter["name"])
+            [(parameter["name"], parameter["data_type"],
+              parameter.get("prompt", parameter["name"]))
              for parameter in mapping["parameters"]],
         )
         self.assertEqual(
@@ -492,6 +613,196 @@ class SqlServerRdlTests(unittest.TestCase):
              ("@StartDate", "=Parameters!StartDate.Value"),
              ("@MinimumId", "=Parameters!MinimumId.Value")],
         )
+
+    def test_multi_value_prompt_and_declared_layout_are_written_to_rdl(self):
+        mapping = _sql_mapping()
+        mapping["sql"] = (
+            "SELECT [State], [Net Sales] FROM [dbo].[Sales] "
+            "WHERE [State] IN (@State)"
+        )
+        mapping["parameters"] = [{
+            "name": "State", "data_type": "String",
+            "prompt": "Enter state(s)", "multi_value": True,
+        }]
+        mapping["columns"] = [
+            {"field": "State", "label": "State", "width": 2.5},
+            {"field": "Net Sales", "label": "Revenue", "width": 5.0},
+        ]
+        mapping["layout"] = {
+            "page_width": 8.5, "page_height": 11.0,
+            "margin_left": 0.25, "margin_right": 0.25,
+            "margin_top": 0.4, "margin_bottom": 0.4,
+            "font_family": "Arial",
+            "title_color": "#123456",
+            "header_background": "#234567",
+            "header_color": "#FFFFFF",
+            "alternate_row_background": "#EEEEEE",
+        }
+
+        root = ET.fromstring(generate_semantic_model_rdl(mapping))
+
+        parameter = root.find(".//r:ReportParameters/r:ReportParameter", NS)
+        self.assertEqual(parameter.get("Name"), "State")
+        self.assertEqual(parameter.findtext("r:Prompt", namespaces=NS), "Enter state(s)")
+        self.assertEqual(parameter.findtext("r:MultiValue", namespaces=NS), "true")
+        self.assertEqual(
+            [element.tag.rsplit("}", 1)[-1] for element in parameter],
+            ["DataType", "MultiValue", "Prompt"],
+        )
+        self.assertEqual(
+            root.findtext(".//r:QueryParameter/r:Value", namespaces=NS),
+            "=Parameters!State.Value",
+        )
+        query_parameter = root.find(".//r:QueryParameters/r:QueryParameter", NS)
+        self.assertEqual(query_parameter.get("Name"), "@State")
+        self.assertEqual(
+            root.findtext(".//r:CommandText", namespaces=NS),
+            mapping["sql"],
+        )
+        self.assertEqual(
+            [element.tag.rsplit("}", 1)[-1]
+             for element in root.find(".//r:DataSet/r:Query", NS)],
+            ["DataSourceName", "QueryParameters", "CommandType", "CommandText"],
+        )
+        self.assertEqual(root.findtext(".//r:PageWidth", namespaces=NS), "8.5in")
+        self.assertEqual(root.findtext(".//r:PageHeight", namespaces=NS), "11in")
+        self.assertEqual(root.findtext(".//r:LeftMargin", namespaces=NS), "0.25in")
+        self.assertEqual(root.findtext(".//r:RightMargin", namespaces=NS), "0.25in")
+        self.assertEqual(root.findtext(".//r:TopMargin", namespaces=NS), "0.4in")
+        self.assertEqual(root.findtext(".//r:BottomMargin", namespaces=NS), "0.4in")
+        self.assertEqual(
+            [column.findtext("r:Width", namespaces=NS)
+             for column in root.findall(".//r:TablixColumns/r:TablixColumn", NS)],
+            ["2.5000in", "5.0000in"],
+        )
+        self.assertEqual(
+            root.findtext('.//r:Textbox[@Name="Header1"]/r:Style/r:BackgroundColor',
+                          namespaces=NS),
+            "#234567",
+        )
+        self.assertEqual(
+            root.findtext('.//r:Textbox[@Name="ReportTitle"]/r:Style/r:Color',
+                          namespaces=NS),
+            "#123456",
+        )
+        self.assertEqual(
+            root.findtext('.//r:Textbox[@Name="Header1"]/r:Style/r:Color',
+                          namespaces=NS),
+            "#FFFFFF",
+        )
+        self.assertEqual(
+            root.findtext('.//r:Textbox[@Name="ReportTitle"]/r:Style/r:FontFamily',
+                          namespaces=NS),
+            "Arial",
+        )
+        self.assertIn(
+            'IIF(RowNumber(Nothing) Mod 2 = 0, "#EEEEEE", "#FFFFFF")',
+            root.findtext('.//r:Textbox[@Name="Value1"]/r:Style/r:BackgroundColor',
+                          namespaces=NS),
+        )
+        self.assertIn("not source-verified", root.findtext("r:Description", namespaces=NS))
+        description = root.findtext("r:Description", namespaces=NS)
+        self.assertIn("query text may contain sensitive data", description)
+        self.assertNotIn("Credentials are not embedded", description)
+
+    def test_sql_table_and_body_contain_all_rows(self):
+        root = ET.fromstring(generate_semantic_model_rdl(_sql_mapping()))
+
+        def inches(xpath):
+            return Decimal(root.findtext(xpath, namespaces=NS).removesuffix("in"))
+
+        rows = [
+            Decimal(row.text.removesuffix("in"))
+            for row in root.findall(".//r:TablixRow/r:Height", NS)
+        ]
+        table_height = inches(".//r:Tablix/r:Height")
+        self.assertEqual(table_height, sum(rows))
+        self.assertGreaterEqual(
+            inches(".//r:Body/r:Height"),
+            inches(".//r:Tablix/r:Top") + table_height,
+        )
+
+    def test_incomplete_intermediate_table_fails_explicitly(self):
+        base = generate_semantic_model_rdl({
+            "title": "Synthetic", "source_kind": "webi", "workspace": "Example",
+            "semantic_model": "Example", "dax": "EVALUATE {1}",
+            "columns": ["Region", "Net Sales"],
+        })
+        for missing in ("columns", "column", "row"):
+            with self.subTest(missing=missing):
+                root = ET.fromstring(base)
+                body = root.find(".//r:TablixBody", NS)
+                columns = body.find("r:TablixColumns", NS)
+                if missing == "columns":
+                    body.remove(columns)
+                elif missing == "column":
+                    columns.remove(columns[0])
+                else:
+                    rows = body.find("r:TablixRows", NS)
+                    rows.remove(rows[0])
+                with patch(
+                    "powerbi_import.paginated_generator.generate_semantic_model_rdl",
+                    return_value=ET.tostring(root, encoding="unicode"),
+                ):
+                    with self.assertRaisesRegex(RuntimeError, "generated RDL"):
+                        _generate_sql_server_rdl(_sql_mapping())
+
+    def test_automatic_column_widths_fit_available_page(self):
+        for count in (3, 6, 7, 10):
+            with self.subTest(count=count):
+                mapping = _sql_mapping()
+                mapping["columns"] = [f"Field{index}" for index in range(count)]
+                root = ET.fromstring(generate_semantic_model_rdl(mapping))
+                widths = [
+                    Decimal(element.text.removesuffix("in"))
+                    for element in root.findall(".//r:TablixColumn/r:Width", NS)
+                ]
+                self.assertEqual(len(widths), count)
+                self.assertTrue(all(width > 0 for width in widths))
+                self.assertEqual(sum(widths), Decimal("10"))
+                self.assertEqual(
+                    Decimal(root.findtext(".//r:Tablix/r:Width", namespaces=NS).removesuffix("in")),
+                    sum(widths),
+                )
+
+        mapping = _sql_mapping()
+        mapping["columns"] = [
+            {"field": "Fixed", "label": "Fixed", "width": 2.5},
+            *[f"Field{index}" for index in range(6)],
+        ]
+        mapping["layout"] = {
+            "page_width": 8.5, "margin_left": 0.25, "margin_right": 0.25,
+        }
+        root = ET.fromstring(generate_semantic_model_rdl(mapping))
+        widths = [
+            Decimal(element.text.removesuffix("in"))
+            for element in root.findall(".//r:TablixColumn/r:Width", NS)
+        ]
+        self.assertEqual(widths[0], Decimal("2.5"))
+        self.assertEqual(sum(widths), Decimal("8"))
+
+    def test_invalid_multi_value_and_layout_declarations_are_rejected(self):
+        mapping = _sql_mapping()
+        mapping["sql"] = (
+            "SELECT [Region] FROM [dbo].[Sales] WHERE [Region] IN (@Region)"
+        )
+        mapping["parameters"] = [{
+            "name": "Region", "data_type": "String", "multi_value": True,
+        }]
+        for field, value in (
+                ("parameters", [{"name": "Region", "data_type": "String",
+                                 "multi_value": "true"}]),
+                ("layout", {"header_background": "Blue"}),
+                ("layout", {"page_width": 1, "margin_left": 0.5,
+                            "margin_right": 0.5}),
+                ("columns", [{"field": "Region", "label": "Region",
+                              "width": 10.1}]),
+                ("columns", [f"Field{index}" for index in range(11)])):
+            with self.subTest(field=field, value=value):
+                candidate = copy.deepcopy(mapping)
+                candidate[field] = value
+                with self.assertRaises(ValueError):
+                    generate_semantic_model_rdl(candidate)
 
     def test_parameter_references_are_complete_and_unambiguous(self):
         mapping = _sql_mapping()

@@ -1,0 +1,17 @@
+{
+  "title": "Regional sales",
+  "source_kind": "desktop_intelligence",
+  "server": "sql.example.test",
+  "database": "SalesWarehouse",
+  "columns": [
+    { "field": "Region", "label": "Region", "width": 4.0 },
+    { "field": "Net Sales", "label": "Net Sales", "width": 6.0 }
+  ],
+  "layout": {
+    "font_family": "Arial",
+    "title_color": "#1F4E78",
+    "header_background": "#1F4E78",
+    "header_color": "#FFFFFF",
+    "alternate_row_background": "#F2F6FA"
+  }
+}

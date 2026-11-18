@@ -1,5 +1,141 @@
 # Gap Analysis — BO to Power BI Migration
 
+## Desktop Intelligence — experimental REP inventory and VBA handoff
+
+The standalone `migrate_deski_inspect.py` inventory is under implementation.
+It reads local REP ZIP, including prefixed ZIP, or OLE via Windows Structured
+Storage on Windows, with partial candidates for sheets, providers, objects,
+SQL, formulas, literal prompt/variable arguments found in SQL and structural
+markers. Unsupported containers are rejected; encountered non-UTF-8 strings
+and unsupported internal formats are flagged. A recognized `Query;` header may
+expose a source name as a possible universe, not a verified universe or
+connection. BO variables remain unresolved.
+
+The reader opens selected metadata streams, not data-cache or macro streams,
+but hashes the entire source as raw bytes. It executes no macros and performs
+no refresh. It requires a new JSON file, which may contain sensitive SQL and
+metadata and must stay local and protected. It does not generate PBIP or
+verify report-to-provider links, and
+its JSON object is not the VBA handoff's selector list. The separate
+inspection CLI can optionally produce JSON and/or HTML pre-migration reports.
+They show candidate counts, unverified SQL selectors, design/prompt review
+actions and checks `not_run` by that inspection. They do not score fidelity or
+establish that a zero count means absence. The reports omit SQL text, literal
+prompt/variable arguments and formula expressions, but source and other names
+remain potentially sensitive and sanitization is not guaranteed. The raw
+inventory is still written separately. All outputs must be new; failed writes
+attempt to remove files created by the command and report cleanup failures.
+The separate
+`migrate_paginated.py` can now select one SQL candidate using its possible
+provider ID or `unresolved` plus stream offset, but only when
+`--accept-unverified-rep-sql` is explicitly supplied. The main CLI now routes
+the same single-source operation using `--rdl-accept-unverified-rep-sql`;
+the RDL-only folder workflow also accepts per-source REP mappings with an exact
+SQL selector and `accept_unverified_rep_sql: true`. It records the candidate as
+unverified in the batch manifest; this does not enable REP PBIP/Fabric
+migration or the combined PBIP/Fabric sidecar path. It generates an RDL from a
+manually declared SQL Server connection and field list. The mapping can also
+declare page dimensions/margins, column widths, font/colors, and SQL
+report-parameter prompt labels including multi-value selection after the BO
+filter has been reviewed and rewritten as SQL Server parameter syntax. The
+generator applies a styled title/table and alternating detail rows. None of
+these settings are recovered from REP: coordinates, groups, sorts, page breaks,
+filter-value lists, dependent prompts, and original prompt-dialog behavior
+remain unsupported. The SQL, association and mapping are not validated, and
+the original report layout is not automatically restored. SQL, bindings,
+completeness and equivalence still require independent review.
+Desktop/Report Builder rendering, query execution, refresh, deployment, Fabric
+execution and source equivalence remain `not_run`.
+
+The generated empty RDL skeletons use a consistent title and review-note
+style, but it is a target-side placeholder, not a reconstruction of DeskI
+formatting. A bounded inspection of the eight sample `Data ReportFmt` streams
+found binary payloads with a few generic text markers and no decoded
+coordinates, widths, font/color assignments, pagination, or report-element
+bindings. That probe is not a format parser and does not prove those properties
+are absent from the source.
+
+An optional VBA macro is intended to capture provider SQL from an active
+Desktop Intelligence document. Synthetic inventory and mapping fixtures pass
+through the existing exact-name SQL selector into a basic RDL and M expression;
+empty, duplicate, inconsistent capture status and BO-prompt SQL cases are
+rejected. Status consistency does not authenticate the inventory. The macro, SDK property
+availability and real `.rep` behavior have not been tested on a Desktop
+Intelligence client. Neither the macro nor the synthetic handoff parses `.rep`,
+converts a complete report, or proves connection, layout, data, rendering or
+semantic equivalence.
+
+### Reported DeskI sample observation — 2026-11-18
+
+A local replay of 8 examples kept outside the repository (5 ZIP and 3 OLE)
+generated 8 inventories, 8 JSON reports and 8 HTML reports. Independent
+SHA-256 reads matched the recorded source hashes. It recorded 11 sheet, 9
+provider, 34 object, 8 SQL and 46 formula candidates; the SQL candidates came
+from 7 files, and 3 SQL candidates contained BO function markers. An earlier
+observation reported that all 8 SQL slices matched their length-delimited source bytes;
+that byte-level check was not independently replayed. It would check framing,
+not SQL validity, execution or report/provider linkage. Seven `Query;` headers
+named `eFashion` as a candidate source, not a verified universe or connection.
+These observations do not prove completeness or representativeness; public
+provenance was not independently checked and the examples were not redistributed.
+
+A separate RDL/M illustration was generated using a manually declared SQL
+Server connection and two manually declared fields, with fictitious values. It
+did not verify the original source type or execute SQL. Generation does not
+establish field bindings, layout, rendering or source/target equivalence.
+
+### Direct REP-to-RDL pilot — 2026-11-18
+
+The new paginated route was run against the local `efashion_911.rep` sample.
+It selected the `#DP#1@1419` candidate and wrote an RDL plus an M expression.
+The RDL query text exactly matched the candidate read from that REP. The mapping
+used explicit placeholder server/database values and manually declared
+`Yr`, `State` and `Expr1002` fields; their connection and binding are not
+verified. No query was executed. The outputs remain local draft artifacts;
+Report Builder/Power BI rendering, refresh and source/target equivalence are
+`not_run`.
+
+The gated RDL route's integration test uses a stub inventory to verify exact
+candidate selection, required acknowledgement, and refusal to overwrite.
+The RDL-only folder-batch test also verifies per-source acknowledgement,
+dry-run behavior, generated RDL/Power Query outputs, and the manifest's
+unverified-candidate warning.
+Additional direct-selection sample coverage, Desktop/Report Builder rendering,
+query execution and source/target equivalence remain `not_run`.
+
+### Manual prompt illustration — 2026-11-18
+
+For `replace_semi-colons_in_userresponse.rep`, the partial scan found an
+unverified SQL candidate with one `@variable` literal. A local illustration
+manually replaced that expression with a SQL Server RDL parameter, declared a
+multi-value string prompt and three fields, and used a placeholder connection.
+The RDL was generated from the manual mapping, not through the direct REP
+selector; the multi-value behavior, fields, source dialect and connection
+remain unverified. Default styling and layout are not source-derived.
+
+Local XML parsing confirmed the rewritten query, fields and parameter binding.
+This is not Report Builder schema/open/render validation, query execution or
+proof that the original BO prompt behaves the same. No parameterized Power
+Query output was generated; it is unsupported by this path.
+
+### Local test evidence — 2026-11-18
+
+On Windows, the full local suite reported **726 passed, 1 skipped, 762
+subtests passed** before the declared RDL layout/prompt update. After that
+update, `python -m pytest tests --tb=short -q -o addopts=''` reported
+**728 passed, 1 skipped, 767 subtests passed**. After the pre-migration report
+update the same command reported **736 passed, 1 skipped, 770 subtests passed**.
+The focused selection
+`tests/test_sql_server_rdl.py`, `tests/test_paginated_rdl.py` and
+`tests/test_desktop_intelligence_extractor.py`, together with
+`tests/test_agent_contracts.py`, reported **68 passed, 1 skipped,
+414 subtests passed**. Ruff passed for the changed DeskI, RDL and CLI
+implementation/tests.
+
+The skipped test covers the non-Windows OLE error path; the Windows Structured
+Storage OLE test passed with synthetic input. These local tests do not establish
+sample provenance, source type, Desktop execution or source/target equivalence.
+
 ## Real-sample findings and CMS metadata — 2026-11-18
 
 Four public LCM BIAR exports (3 UNX, 2 UNV, 39 Crystal reports, 1 WebI) and
@@ -85,8 +221,10 @@ comparison are not implemented.
 The explicit SQL Server and semantic-model DAX mappings accept declared
 WebI, Crystal, Lumira, Desktop Intelligence, Xcelsius, Analysis for OLAP and
 universe origins; DAX also accepts BW and BEx. These labels add no extraction
-or report-feature conversion. Supported `.wid`, `.rpt`, `.unx` and `.unv` metadata/candidates can be used for
-direct SQL selection (Crystal candidates are heuristic readable-text matches);
+or report-feature conversion. Supported `.wid`, `.rpt`, `.unx`, `.unv` and
+experimental `.rep` metadata/candidates can be used for direct SQL selection
+(Crystal candidates are heuristic readable-text matches; REP candidates require
+an explicit unverified-candidate acknowledgement);
 BIAR/LCMBIAR is an archive
 and cannot be passed to the RDL selector. See the README source-preparation
 matrix for manual steps and remaining gaps. SQL result/field linkage, Report

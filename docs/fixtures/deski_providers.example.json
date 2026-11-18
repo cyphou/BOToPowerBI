@@ -1,0 +1,16 @@
+[
+  {
+    "name": "Ventes régionales",
+    "sql": "SELECT [Region], [Net Sales] FROM [dbo].[Sales]",
+    "provider_index": 1,
+    "sql_status": "captured",
+    "sql_error": 0
+  },
+  {
+    "name": "Unsupported source",
+    "sql": "",
+    "provider_index": 2,
+    "sql_status": "unavailable",
+    "sql_error": -1
+  }
+]

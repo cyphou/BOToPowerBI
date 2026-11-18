@@ -9,13 +9,11 @@ from contextlib import redirect_stderr, redirect_stdout
 from io import StringIO
 from pathlib import Path
 from unittest.mock import patch
-from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from migrate_bw_handoff import main
 from powerbi_import.bw_handoff import BWHandoffError, evaluate_handoff, load_handoff
-
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -281,6 +279,44 @@ class TestBWHandoff(unittest.TestCase):
                     ])
 
             self.assertEqual(result, 2)
+            self.assertFalse(report_path.exists())
+
+    def test_cli_removes_partial_output_after_keyboard_interrupt(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            manifest_path = root / "manifest.json"
+            report_path = root / "report.json"
+            manifest_path.write_text(json.dumps(self.manifest), encoding="utf-8")
+            original_open = Path.open
+
+            class InterruptingWriter:
+                def __init__(self, handle):
+                    self.handle = handle
+
+                def __enter__(self):
+                    return self
+
+                def __exit__(self, exc_type, exc_value, traceback):
+                    self.handle.close()
+                    return False
+
+                def write(self, content):
+                    self.handle.write(content[:10])
+                    self.handle.flush()
+                    raise KeyboardInterrupt
+
+            def open_with_interrupt(path, *args, **kwargs):
+                if path == report_path and args and args[0] == "x":
+                    return InterruptingWriter(original_open(path, *args, **kwargs))
+                return original_open(path, *args, **kwargs)
+
+            with patch.object(Path, "open", open_with_interrupt):
+                with self.assertRaises(KeyboardInterrupt):
+                    main([
+                        "--handoff", str(manifest_path),
+                        "--output", str(report_path),
+                    ])
+
             self.assertFalse(report_path.exists())
 
 

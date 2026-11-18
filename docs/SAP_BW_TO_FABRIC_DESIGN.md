@@ -608,7 +608,7 @@ contract and gap report, not a BEx converter or BW-5 exit gate.
 For a print-oriented consumer, `migrate.py --output-format rdl` or the separate
 `migrate_paginated.py` can create
 a basic RDL table from an explicitly supplied semantic-model connection, DAX
-query and field mapping; see the [README example](../README.md#local-paginated-rdl-from-a-declared-mapping).
+query and field mapping; see the [migration reference example](MIGRATION_REFERENCE.md#local-paginated-rdl-from-a-declared-mapping).
 The `bex` source kind is a declaration, not a BEx parser or semantic
 conversion. Report Builder rendering, query execution, permissions and
 source-to-target equivalence are `not_run`; this does not close BW-5.

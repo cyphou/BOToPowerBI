@@ -627,7 +627,7 @@ class TestCLIParser(unittest.TestCase):
             (sources / "Crystal.rpt").write_bytes(
                 b"\x00Crystal report text\x00SELECT Amount FROM dbo.Sales;\x00")
             (sources / "Tableau.lumx").write_bytes(b"fixture")
-            (sources / "ancien.rep").write_bytes(b"unsupported")
+            (sources / "ancien.txt").write_bytes(b"unsupported")
             mappings = root / "mappings"
             mappings.mkdir()
             common = {"title": "Ventes", "server": "sql.example.test", "database": "Sales"}
@@ -663,10 +663,10 @@ class TestCLIParser(unittest.TestCase):
                           (output / "Crystal.rpt" / "query.m").read_text(encoding="utf-8"))
             manifest = json.loads((output / "batch_manifest.json").read_text(encoding="utf-8"))
             self.assertEqual([item["status"] for item in manifest["artifacts"]], ["success"] * 3)
-            self.assertEqual(manifest["skipped"][0]["source"], "ancien.rep")
+            self.assertEqual(manifest["skipped"][0]["source"], "ancien.txt")
             report_html = (output / "batch_report.html").read_text(encoding="utf-8")
             self.assertIn("Crystal SQL extraction is heuristic", report_html)
-            self.assertIn("ancien.rep", report_html)
+            self.assertIn("ancien.txt", report_html)
             crystal = next(item for item in manifest["artifacts"]
                            if item["source"] == "Crystal.rpt")
             self.assertIn("Crystal SQL extraction is heuristic", crystal["warnings"])

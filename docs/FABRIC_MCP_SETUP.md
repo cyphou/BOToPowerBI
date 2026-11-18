@@ -34,8 +34,8 @@ The default workspace configuration does **not** enable writes.
 
 | Tool | Purpose | Persistent Writes |
 |------|---------|-------------------|
-| `inventory` | Recursively list supported BO files | None |
-| `assess` | Assess a report/universe using temporary extraction | None |
+| `inventory` | Recursively list BO files, including `.rep` for inspection only | None |
+| `assess` | Assess a report/universe, or inspect a `.rep` in memory and return its partial pre-migration summary | None |
 | `quality_report` | Static PBIP/Fabric report with actionable priorities | None |
 | `agent_handoff` | Filter the latest report's findings by owner | None |
 | `migrate` | Generate a directory batch | Explicit opt-in |
@@ -48,6 +48,14 @@ refresh, credential, or arbitrary-command tools. Direct archive-file tool calls 
 not exposed; use the BIAR CLI or a batch directory for archives. Individual BO
 files cannot be submitted to `migrate`; use a source directory. `assess` still
 accepts an individual report or universe.
+For DeskI, `inventory` with `{"directory":"."}` lists `.rep` files as
+`desktop_intelligence`; `assess` with `{"file":"report.rep"}` returns an
+`assessment` with `report_type: "desktop_intelligence_pre_migration"`.
+It reuses the standalone inspector and reports partial sheet, SQL-selector and
+prompt-marker evidence without returning raw SQL, formula expressions or
+literal prompt arguments. Names and other metadata can still be sensitive;
+use only with an approved client and protected inputs. This does not enable
+`.rep` input for `migrate` or `shared_model`, and does not generate an RDL or PBIP.
 `agent_handoff` is advisory and does not apply or acknowledge fixes.
 The standalone BW Bronze and normalized-transformation CLIs are not exposed
 through this six-tool server and do not enter the BO bundle quality gate.
@@ -70,6 +78,19 @@ the CLI. Warnings alone do not imply a failed migration, nor deployment readines
 External Fabric/Power BI MCP servers below remain separate prerequisites for
 remote platform work. The local server's startup tests do not prove a VS Code
 client connection, Desktop rendering, or access to a Fabric workspace.
+
+### SAP source options for Desktop Intelligence XI
+
+The [SAP Integration Suite MCP Gateway](https://help.sap.com/docs/integration-suite/isuite-integrations-and-apis/model-context-protocol-mcp)
+exposes APIs configured by an administrator; it is not itself a DeskI `.rep`
+parser. For a licensed, compatible BO environment, SAP documents using the
+[Report Conversion Tool](https://help.sap.com/doc/1759b0ca5f0d4fbc9f3df574b9c8bb65/4.2.7/en-US/sbo42_rct_bestpractices_en.pdf)
+to convert DeskI reports to Web Intelligence. Review conversion exceptions and
+universe/connection dependencies before using the
+[Web Intelligence REST SDK](https://help.sap.com/docs/SAP_BUSINESSOBJECTS_WEB_INTELLIGENCE/58f583a7643e48cf944cf554eb961f5b/7da2e2d66f701014aaab767bb0e91070.html)
+on a supported CMS. Its report, element and provider metadata can complement the
+local scan; it does not prove prompt, layout or data parity. Neither SAP route
+is provisioned or exercised by the local MCP server.
 
 ## Configure Safely
 

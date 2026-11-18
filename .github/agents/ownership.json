@@ -27,6 +27,7 @@
       "migrate_bw_handoff.py", "migrate_bw_transform_validate.py", "migrate_bw_bex_assess.py",
       "migrate_bw_controls_assess.py", "migrate_bw_wave_assess.py", "migrate_bw_cutover_assess.py",
       "migrate_bw_convert.py", "migrate_paginated.py", "migrate_lcm_inventory.py",
+      "migrate_deski_inspect.py",
       "generate_report.py", "powerbi_import/import_to_powerbi.py",
       "powerbi_import/parallel_engine.py", "powerbi_import/progress.py",
       "powerbi_import/incremental.py", "powerbi_import/wizard.py",
@@ -37,7 +38,7 @@
     "Extractor": [
       "bo_export/__init__.py", "bo_export/extract_bo_data.py",
       "bo_export/webi_extractor.py", "bo_export/webi_snapshot_adapter.py",
-      "bo_export/lcm_manifest.py",
+      "bo_export/lcm_manifest.py", "bo_export/desktop_intelligence_extractor.py",
       "bo_export/crystal_extractor.py",
       "bo_export/universe_extractor.py", "bo_export/lumira_extractor.py",
       "bo_export/biar_reader.py", "bo_export/batch_report.py",
@@ -93,6 +94,7 @@
     ],
     "Evidence": [
       "powerbi_import/migration_quality.py", "powerbi_import/migration_report.py",
+      "powerbi_import/deski_migration_report.py",
       "powerbi_import/bw_reconciliation.py", "docs/schemas/sap_bw_reconciliation.schema.json",
       "docs/fixtures/sap_bw_reconciliation.example.json",
       "powerbi_import/bw_handoff.py", "docs/fixtures/sap_bw_handoff.example.json",

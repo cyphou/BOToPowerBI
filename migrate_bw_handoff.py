@@ -8,6 +8,14 @@ from pathlib import Path
 from powerbi_import.bw_handoff import BWHandoffError, evaluate_handoff, load_handoff
 
 
+def _cleanup_incomplete_report(output_path):
+    try:
+        output_path.unlink()
+    except OSError as cleanup_error:
+        return f"; unable to remove incomplete report {output_path}: {cleanup_error}"
+    return ""
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -32,16 +40,22 @@ def main(argv=None):
     except BWHandoffError as error:
         print(f"BW handoff evaluation failed: {error}", file=sys.stderr)
         return 2
+    except KeyboardInterrupt:
+        if output_created:
+            cleanup_message = _cleanup_incomplete_report(output_path)
+            if cleanup_message:
+                print(
+                    f"BW handoff evaluation interrupted{cleanup_message}",
+                    file=sys.stderr,
+                )
+        raise
     except (OSError, UnicodeError, ValueError) as error:
         message = (
             f"BW handoff evaluation failed: unable to write report "
             f"{output_path}: {error}"
         )
         if output_created:
-            try:
-                output_path.unlink()
-            except OSError as cleanup_error:
-                message += f"; unable to remove incomplete report: {cleanup_error}"
+            message += _cleanup_incomplete_report(output_path)
         print(message, file=sys.stderr)
         return 2
 

@@ -117,8 +117,9 @@ def generate_semantic_model_rdl(contract):
     https://learn.microsoft.com/en-us/sql/reporting-services/report-data/data-sources-supported-by-reporting-services-ssrs
     """
     sql_keys = {'title', 'source_kind', 'server', 'database', 'sql', 'columns'}
-    if isinstance(contract, dict) and set(contract) in (
-            sql_keys, sql_keys | {'parameters'}):
+    sql_optional_keys = {'parameters', 'layout'}
+    if (isinstance(contract, dict) and sql_keys <= set(contract)
+            and set(contract) <= sql_keys | sql_optional_keys):
         return _generate_sql_server_rdl(contract)
 
     keys = {'title', 'source_kind', 'workspace', 'semantic_model', 'dax', 'columns'}
@@ -259,16 +260,27 @@ def generate_semantic_model_rdl(contract):
 def _generate_sql_server_rdl(contract):
     """Generate an RDL from an explicit SQL Server mapping, without connecting.
 
-    The caller must provide exactly ``title``, ``source_kind``, ``server``,
-    ``database``, ``sql`` and ``columns``, with optional ``parameters``.
+    The caller must provide ``title``, ``source_kind``, ``server``,
+    ``database``, ``sql`` and ``columns``, with optional ``parameters`` and
+    ``layout``.
     Parameters bind SQL ``@Name`` references to scalar report parameters using
-    one of the RDL types Boolean, DateTime, Float, Integer or String. This is a declared mapping only:
+    one of the RDL types Boolean, DateTime, Float, Integer or String. Optional
+    prompt labels and multi-value behavior are explicit declarations. Layout
+    dimensions, column widths and colors are likewise caller-supplied; they are
+    not extracted from BusinessObjects. This is a declared mapping only:
     it does not extract BusinessObjects metadata or automatically map a BO
-    layout. Credentials are not embedded. Query validity, field mapping,
-    rendering and execution are not verified. The limited SQL-shape validation
+    layout. Connection authentication is not configured; query text can still
+    contain sensitive data. Query validity, field mapping, rendering and
+    execution are not verified. The limited SQL-shape validation
     does not establish that the query is valid for SQL Server or prove that
     execution would be safe.
     """
+    required_keys = {'title', 'source_kind', 'server', 'database', 'sql', 'columns'}
+    allowed_keys = required_keys | {'parameters', 'layout'}
+    if (not isinstance(contract, dict) or not required_keys <= set(contract)
+            or not set(contract) <= allowed_keys):
+        raise ValueError('SQL mapping must contain the documented keys')
+
     def checked_text(value, name, limit):
         if not isinstance(value, str) or not value.strip() or len(value) > limit:
             raise ValueError(f'{name} must be a nonempty string of at most {limit} characters')
@@ -391,8 +403,14 @@ def _generate_sql_server_rdl(contract):
     checked_parameters = []
     parameter_names = set()
     for parameter in parameters:
-        if not isinstance(parameter, dict) or set(parameter) != {'name', 'data_type'}:
-            raise ValueError('each parameter must contain exactly name and data_type')
+        parameter_keys = {'name', 'data_type'}
+        optional_parameter_keys = {'prompt', 'multi_value'}
+        if (not isinstance(parameter, dict)
+                or not parameter_keys <= set(parameter)
+                or not set(parameter) <= parameter_keys | optional_parameter_keys):
+            raise ValueError(
+                'each parameter must contain name and data_type, with optional prompt and multi_value'
+            )
         name = checked_text(parameter['name'], 'parameter name', 128)
         if not re.fullmatch(r'[A-Za-z_][A-Za-z0-9_]*', name):
             raise ValueError('parameter names must be ASCII identifiers')
@@ -402,7 +420,16 @@ def _generate_sql_server_rdl(contract):
         data_type = parameter['data_type']
         if not isinstance(data_type, str) or data_type not in _RDL_SQL_PARAMETER_TYPES:
             raise ValueError('parameter data_type must be a supported scalar RDL type')
-        checked_parameters.append({'name': name, 'data_type': data_type})
+        prompt = checked_text(parameter.get('prompt', name), 'parameter prompt', 200)
+        if prompt != prompt.strip() or any(character in prompt for character in '\r\n\t'):
+            raise ValueError('parameter prompt must be a single literal line')
+        multi_value = parameter.get('multi_value', False)
+        if type(multi_value) is not bool:
+            raise ValueError('parameter multi_value must be a boolean')
+        checked_parameters.append({
+            'name': name, 'data_type': data_type, 'prompt': prompt,
+            'multi_value': multi_value,
+        })
 
     referenced_parameters = {name.casefold() for name in sql_parameter_references}
     if referenced_parameters - parameter_names:
@@ -415,21 +442,98 @@ def _generate_sql_server_rdl(contract):
         raise ValueError('columns must be a list of 1 to 10 fields')
     fields = []
     labels = []
+    declared_widths = []
     for column in columns:
         if isinstance(column, str):
             field, label = column, column
-        elif isinstance(column, dict) and set(column) == {'field', 'label'}:
+            width = None
+        elif (isinstance(column, dict)
+              and {'field', 'label'} <= set(column)
+              and set(column) <= {'field', 'label', 'width'}):
             field, label = column['field'], column['label']
+            width = column.get('width')
         else:
-            raise ValueError('each column must be a field name or a field/label mapping')
+            raise ValueError(
+                'each column must be a field name or a field/label/optional-width mapping'
+            )
         label = checked_text(label, 'column label', 200)
         if label != label.strip() or label.startswith('=') or any(c in label for c in '\r\n\t'):
             raise ValueError('column labels must be single literal lines without surrounding whitespace')
         fields.append(field)
         labels.append(label)
+        if width is not None and (
+                isinstance(width, bool) or not isinstance(width, (int, float))
+                or not 0 < width <= 50):
+            raise ValueError('column width must be a positive number of inches')
+        declared_widths.append(width)
 
-    # Reuse the established DAX validator and tablix construction. The
-    # temporary query and connection are replaced below before returning XML.
+    layout_defaults = {
+        'page_width': 11.0, 'page_height': 8.5,
+        'margin_left': 0.5, 'margin_right': 0.5,
+        'margin_top': 0.5, 'margin_bottom': 0.5,
+        'font_family': 'Segoe UI',
+        'title_color': '#1F4E78',
+        'header_background': '#1F4E78',
+        'header_color': '#FFFFFF',
+        'alternate_row_background': '#F2F6FA',
+    }
+    layout = contract.get('layout', {})
+    if (not isinstance(layout, dict)
+            or not set(layout) <= set(layout_defaults)):
+        raise ValueError('layout contains unsupported properties')
+    layout_values = {**layout_defaults, **layout}
+    for name in ('page_width', 'page_height', 'margin_left', 'margin_right',
+                 'margin_top', 'margin_bottom'):
+        value = layout_values[name]
+        if (isinstance(value, bool) or not isinstance(value, (int, float))
+                or not 0 <= value <= 50
+                or (name.startswith('page_') and value == 0)):
+            raise ValueError(f'layout {name} must be a number of inches from 0 to 50')
+    body_width = (
+        layout_values['page_width'] - layout_values['margin_left']
+        - layout_values['margin_right']
+    )
+    if body_width <= 0:
+        raise ValueError('layout horizontal margins must leave a positive page width')
+    colors = ('title_color', 'header_background', 'header_color',
+              'alternate_row_background')
+    for name in colors:
+        if not isinstance(layout_values[name], str) or not re.fullmatch(
+                r'#[0-9A-Fa-f]{6}', layout_values[name]):
+            raise ValueError(f'layout {name} must be a #RRGGBB color')
+    font_family = checked_text(layout_values['font_family'], 'layout font_family', 100)
+    if (font_family != font_family.strip()
+            or any(character in font_family for character in '\r\n\t')):
+        raise ValueError('layout font_family must be a single literal line')
+    fixed_width = sum(width or 0 for width in declared_widths)
+    unspecified = declared_widths.count(None)
+    if fixed_width > body_width + 1e-9:
+        raise ValueError('declared column widths exceed the available page width')
+    rounded_widths = [
+        round(width, 4) if width is not None else None
+        for width in declared_widths
+    ]
+    if unspecified:
+        fixed_units = sum(
+            round(width * 10000) for width in rounded_widths if width is not None
+        )
+        available_units = int((body_width + 1e-9) * 10000) - fixed_units
+        shared_units, remainder = divmod(available_units, unspecified)
+        if shared_units < 1:
+            raise ValueError('column widths must leave positive space for every column')
+        for index, width in enumerate(rounded_widths):
+            if width is None:
+                extra = 1 if remainder else 0
+                remainder -= extra
+                rounded_widths[index] = (shared_units + extra) / 10000
+    if any(width is None or width <= 0 for width in rounded_widths):
+        raise ValueError('column widths must leave positive space for every column')
+    resolved_widths = [width for width in rounded_widths if width is not None]
+    tablix_width = sum(resolved_widths)
+    if tablix_width > body_width + 1e-9:
+        raise ValueError('rounded column widths exceed the available page width')
+
+    # Reuse the established tablix structure, then replace its query and styling.
     rdl = generate_semantic_model_rdl({
         'title': title,
         'source_kind': 'webi',
@@ -439,15 +543,38 @@ def _generate_sql_server_rdl(contract):
         'columns': fields,
     })
     ns = 'http://schemas.microsoft.com/sqlserver/reporting/2016/01/reportdefinition'
-    qname = lambda name: f'{{{ns}}}{name}'
+
+    def qname(name):
+        return f'{{{ns}}}{name}'
+
     report = ET.fromstring(rdl)
 
-    description = report.find(qname('Description'))
+    def add_style(parent, properties):
+        style = ET.SubElement(parent, qname('Style'))
+        for name, value in properties:
+            ET.SubElement(style, qname(name)).text = value
+
+    def required_element(parent: ET.Element, path: str) -> ET.Element:
+        element = parent.find(path)
+        if element is None:
+            raise RuntimeError(f'generated RDL is missing required element: {path}')
+        return element
+
+    description = required_element(report, qname('Description'))
     description.text = (
         f'SQL mapping (source: {source_kind}). No automatic BO report layout '
-        'mapping was performed. Credentials are not embedded. SQL query, '
-        'declared fields, permissions, rendering and execution are not verified.'
+        'mapping was performed. Declared page, column and style properties are '
+        'not source-verified. Connection authentication is not configured; query '
+        'text may contain sensitive data. SQL query, declared fields, permissions, '
+        'rendering and execution are not verified.'
     )
+    title_box = required_element(report, f'.//{qname("Textbox")}[@Name="ReportTitle"]')
+    add_style(title_box, [
+        ('Color', layout_values['title_color']),
+        ('FontFamily', font_family), ('FontSize', '20pt'),
+        ('FontWeight', 'Bold'),
+        ('PaddingBottom', '6pt'), ('VerticalAlign', 'Middle'),
+    ])
     for index, label in enumerate(labels, 1):
         header = report.find(
             f'.//{qname("Textbox")}[@Name="Header{index}"]/'
@@ -456,17 +583,73 @@ def _generate_sql_server_rdl(contract):
         if header is None:
             raise RuntimeError('generated RDL is missing a table header')
         header.text = label
-    connection = report.find(
+        header_box = report.find(f'.//{qname("Textbox")}[@Name="Header{index}"]')
+        value_box = report.find(f'.//{qname("Textbox")}[@Name="Value{index}"]')
+        if header_box is None or value_box is None:
+            raise RuntimeError('generated RDL is missing a table cell textbox')
+        add_style(header_box, [
+            ('BackgroundColor', layout_values['header_background']),
+            ('Color', layout_values['header_color']),
+            ('FontFamily', font_family), ('FontSize', '10pt'),
+            ('FontWeight', 'Bold'),
+            ('PaddingLeft', '6pt'), ('PaddingRight', '6pt'),
+            ('VerticalAlign', 'Middle'),
+        ])
+        add_style(value_box, [
+            ('BackgroundColor',
+             f'=IIF(RowNumber(Nothing) Mod 2 = 0, '
+             f'"{layout_values["alternate_row_background"]}", "#FFFFFF")'),
+            ('Color', '#222222'),
+            ('FontFamily', font_family), ('FontSize', '9pt'),
+            ('PaddingBottom', '3pt'), ('PaddingLeft', '6pt'),
+            ('PaddingRight', '6pt'), ('PaddingTop', '3pt'),
+        ])
+
+    tablix_body = report.find(f'.//{qname("Tablix")}[@Name="ResultTable"]/{qname("TablixBody")}')
+    tablix = report.find(f'.//{qname("Tablix")}[@Name="ResultTable"]')
+    if tablix_body is None or tablix is None:
+        raise RuntimeError('generated RDL is missing its result table')
+    tablix_columns = required_element(tablix_body, qname('TablixColumns'))
+    if len(tablix_columns) != len(resolved_widths):
+        raise RuntimeError('generated RDL has an unexpected number of table columns')
+    for column, width in zip(tablix_columns, resolved_widths):
+        required_element(column, qname('Width')).text = f'{width:.4f}in'
+    required_element(tablix, qname('Width')).text = f'{tablix_width:.4f}in'
+    required_element(title_box, qname('Width')).text = f'{tablix_width:.4f}in'
+    body = required_element(report, f'.//{qname("ReportSection")}/{qname("Body")}')
+    rows = required_element(tablix_body, qname('TablixRows'))
+    if len(rows) != 2:
+        raise RuntimeError('generated RDL must contain a header and a detail row')
+    header_row, detail_row = rows
+    table_top, header_height, detail_height = 0.55, 0.35, 0.30
+    required_element(header_row, qname('Height')).text = f'{header_height:.2f}in'
+    required_element(detail_row, qname('Height')).text = f'{detail_height:.2f}in'
+    required_element(tablix, qname('Top')).text = f'{table_top:.2f}in'
+    required_element(tablix, qname('Height')).text = f'{header_height + detail_height:.2f}in'
+    required_element(body, qname('Height')).text = f'{table_top + header_height + detail_height:.2f}in'
+    required_element(report, f'.//{qname("ReportSection")}/{qname("Width")}').text = f'{body_width:.4f}in'
+
+    page = required_element(report, f'.//{qname("ReportSection")}/{qname("Page")}')
+    for name, value in (
+            ('PageWidth', layout_values['page_width']),
+            ('PageHeight', layout_values['page_height']),
+            ('LeftMargin', layout_values['margin_left']),
+            ('RightMargin', layout_values['margin_right']),
+            ('TopMargin', layout_values['margin_top']),
+            ('BottomMargin', layout_values['margin_bottom'])):
+        required_element(page, qname(name)).text = f'{value:g}in'
+
+    connection = required_element(report,
         f'{qname("DataSources")}/{qname("DataSource")}/{qname("ConnectionProperties")}')
-    connection.find(qname('DataProvider')).text = 'SQL'
+    required_element(connection, qname('DataProvider')).text = 'SQL'
         # Keep connection-string keys fixed; only validated values are interpolated.
-    connection.find(qname('ConnectString')).text = (
+    required_element(connection, qname('ConnectString')).text = (
         f'Data Source={server};Initial Catalog={database}')
-    query = report.find(f'{qname("DataSets")}/{qname("DataSet")}/{qname("Query")}')
+    query = required_element(report, f'{qname("DataSets")}/{qname("DataSet")}/{qname("Query")}')
     command_type = ET.Element(qname('CommandType'))
     command_type.text = 'Text'
     query.insert(1, command_type)
-    query.find(qname('CommandText')).text = sql
+    required_element(query, qname('CommandText')).text = sql
     if checked_parameters:
         query_parameters = ET.Element(qname('QueryParameters'))
         for parameter in checked_parameters:
@@ -477,8 +660,7 @@ def _generate_sql_server_rdl(contract):
             ET.SubElement(query_parameter, qname('Value')).text = (
                 f"=Parameters!{parameter['name']}.Value"
             )
-        command_text = query.find(qname('CommandText'))
-        query.insert(list(query).index(command_text) + 1, query_parameters)
+        query.insert(1, query_parameters)
 
         report_parameters = ET.Element(qname('ReportParameters'))
         for parameter in checked_parameters:
@@ -487,8 +669,10 @@ def _generate_sql_server_rdl(contract):
                 {'Name': parameter['name']},
             )
             ET.SubElement(report_parameter, qname('DataType')).text = parameter['data_type']
-            ET.SubElement(report_parameter, qname('Prompt')).text = parameter['name']
-        report_sections = report.find(qname('ReportSections'))
+            if parameter['multi_value']:
+                ET.SubElement(report_parameter, qname('MultiValue')).text = 'true'
+            ET.SubElement(report_parameter, qname('Prompt')).text = parameter['prompt']
+        report_sections = required_element(report, qname('ReportSections'))
         report.insert(list(report).index(report_sections), report_parameters)
 
     # XML parsers normalize literal CR, including inside SQL string literals.
@@ -594,7 +778,7 @@ def generate_unbound_rdl(contract):
     body = child(section, 'Body')
     items = child(body, 'ReportItems')
 
-    def textbox(name, value, top, height):
+    def textbox(name, value, top, height, style_properties):
         box = child(items, 'Textbox', Name=name)
         child(box, 'CanGrow', 'true')
         run = child(child(child(box, 'Paragraphs'), 'Paragraph'), 'TextRuns')
@@ -603,12 +787,25 @@ def generate_unbound_rdl(contract):
         child(box, 'Left', '0in')
         child(box, 'Height', height)
         child(box, 'Width', '10in')
+        style = child(box, 'Style')
+        for name, value in style_properties:
+            child(style, name, value)
 
-    textbox('ReportTitle', title, '0in', '0.4in')
+    textbox('ReportTitle', title, '0in', '0.4in', [
+        ('Color', '#1F4E78'), ('FontFamily', 'Segoe UI'),
+        ('FontSize', '20pt'), ('FontWeight', 'Bold'),
+        ('PaddingBottom', '6pt'), ('VerticalAlign', 'Middle'),
+    ])
     note = description + '\n\n' if description else ''
     textbox('MigrationNote',
             note + 'Not migrated: data source, query, layout and formulas.',
-            '0.5in', '0.8in')
+            '0.5in', '0.8in', [
+                ('BackgroundColor', '#F2F6FA'),
+                ('Color', '#323130'), ('FontFamily', 'Segoe UI'),
+                ('FontSize', '9pt'), ('PaddingBottom', '6pt'),
+                ('PaddingLeft', '8pt'), ('PaddingRight', '8pt'),
+                ('PaddingTop', '6pt'), ('VerticalAlign', 'Top'),
+            ])
     child(body, 'Height', '1.4in')
     child(section, 'Width', '10in')
     page = child(section, 'Page')

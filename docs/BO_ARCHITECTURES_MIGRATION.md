@@ -113,7 +113,7 @@ python migrate.py --shared-model "examples\eFashion_Universe.unx" "examples\HR_U
 ```
 
 Cet exemple d'univers indépendants présente un faible recouvrement. Le
-[README](../README.md#-shared-semantic-model-mode) documente la génération avec
+[guide avancé](MIGRATION_REFERENCE.md#-shared-semantic-model-mode) documente la génération avec
 approbation explicite `--force-merge` : celle-ci ne résout pas une ambiguïté
 entre sources physiques distinctes. Ne jamais forcer un rapprochement sans
 revue. Le chemin partagé ne publie pas les artefacts via `--deploy` ; prévoir

@@ -137,6 +137,28 @@ class TestUnboundRdl(unittest.TestCase):
         self.assertEqual(first.find("r:DataType", ns).text, "String")
         self.assertEqual(first.find("r:MultiValue", ns).text, "true")
         self.assertEqual(first.find("r:Nullable", ns).text, "true")
+        self.assertEqual(
+            root.findtext('.//r:Textbox[@Name="ReportTitle"]/r:Style/r:FontFamily',
+                          namespaces=ns),
+            "Segoe UI",
+        )
+        self.assertEqual(
+            root.findtext('.//r:Textbox[@Name="ReportTitle"]/r:Style/r:Color',
+                          namespaces=ns),
+            "#1F4E78",
+        )
+        self.assertEqual(
+            root.findtext('.//r:Textbox[@Name="MigrationNote"]/r:Style/r:BackgroundColor',
+                          namespaces=ns),
+            "#F2F6FA",
+        )
+        self.assertEqual(
+            root.findtext('.//r:Textbox[@Name="MigrationNote"]/r:Style/r:PaddingLeft',
+                          namespaces=ns),
+            "8pt",
+        )
+        self.assertIsNone(root.find("r:DataSources", ns))
+        self.assertIsNone(root.find("r:DataSets", ns))
         self.assertIn("Not migrated", rdl)
 
     def test_rejects_expressions_credentials_and_malformed_contracts(self):

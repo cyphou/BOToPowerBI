@@ -13,9 +13,10 @@ PROTOCOL_VERSION = '2025-06-18'
 def _tool_catalogue():
     string = {'type': 'string', 'minLength': 1}
     definitions = [
-        ('inventory', 'List supported BO source files without extracting them.',
+        ('inventory', 'List BO source files without extracting them, including DeskI .rep files for inspection only.',
          {'directory': string}, ['directory'], True),
-        ('assess', 'Assess one BO artifact without persisting extraction or generating a project.',
+        ('assess', 'Assess one BO artifact without persisting extraction or generating a project. '
+         'For DeskI .rep, return partial pre-migration findings without raw SQL or formula text.',
          {'file': string}, ['file'], True),
         ('migrate', 'Generate local projects from a source directory. Requires server --allow-write, confirm=true and an empty output directory.',
          {'source': string, 'output_dir': string, 'output_format': {'type': 'string', 'enum': ['pbip', 'fabric']},
@@ -50,11 +51,13 @@ class MigrationTools:
             raise ValueError('Path is outside the configured MCP root')
         return path
 
-    def _source(self, value):
+    def _source(self, value, *, allow_deski=False):
         from bo_export.extract_bo_data import SUPPORTED_EXTENSIONS
         path = self._path(value)
         if not path.is_file():
             raise FileNotFoundError(f'BO source file not found: {path.name}')
+        if allow_deski and path.suffix.lower() == '.rep':
+            return path
         if path.suffix.lower() not in SUPPORTED_EXTENSIONS:
             raise ValueError('Unsupported BO source extension')
         if SUPPORTED_EXTENSIONS[path.suffix.lower()] == 'biar':
@@ -76,17 +79,26 @@ class MigrationTools:
             directory = self._path(arguments['directory'])
             if not directory.is_dir():
                 raise FileNotFoundError('Source directory not found')
+            formats = {**SUPPORTED_EXTENSIONS, '.rep': 'desktop_intelligence'}
             files = [{'path': path.relative_to(self.root).as_posix(),
-                      'format': SUPPORTED_EXTENSIONS[path.suffix.lower()]}
+                      'format': formats[path.suffix.lower()]}
                      for path in sorted(directory.rglob('*'))
                      if path.is_file() and path.resolve().is_relative_to(self.root)
-                     and path.suffix.lower() in SUPPORTED_EXTENSIONS]
+                     and path.suffix.lower() in formats]
             return {'files': files, 'count': len(files), 'read_only': True}
         if name == 'assess':
-            from bo_export.extract_bo_data import extract_bo_data
+            source = self._source(arguments['file'], allow_deski=True)
+            if source.suffix.lower() == '.rep':
+                from bo_export.desktop_intelligence_extractor import inspect_desktop_intelligence
+
+                from .deski_migration_report import build_deski_migration_report
+
+                report = build_deski_migration_report(inspect_desktop_intelligence(source))
+                return {'assessment': report, 'read_only': True}
             from bo_export.converted_objects_adapter import adapt_bo_to_converted_objects
+            from bo_export.extract_bo_data import extract_bo_data
+
             from .assessment import run_assessment
-            source = self._source(arguments['file'])
             with tempfile.TemporaryDirectory(prefix='bo_mcp_assess_') as temporary:
                 data = extract_bo_data(str(source), output_dir=temporary)
                 report = run_assessment(adapt_bo_to_converted_objects(data), workbook_name=source.stem)

@@ -105,9 +105,11 @@ Examples:
     parser.add_argument("--rdl-power-query-output",
                         help="RDL SQL mode: optional new .m file for Desktop or Desktop RS")
     parser.add_argument("--rdl-extracted-sql", help="RDL mode: previously extracted custom_sql.json")
-    parser.add_argument("--rdl-bo-source", help="RDL mode: local .wid, .rpt, .unx or .unv SQL source")
+    parser.add_argument("--rdl-bo-source", help="RDL mode: local .wid, .rpt, .rep, .unx or .unv SQL source")
     parser.add_argument("--rdl-webi-plan", help="RDL mode: saved WebI API query-plan JSON")
     parser.add_argument("--rdl-sql-name", help="RDL mode: exact name of one extracted SQL entry")
+    parser.add_argument("--rdl-accept-unverified-rep-sql", action="store_true",
+                        help="RDL mode: acknowledge unverified REP SQL for a local draft")
     parser.add_argument("--rdl-batch-config",
                         help="Folder mode: add paginated RDL outputs from per-source mappings")
 
@@ -230,6 +232,7 @@ def main(argv=None):
             rdl_parser.add_argument("--rdl-bo-source")
             rdl_parser.add_argument("--rdl-webi-plan")
             rdl_parser.add_argument("--rdl-sql-name")
+            rdl_parser.add_argument("--rdl-accept-unverified-rep-sql", action="store_true")
             rdl_parser.add_argument("--verbose", "-v", action="store_true")
             _, unsupported = rdl_parser.parse_known_args(raw_args)
             if unsupported or not args.rdl_mapping or not args.rdl_output:
@@ -249,11 +252,13 @@ def main(argv=None):
                 rdl_args.extend(["--webi-plan", args.rdl_webi_plan])
             if args.rdl_sql_name is not None:
                 rdl_args.extend(["--sql-name", args.rdl_sql_name])
+            if args.rdl_accept_unverified_rep_sql:
+                rdl_args.append("--accept-unverified-rep-sql")
             return generate_paginated(rdl_args)
         if any(value is not None for value in (
                 args.rdl_mapping, args.rdl_output, args.rdl_power_query_output,
                 args.rdl_extracted_sql, args.rdl_bo_source, args.rdl_webi_plan,
-                args.rdl_sql_name)):
+                args.rdl_sql_name)) or args.rdl_accept_unverified_rep_sql:
             raise ValueError("RDL options require --output-format rdl")
         if args.rdl_batch_config and not (
                 args.batch or (args.input and os.path.isdir(args.input))):
@@ -740,7 +745,8 @@ def _load_rdl_batch_config(path):
         if normalized in sources:
             raise ValueError(f"Duplicate RDL batch source path: {normalized}")
         if (not isinstance(entry, dict) or "mapping" not in entry
-                or set(entry) - {"mapping", "sql_name", "power_query"}):
+                or set(entry) - {"mapping", "sql_name", "power_query",
+                                 "accept_unverified_rep_sql"}):
             raise ValueError(f"Invalid RDL batch entry for {normalized}")
         if not isinstance(entry["mapping"], str) or not entry["mapping"].strip():
             raise ValueError(f"RDL mapping path is required for {normalized}")
@@ -749,6 +755,11 @@ def _load_rdl_batch_config(path):
             raise ValueError(f"RDL SQL name must be nonempty for {normalized}")
         if "power_query" in entry and not isinstance(entry["power_query"], bool):
             raise ValueError(f"RDL power_query must be a boolean for {normalized}")
+        if ("accept_unverified_rep_sql" in entry
+                and not isinstance(entry["accept_unverified_rep_sql"], bool)):
+            raise ValueError(
+                f"RDL accept_unverified_rep_sql must be a boolean for {normalized}"
+            )
         sources[normalized] = entry
     return sources
 
@@ -771,7 +782,21 @@ def _run_rdl_batch_item(source_path, item_output, source_kind, entry, config_dir
         raise ValueError("RDL mapping source_kind must match the source extension")
 
     sql_name = entry.get("sql_name")
-    if sql_name is not None and source_kind not in {"webi", "crystal", "universe"}:
+    accept_unverified_rep_sql = entry.get("accept_unverified_rep_sql", False)
+    if source_kind == "desktop_intelligence":
+        if sql_name is not None and not accept_unverified_rep_sql:
+            raise ValueError(
+                "REP SQL batch selection requires accept_unverified_rep_sql: true"
+            )
+        if accept_unverified_rep_sql and sql_name is None:
+            raise ValueError(
+                "accept_unverified_rep_sql requires an exact REP sql_name"
+            )
+    elif accept_unverified_rep_sql:
+        raise ValueError("accept_unverified_rep_sql is only valid for a .rep source")
+    if sql_name is not None and source_kind not in {
+        "webi", "crystal", "universe", "desktop_intelligence"
+    }:
         raise ValueError("Direct SQL selection is not supported for this source type")
     if sql_name is not None and source_kind == "crystal":
         logger.warning("Crystal SQL is a heuristic text candidate; review its completeness and provenance")
@@ -782,6 +807,8 @@ def _run_rdl_batch_item(source_path, item_output, source_kind, entry, config_dir
         arguments = ["--mapping", mapping_path, "--output", os.path.join(directory, "report.rdl")]
         if sql_name is not None:
             arguments.extend(["--bo-source", source_path, "--sql-name", sql_name])
+        if accept_unverified_rep_sql:
+            arguments.append("--accept-unverified-rep-sql")
         if entry.get("power_query", False):
             arguments.extend(["--power-query-output", os.path.join(directory, "query.m")])
         errors = StringIO()
@@ -814,6 +841,12 @@ def _run_rdl_batch_target(source_path, item_output, source_kind, entry,
         error_message = "RDL generation failed; see logs"
     if source_kind == "crystal" and entry and entry.get("sql_name") is not None:
         item_stats.warnings.append("Crystal SQL extraction is heuristic")
+    if (source_kind == "desktop_intelligence" and entry
+            and entry.get("accept_unverified_rep_sql")):
+        item_stats.warnings.append(
+            "Selected REP SQL remains an unverified candidate; review its SQL, "
+            "provider association, connection and result fields"
+        )
     return {
         "status": "success" if exit_code == EXIT_SUCCESS else "failed",
         "exit_code": exit_code,
@@ -875,7 +908,7 @@ def _run_batch_migration(args, stats):
             if os.path.islink(path):
                 skipped.append({"source": os.path.relpath(path, batch_dir).replace("\\", "/"),
                                 "reason": "Symbolic-link file not followed"})
-            elif ext in SUPPORTED_EXTENSIONS:
+            elif ext in SUPPORTED_EXTENSIONS or (rdl_mode and ext == ".rep"):
                 artifacts.append(path)
             else:
                 relative = os.path.relpath(path, batch_dir)
@@ -899,7 +932,11 @@ def _run_batch_migration(args, stats):
     for artifact_path in artifacts:
         relative_path = os.path.relpath(artifact_path, batch_dir)
         source_key = relative_path.replace("\\", "/")
-        source_kind = SUPPORTED_EXTENSIONS[os.path.splitext(artifact_path)[1].lower()]
+        extension = os.path.splitext(artifact_path)[1].lower()
+        source_kind = (
+            "desktop_intelligence" if rdl_mode and extension == ".rep"
+            else SUPPORTED_EXTENSIONS[extension]
+        )
         item_output = os.path.join(output_dir, relative_path)
         item_args = argparse.Namespace(**vars(args))
         item_args.input = artifact_path

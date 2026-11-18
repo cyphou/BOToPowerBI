@@ -2,7 +2,73 @@
 
 ## [Unreleased]
 
+### In progress
+- Simplified the README around common workflows and parameters; detailed
+  migration procedures and the full CLI reference remain available in
+  `docs/MIGRATION_REFERENCE.md`. Existing commands and options are unchanged.
+- The main CLI now routes a single `.rep` SQL candidate to the existing
+  paginated generator with explicit `--rdl-accept-unverified-rep-sql`.
+  This reuses the existing partial inspection and manual SQL Server mapping;
+  it does not recover report layout or establish source/target equivalence.
+- RDL-only folder batches can select a REP SQL candidate per source when its
+  config explicitly sets `accept_unverified_rep_sql: true`. The manifest
+  carries the unverified-candidate warning; PBIP/Fabric batch routes still
+  do not recognize REP as an automatically migratable source.
+- The local MCP `inventory` discovers DeskI `.rep` files, and `assess` returns
+  their partial pre-migration summary without writing files or returning raw
+  SQL, formula expressions or literal prompt arguments. DeskI generation
+  remains outside the MCP workflow.
+- `migrate_deski_inspect.py` can optionally write deterministic JSON and/or HTML
+  pre-migration reports, alongside the required inventory. They identify
+  partial candidates, unverified SQL selectors, design/prompt review actions
+  and checks not run by this inspection, without a fidelity score. SQL text,
+  literal prompt/variable arguments and formula expressions are omitted from
+  the reports, but metadata may still be sensitive. All outputs must be new;
+  failed writes attempt to clean up newly created files and report cleanup
+  failures. This is not RDL/PBIP generation or source/target equivalence.
+- `migrate_deski_inspect.py` provides an experimental standalone local DeskI
+  `.rep` inventory, still under implementation. It reads ZIP, including
+  prefixed ZIP, and OLE via Windows Structured Storage on Windows. It returns
+  partial sheet, provider, object, SQL, formula, SQL literal-prompt/variable
+  and structural candidates. Unsupported containers are rejected; encountered
+  non-UTF-8 strings and unsupported internal formats are flagged. BO variables
+  remain unresolved. A recognized `Query;` header may expose a source name as
+  a possible universe, not a verified universe or connection.
+- The reader opens selected metadata streams, not data-cache or macro streams,
+  but hashes the whole source as raw bytes. It executes no macros, performs no
+  refresh and generates no PBIP; `migrate.py` does not automatically parse
+  `.rep`, and report-to-provider links are not verified. A separate, gated
+  paginated route can generate an RDL from one explicitly selected
+  candidate and a manual SQL Server mapping. Declared styling and report
+  parameters do not reconstruct REP layout or BO prompt semantics. The JSON
+  must be a new file, kept local and protected because it may contain sensitive
+  SQL and metadata. SQL, bindings, completeness and equivalence require
+  independent review.
+- The 2026-11-18 eight-sample candidate counts were replayed locally for the
+  report update; the prior byte-framing observation was not independently
+  replayed. A separate manually declared RDL/M illustration and a one-sample
+  direct REP-to-RDL pilot are described in the
+  [gap analysis](docs/GAP_ANALYSIS.md); the pilot uses placeholder connection
+  values and does not execute SQL.
+- A second local RDL illustration manually rewrites one observed REP
+  `@variable` to a declared multi-value SQL parameter; its connection, fields,
+  prompt semantics and default layout remain unverified.
+- SQL Server RDL descriptions no longer claim all credentials are absent:
+  authentication is not configured, but query text may contain sensitive data.
+- Local Windows tests passed for synthetic ZIP and OLE inputs; the
+  non-Windows-only OLE error-path test was skipped. Full and focused test
+  results and the three-file Ruff check are recorded in the gap analysis;
+  they do not establish source type, runtime behavior or equivalence.
+
 ### Fixed
+- SQL Server RDL generation now reports missing or inconsistent intermediate
+  table structure explicitly instead of failing with an opaque Python error.
+- SQL Server RDL tables now fit within their declared body and distribute
+  automatically sized columns without rounding beyond the page width. This is
+  a static geometry fix; opening and rendering in Report Builder remain
+  unverified.
+- Unbound RDL starting points now give the title and migration note a
+  consistent, readable target style; this is not source-derived REP layout.
 - UNX extraction now names `.dfx`, `.blx` and `.cns` components that carry a
   `Cipher` member as CMS-protected instead of silently returning nothing. No
   decryption is attempted; their metadata needs an authorized CMS or a
@@ -31,6 +97,25 @@
   diagnostics.
 
 ### Added
+- An experimental Desktop Intelligence VBA macro is intended to capture provider
+  names and SQL from the active document into the existing extracted-SQL list shape, with
+  explicit unavailable/empty statuses. Synthetic fixtures exercise selection
+  into a manually mapped RDL and optional Power Query; neither the macro nor
+  the synthetic handoff parses `.rep`, and client execution has not been
+  verified. SQL, connection, fields, layout and source equivalence still
+  require independent review.
+- Extracted SQL selection rejects inconsistent capture status and error fields
+  when present, without requiring them in existing SQL-only inventories.
+- `migrate_paginated.py` can read a `.rep` through the experimental static
+  inventory and select one SQL candidate by provider-ID/stream-offset name.
+  Generation requires `--accept-unverified-rep-sql`; the generated RDL still
+  labels the candidate unverified. SQL mappings can additionally declare
+  page dimensions/margins, column widths, basic title/table styling, prompt
+  labels and multi-value report parameters for explicitly reviewed SQL Server
+  parameters. These are manual declarations, not REP layout or BO prompt
+  extraction; groups, sorts, page breaks, available values, dependent prompts,
+  exact prompt UI, SQL execution, PBIP generation and source equivalence remain
+  unsupported or unverified.
 - `migrate_lcm_inventory.py` reads the readable `BusinessObjects.xml` manifest of
   an LCM BIAR and writes a lineage inventory (document → universe → connection
   type, prompts, WebI provider IDs, universe groups) plus an unbound RDL

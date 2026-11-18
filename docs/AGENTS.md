@@ -26,7 +26,7 @@ The authoritative, machine-checked ownership map is
 | **@fabric** | Local Fabric artifacts, staged BW Bronze and normalized transformation notebooks | `fabric_project_generator.py`, its five sub-generators, `bw_bronze_generator.py`, `bw_transform_generator.py`, `fabric_constants.py`, `fabric_naming.py` |
 | **@agent-tools** (`AgentTools`) | Local MCP tools, protocol, write guards, workspace launch | `powerbi_import/mcp_server.py`, `.vscode/mcp.json` |
 | **@assessor** | Migration readiness, scoring, strategy, validation, offline BW inventory, BEx semantics, and BW-6 controls declarations | Assessment modules; `powerbi_import/bw_inventory.py` and BW-0 gap assessment; BW-5 BEx and BW-6 security/planning/compliance declarations; respective schemas/fixtures |
-| **Evidence** | Deterministic quality/comparison reports and fidelity evidence | `migration_quality.py`, report/comparison/equivalence/regression modules, BW reconciliation, handoff, transformation-vector fixtures and validation, wave evidence index and offline cutover declarations |
+| **Evidence** | Deterministic quality/comparison reports and fidelity evidence | `migration_quality.py`, `deski_migration_report.py`, report/comparison/equivalence/regression modules, BW reconciliation, handoff, transformation-vector fixtures and validation, wave evidence index and offline cutover declarations |
 | **Healing** | Bounded repairs and recovery ledger | `recovery_report.py`; repair-only collaboration with Semantic/Assessor |
 | **AI** | Optional LLM advisory and migration patterns | `llm_client.py`, `marketplace.py`; not MCP transport |
 | **Web Designer** | HTML presentation, theme, readability, accessibility | `html_template.py`; presentation-only collaboration with report owners |
