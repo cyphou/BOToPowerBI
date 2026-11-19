@@ -2,20 +2,29 @@
 
 import json
 import os
+import subprocess
 import sys
 import tempfile
 import unittest
 import xml.etree.ElementTree as ET
 import zipfile
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import redirect_stdout
 from io import StringIO
 from pathlib import Path
 from unittest.mock import Mock, patch
 
-from migrate import (build_parser, main, MigrationStats, _run_single_migration,
-                     _record_migration_object_warnings,
-                     EXIT_GENERAL_ERROR, EXIT_SUCCESS, EXIT_UNSUPPORTED_FORMAT,
-                     EXIT_VALIDATION_ERROR)
+from migrate import (
+    EXIT_GENERAL_ERROR,
+    EXIT_SUCCESS,
+    EXIT_UNSUPPORTED_FORMAT,
+    EXIT_VALIDATION_ERROR,
+    MigrationStats,
+    _record_migration_object_warnings,
+    _run_single_migration,
+    build_parser,
+    main,
+)
 
 
 class TestCLIParser(unittest.TestCase):
@@ -594,6 +603,8 @@ class TestCLIParser(unittest.TestCase):
                 self.assertIn("no matching SQL-bearing table",
                               " ".join(artifact["warnings"]))
                 self.assertIn("SQL expressions or filters", " ".join(artifact["warnings"]))
+                self.assertIn("No source report visuals were converted",
+                              " ".join(artifact["warnings"]))
             self.assertIn("no matching SQL-bearing table",
                           (output / "batch_report.html").read_text(encoding="utf-8"))
             archive_output = output / "universe.biar"
@@ -614,6 +625,10 @@ class TestCLIParser(unittest.TestCase):
             model = time_table.read_text(encoding="utf-8")
             year = model.split("\tcolumn Year", 1)[1].split("\n\tcolumn ", 1)[0]
             self.assertIn("sourceColumn: FISCAL_YEAR", year)
+            from powerbi_import.migration_quality import build_quality_report
+            quality = build_quality_report(output)
+            self.assertEqual(quality["summary"]["projects"], 2)
+            self.assertEqual(quality["summary"]["errors"], 0, quality["priorities"])
 
     def test_rdl_folder_routes_mixed_sources_and_optional_power_query(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -1019,6 +1034,315 @@ class TestCLIParser(unittest.TestCase):
                 patch("migrate._generate_pbip_for_artifact", side_effect=RuntimeError("generation failed")),
             ):
                 self.assertEqual(main(["--biar", "archive.biar", "--output-dir", output]), EXIT_GENERAL_ERROR)
+
+
+class TestSimplifiedCLIWorkflows(unittest.TestCase):
+    """Exercise the public shortcuts through the real CLI and RDL generator."""
+
+    def setUp(self):
+        self.temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temporary.cleanup)
+        self.root = Path(self.temporary.name) / "espace de travail Ω"
+        self.root.mkdir()
+        self.script = Path(__file__).resolve().parents[1] / "migrate.py"
+
+    def _run_cli(self, *arguments, timeout=30):
+        return subprocess.run(
+            [sys.executable, str(self.script), *arguments],
+            cwd=self.root, capture_output=True, text=True, encoding="utf-8",
+            env={**os.environ, "PYTHONIOENCODING": "utf-8"}, timeout=timeout,
+        )
+
+    def _write_mapping(self, directory):
+        directory.mkdir(parents=True)
+        mapping = directory / "mappage résumé.v1.JSON"
+        mapping.write_text(json.dumps({
+            "title": "Ventes", "source_kind": "webi",
+            "workspace": "Workspace", "semantic_model": "Sales Model",
+            "dax": "EVALUATE Sales", "columns": ["Sales[Amount]"],
+        }, ensure_ascii=False), encoding="utf-8")
+        return mapping
+
+    def _snapshot(self):
+        return {
+            path.relative_to(self.root): path.read_bytes() if path.is_file() else None
+            for path in self.root.rglob("*")
+        }
+
+    def test_quick_help_and_complete_help_are_available_without_migrating(self):
+        quick = self._run_cli("--help")
+        short_alias = self._run_cli("-h")
+        complete = self._run_cli("--help-all")
+
+        for result in (quick, short_alias, complete):
+            self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(short_alias.stdout, quick.stdout)
+        for option in ("--help-all", "--assess", "--dry-run", "--rdl-mapping"):
+            self.assertIn(option, quick.stdout)
+        for option in (
+            "--schema-drift", "--multi-tenant", "--calendar-start",
+            "--rdl-accept-unverified-rep-sql", "--shared-model",
+        ):
+            self.assertIn(option, complete.stdout)
+        self.assertLessEqual(len(quick.stdout.splitlines()), 40)
+        self.assertLess(len(quick.stdout.splitlines()) * 2, len(complete.stdout.splitlines()))
+        self.assertEqual(list(self.root.iterdir()), [])
+
+    def test_legacy_advanced_options_still_parse(self):
+        args = build_parser().parse_args([
+            "legacy report.wid", "--output-format", "fabric", "-o", "legacy output",
+            "--calendar-start", "2017", "--calendar-end", "2027", "--culture", "fr-FR",
+            "--universe", "sales.unx", "--no-optimize-dax", "--no-compare",
+            "--refresh-config", "--multi-tenant", "tenants.json", "--incremental",
+            "--schema-drift", "previous extraction", "--verbose",
+        ])
+        expected = {
+            "input": "legacy report.wid", "output_format": "fabric",
+            "output_dir": "legacy output", "calendar_start": 2017, "calendar_end": 2027,
+            "culture": "fr-FR", "universe": "sales.unx", "no_optimize_dax": True,
+            "no_compare": True, "refresh_config": True, "multi_tenant": "tenants.json",
+            "incremental": True, "schema_drift": "previous extraction", "verbose": True,
+        }
+        for name, value in expected.items():
+            with self.subTest(option=name):
+                self.assertEqual(getattr(args, name), value)
+
+    def test_rep_suffix_directory_dry_run_uses_existing_folder_pipeline(self):
+        for directory_name in ("Rapports ventes.rep", "Rapports résumé.REP"):
+            with self.subTest(directory=directory_name):
+                sources = self.root / directory_name
+                sources.mkdir()
+                (sources / "Sales.wid").write_text(
+                    '<document><Report name="Overview"/></document>', encoding="utf-8",
+                )
+                before = self._snapshot()
+                with patch("migrate._run_batch_migration", return_value=EXIT_SUCCESS) as batch, \
+                     patch("bo_export.desktop_intelligence_extractor.inspect_desktop_intelligence") as inspect, \
+                     redirect_stdout(StringIO()):
+                    self.assertEqual(main([str(sources), "--dry-run"]), EXIT_SUCCESS)
+                batch.assert_called_once()
+                self.assertEqual(batch.call_args.args[0].batch, str(sources))
+                self.assertTrue(batch.call_args.args[0].dry_run)
+                self.assertTrue(batch.call_args.args[0]._positional_directory)
+                inspect.assert_not_called()
+
+                result = self._run_cli(str(sources), "--dry-run")
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(self._snapshot(), before)
+
+    def test_rdl_inference_and_explicit_legacy_command_generate_new_files(self):
+        for mode in ("inferred-sibling", "inferred-explicit", "legacy-explicit"):
+            with self.subTest(mode=mode):
+                mapping = self._write_mapping(self.root / mode)
+                mapping_before = mapping.read_bytes()
+                sibling = mapping.with_suffix(".rdl")
+                explicit = mapping.parent / "rapport choisi.rdl"
+                mapping_arg = (
+                    str(mapping.relative_to(self.root))
+                    if mode == "inferred-sibling" else str(mapping)
+                )
+                arguments = ["--rdl-mapping", mapping_arg]
+                if mode == "inferred-explicit":
+                    arguments = [f"--rdl-mapping={mapping_arg}"]
+                if mode != "inferred-sibling":
+                    arguments += ["--rdl-output", str(explicit)]
+                if mode == "legacy-explicit":
+                    arguments = ["--output-format", "rdl", *arguments]
+                output = sibling if mode == "inferred-sibling" else explicit
+
+                result = self._run_cli(*arguments)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertTrue(output.is_file())
+                namespace = {
+                    "r": "http://schemas.microsoft.com/sqlserver/reporting/2016/01/reportdefinition",
+                }
+                report = ET.parse(output).getroot()
+                self.assertEqual(report.tag, f"{{{namespace['r']}}}Report")
+                self.assertEqual(
+                    report.findtext(".//r:CommandText", namespaces=namespace),
+                    "EVALUATE Sales",
+                )
+                self.assertEqual(mapping.read_bytes(), mapping_before)
+                self.assertEqual(set(mapping.parent.iterdir()), {mapping, output})
+
+                generated = output.read_bytes()
+                retry = self._run_cli(*arguments)
+                self.assertNotEqual(retry.returncode, 0, retry.stdout + retry.stderr)
+                self.assertEqual(output.read_bytes(), generated)
+                self.assertEqual(mapping.read_bytes(), mapping_before)
+                self.assertEqual(set(mapping.parent.iterdir()), {mapping, output})
+
+    def test_inferred_rdl_does_not_replace_an_existing_destination(self):
+        mapping = self._write_mapping(self.root / "protected")
+        output = mapping.with_suffix(".rdl")
+        sentinel = b"existing report must not be overwritten\n"
+        output.write_bytes(sentinel)
+        before = self._snapshot()
+
+        result = self._run_cli("--rdl-mapping", str(mapping))
+
+        self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(output.read_bytes(), sentinel)
+        self.assertEqual(self._snapshot(), before)
+
+    def test_inferred_rdl_uses_utf8_streams_without_encoding_overrides(self):
+        mapping = self._write_mapping(self.root / "encodage français")
+        output = mapping.with_suffix(".rdl")
+        environment = os.environ.copy()
+        environment.pop("PYTHONIOENCODING", None)
+        environment.pop("PYTHONUTF8", None)
+
+        result = subprocess.run(
+            [sys.executable, str(self.script), "--rdl-mapping", str(mapping)],
+            cwd=self.root, env=environment, capture_output=True, timeout=30,
+        )
+
+        stdout = result.stdout.decode("utf-8", errors="strict")
+        stderr = result.stderr.decode("utf-8", errors="strict")
+        self.assertEqual(result.returncode, 0, stderr)
+        self.assertIn("not_run", stdout)
+        self.assertIn(str(output), stderr)
+        self.assertTrue(output.is_file())
+
+    def test_argparse_errors_use_utf8_without_encoding_overrides(self):
+        mapping = self._write_mapping(self.root / "arguments français")
+        environment = os.environ.copy()
+        environment.pop("PYTHONIOENCODING", None)
+        environment.pop("PYTHONUTF8", None)
+        before = self._snapshot()
+        cases = (
+            (["--output-format", "périmé"], "périmé"),
+            (["--rdl-mapping", str(mapping), "--option-inconnue=é"], "--option-inconnue=é"),
+        )
+        for arguments, invalid in cases:
+            with self.subTest(arguments=arguments):
+                result = subprocess.run(
+                    [sys.executable, str(self.script), *arguments],
+                    cwd=self.root, env=environment, capture_output=True, timeout=30,
+                )
+                stdout = result.stdout.decode("utf-8", errors="strict")
+                stderr = result.stderr.decode("utf-8", errors="strict")
+                self.assertEqual(result.returncode, 2, stderr)
+                self.assertEqual(stdout, "")
+                self.assertIn(invalid, stderr)
+                self.assertEqual(self._snapshot(), before)
+
+    def test_only_one_concurrent_inferred_rdl_writer_succeeds(self):
+        mapping = self._write_mapping(self.root / "concurrent")
+        mapping_before = mapping.read_bytes()
+        output = mapping.with_suffix(".rdl")
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            results = list(pool.map(
+                lambda _: self._run_cli("--rdl-mapping", str(mapping), timeout=120), range(2),
+            ))
+
+        self.assertEqual(sum(result.returncode == 0 for result in results), 1)
+        namespace = {"r": "http://schemas.microsoft.com/sqlserver/reporting/2016/01/reportdefinition"}
+        self.assertEqual(
+            ET.parse(output).findtext(".//r:CommandText", namespaces=namespace),
+            "EVALUATE Sales",
+        )
+        self.assertEqual(mapping.read_bytes(), mapping_before)
+        self.assertEqual(set(mapping.parent.iterdir()), {mapping, output})
+
+    def test_inferred_rdl_does_not_follow_a_dangling_output_symlink(self):
+        mapping = self._write_mapping(self.root / "symlink")
+        output = mapping.with_suffix(".rdl")
+        victim = mapping.parent / "not-yet-created.rdl"
+        try:
+            output.symlink_to(victim.name)
+        except (NotImplementedError, OSError) as error:
+            self.skipTest(f"Creating a file symlink is unavailable: {error}")
+        self.assertTrue(output.is_symlink())
+        self.assertFalse(output.exists())
+
+        result = self._run_cli("--rdl-mapping", str(mapping))
+
+        self.assertNotEqual(result.returncode, 0, result.stderr)
+        self.assertTrue(output.is_symlink())
+        self.assertFalse(victim.exists())
+
+    def test_inferred_rdl_with_dangling_power_query_symlink_creates_neither_target(self):
+        directory = self.root / "RDL et requête"
+        directory.mkdir()
+        mapping = directory / "déclaration.sql.json"
+        sql = "SELECT Region FROM Sales"
+        mapping.write_text(json.dumps({
+            "title": "Ventes", "source_kind": "webi", "server": "sql.example.test",
+            "database": "Sales", "sql": sql, "columns": ["Region"],
+        }, ensure_ascii=False), encoding="utf-8")
+        original_mapping = mapping.read_bytes()
+        report = mapping.with_suffix(".rdl")
+        query = directory / "Requête Power Query.m"
+        victim = directory / "cible manquante.m"
+        arguments = [
+            "--rdl-mapping", str(mapping), "--rdl-power-query-output", str(query),
+        ]
+
+        control = self._run_cli(*arguments)
+        self.assertEqual(control.returncode, 0, control.stderr)
+        namespace = {"r": "http://schemas.microsoft.com/sqlserver/reporting/2016/01/reportdefinition"}
+        self.assertEqual(ET.parse(report).findtext(".//r:CommandText", namespaces=namespace), sql)
+        self.assertIn(sql, query.read_text(encoding="utf-8"))
+        report.unlink()
+        query.unlink()
+        try:
+            query.symlink_to(victim.name)
+        except (NotImplementedError, OSError) as error:
+            self.skipTest(f"Creating a file symlink is unavailable: {error}")
+        self.assertTrue(query.is_symlink())
+        self.assertFalse(query.exists())
+
+        result = self._run_cli(*arguments)
+
+        self.assertNotEqual(result.returncode, 0, result.stderr)
+        self.assertFalse(report.exists())
+        self.assertFalse(victim.exists())
+        self.assertTrue(query.is_symlink())
+        self.assertEqual(mapping.read_bytes(), original_mapping)
+        self.assertEqual(set(directory.iterdir()), {mapping, query})
+
+    def test_explicit_pbip_and_incomplete_legacy_rdl_are_rejected(self):
+        mapping = self._write_mapping(self.root / "conflicts")
+        explicit = mapping.parent / "explicit.rdl"
+        before = self._snapshot()
+        cases = (
+            ["--output-format", "pbip", "--rdl-mapping", str(mapping)],
+            ["--rdl-mapping", str(mapping), "--rdl-output", str(explicit),
+             "--output-format=pbip"],
+            ["--output-format", "rdl", "--rdl-mapping", str(mapping)],
+        )
+        for arguments in cases:
+            with self.subTest(arguments=arguments):
+                result = self._run_cli(*arguments)
+                self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertEqual(self._snapshot(), before)
+
+    def test_invalid_or_extra_rdl_arguments_do_not_generate(self):
+        mapping = self._write_mapping(self.root / "invalid")
+        malformed = mapping.parent / "malformed.json"
+        malformed.write_text("{ invalid JSON", encoding="utf-8")
+        before = self._snapshot()
+        base = ["--rdl-mapping", str(mapping)]
+        cases = (
+            [*base, "extra.wid"],
+            [*base, "--unknown-option"],
+            [*base, "--assess"],
+            [*base, "--output-dir", str(self.root / "not-created")],
+            [*base, "--rdl-output", str(mapping.parent / "not-an-rdl.txt")],
+            [*base, "--rdl-output", ""],
+            [*base, "--rdl-sql-name", "candidate"],
+            [*base, "--rdl-bo-source", str(self.root / "source.rep")],
+            [*base, "--rdl-accept-unverified-rep-sql"],
+            [*base, "--output-format", "not-a-format"],
+            ["--rdl-mapping", ""],
+            ["--rdl-mapping", str(malformed)],
+        )
+        for arguments in cases:
+            with self.subTest(arguments=arguments):
+                result = self._run_cli(*arguments)
+                self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertEqual(self._snapshot(), before)
 
 
 if __name__ == "__main__":

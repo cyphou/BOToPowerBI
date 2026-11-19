@@ -14,26 +14,47 @@ connection. BO variables remain unresolved.
 The reader opens selected metadata streams, not data-cache or macro streams,
 but hashes the entire source as raw bytes. It executes no macros and performs
 no refresh. It requires a new JSON file, which may contain sensitive SQL and
-metadata and must stay local and protected. It does not generate PBIP or
-verify report-to-provider links, and
+metadata and must stay local and protected. The inventory command does not
+generate PBIP or verify report-to-provider links, and
 its JSON object is not the VBA handoff's selector list. The separate
 inspection CLI can optionally produce JSON and/or HTML pre-migration reports.
-They show candidate counts, unverified SQL selectors, design/prompt review
-actions and checks `not_run` by that inspection. They do not score fidelity or
-establish that a zero count means absence. The reports omit SQL text, literal
-prompt/variable arguments and formula expressions, but source and other names
-remain potentially sensitive and sanitization is not guaranteed. The raw
-inventory is still written separately. All outputs must be new; failed writes
-attempt to remove files created by the command and report cleanup failures.
+They show candidate counts, unverified SQL selectors, stream-local references
+for detected formula candidates, design/prompt review actions and checks
+`not_run` by that inspection. Formula references locate candidates only within
+the inspected stream; they do not establish source identity, completeness or
+formula semantics. The reports do not score fidelity or establish that a zero
+count means absence. They omit SQL text, literal prompt/variable arguments and
+formula expressions, but source and other names remain potentially sensitive
+and sanitization is not guaranteed. The raw inventory is still written
+separately. All outputs must be new; failed writes attempt to remove files
+created by the command and report cleanup failures.
+
+The main CLI's `report.rep --assess` prints the same partial report as JSON
+without writing an inventory. Optional `-o DIR` requests exclusive creation of
+`<stem>_deski_assessment.json`; `--dry-run` writes nothing and non-applicable
+flags are rejected. An empty `-o` value is rejected. Existing output files and
+final-path symlinks are refused; use a trusted directory. The report still
+contains potentially sensitive metadata and does not establish completeness
+or equivalence.
+
+A user-reported local REP smoke returned `review_required` with runtime checks
+`not_run`; the sample's provenance was not independently verified here.
+
 The separate
 `migrate_paginated.py` can now select one SQL candidate using its possible
 provider ID or `unresolved` plus stream offset, but only when
 `--accept-unverified-rep-sql` is explicitly supplied. The main CLI now routes
 the same single-source operation using `--rdl-accept-unverified-rep-sql`;
-the RDL-only folder workflow also accepts per-source REP mappings with an exact
-SQL selector and `accept_unverified_rep_sql: true`. It records the candidate as
-unverified in the batch manifest; this does not enable REP PBIP/Fabric
-migration or the combined PBIP/Fabric sidecar path. It generates an RDL from a
+folder workflows also accept per-source REP mappings with an exact SQL selector
+and `accept_unverified_rep_sql: true`. They record the candidate as unverified
+in the batch manifest. In combined PBIP and RDL mode, a per-source `pbip`
+declaration can additionally generate a basic PBIP table draft from the same
+selected SQL candidate. It requires declared `connection_name`, `query_name`,
+`schema` and typed `columns` matching the RDL field list; it does not recover
+or verify these fields. Recognized BO SQL function markers block the PBIP
+target. Without that declaration, the PBIP target fails explicitly while the
+paginated target can still succeed. This does not enable automatic REP-to-PBIP
+conversion or REP-to-Fabric generation. The paginated target generates an RDL from a
 manually declared SQL Server connection and field list. The mapping can also
 declare page dimensions/margins, column widths, font/colors, and SQL
 report-parameter prompt labels including multi-value selection after the BO
@@ -41,11 +62,21 @@ filter has been reviewed and rewritten as SQL Server parameter syntax. The
 generator applies a styled title/table and alternating detail rows. None of
 these settings are recovered from REP: coordinates, groups, sorts, page breaks,
 filter-value lists, dependent prompts, and original prompt-dialog behavior
-remain unsupported. The SQL, association and mapping are not validated, and
-the original report layout is not automatically restored. SQL, bindings,
-completeness and equivalence still require independent review.
+remain unsupported. PBIP is one generated table page and semantic table from
+the declared SQL/columns, not the source layout or full BO semantics. The SQL,
+association and mappings are not validated, and the original report layout is
+not automatically restored. SQL, bindings, completeness and equivalence still
+require independent review.
 Desktop/Report Builder rendering, query execution, refresh, deployment, Fabric
 execution and source equivalence remain `not_run`.
+
+The generated REP PBIP is checked with the existing local static
+`ArtifactValidator`. Structural errors fail only the PBIP target and appear in
+the manifest; warnings do not block it, and the independent paginated target
+can still succeed. This validator does not execute SQL, validate declared
+columns against query results, or prove Desktop opening/rendering or
+source/target equivalence. A failed generated PBIP may remain in the output
+for diagnosis.
 
 The generated empty RDL skeletons use a consistent title and review-note
 style, but it is a target-side placeholder, not a reconstruction of DeskI
@@ -136,6 +167,12 @@ The skipped test covers the non-Windows OLE error path; the Windows Structured
 Storage OLE test passed with synthetic input. These local tests do not establish
 sample provenance, source type, Desktop execution or source/target equivalence.
 
+After the opt-in REP PBIP/RDL batch draft update, the focused DeskI selection
+reported **24 passed, 1 skipped, 7 subtests passed**. The full suite reported
+**755 passed, 1 skipped, 791 subtests passed**. These are local code tests only; they do not
+validate PBIP opening/rendering in Desktop, RDL rendering in Report Builder,
+query execution, refresh, Fabric execution or source/target equivalence.
+
 ## Real-sample findings and CMS metadata — 2026-11-18
 
 Four public LCM BIAR exports (3 UNX, 2 UNV, 39 Crystal reports, 1 WebI) and
@@ -153,8 +190,8 @@ skeleton per document. In a one-time local check (no schema-backed test is in
 the repository) the skeletons validated against the RDL 2016/01 schema,
 declare parameters as `String` (types are not in the metadata) and contain no
 data source, query or layout. A saved CMS snapshot can additionally feed
-`extract_webi_snapshot()` for a semantic-model-only PBIP. Data-bound reports,
-columns and layouts still require an authorized CMS or verified exports;
+`extract_webi_snapshot()` for a model with an empty report shell. Data-bound
+reports, columns and layouts still require an authorized CMS or verified exports;
 Report Builder rendering, Desktop opening and refresh remain `not_run`.
 
 ## Native WebI prompt evidence — 2026-11-17

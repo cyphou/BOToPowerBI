@@ -7,9 +7,14 @@
 ## Current Evidence - 2026-11-18
 
 - Full local suite on Windows: `python -m pytest tests --tb=short -q -o addopts=''`:
-        **736 passed, 1 skipped, 770 subtests passed** after the DeskI report
-        update. The earlier RDL layout/prompt run had 728 passed, 1 skipped
-        and 767 subtests passed. Coverage/hosted CI was not measured.
+        **755 passed, 1 skipped, 791 subtests passed** after the generated REP
+        PBIP static quality check. The preceding DeskI report update had 736
+        passed, 1 skipped and 770 subtests; the earlier RDL layout/prompt run
+        had 728 passed, 1 skipped and 767 subtests. Coverage/hosted CI was not
+        measured.
+- Focused `tests/test_desktop_intelligence_extractor.py`: **24 passed,
+        1 skipped, 7 subtests passed**. These local tests do not establish SQL
+        execution, Desktop rendering, refresh or equivalence.
 - DeskI, RDL, paginated and agent-contract focused tests:
         **68 passed, 1 skipped, 414 subtests passed**. The earlier three-file
         RDL-focused run had 53 passed, 1 skipped and 115 subtests passed.
@@ -37,8 +42,8 @@
         test is in the repository). They contain no data source or layout.
 - `extract_webi_snapshot()` turns a saved CMS snapshot into extraction input
         (verbatim single-statement SQL plus a declared SQL Server connection); on the
-        synthetic fixture it yields a semantic-model-only PBIP. Not tested against a
-        live CMS. The remaining blocker for real parity is an authorized CMS or
+        synthetic fixture it yields a model with an empty report shell. Not tested
+        against a live CMS. The remaining blocker for real parity is an authorized CMS or
         verified exports (columns, connections, report-provider links, layouts).
 
 ## Previous Evidence - 2026-11-17
@@ -427,7 +432,8 @@ equivalence remain `not_run` for this update.
 
 - **Outcome / delivered scope:** the standalone REP inspection can optionally
   write deterministic JSON and HTML reports with partial candidates, unverified
-  selectors, review actions and checks scoped to the current inspection.
+  SQL selectors, stream-local references for detected formula candidates,
+  review actions and checks scoped to the current inspection.
 - **Evidence:** synthetic tests cover candidates, missing SQL/markers, escaped
   metadata, sensitive-content omission, unresolved selectors, overwrite and
   write-cleanup failures. Eight locally retained REP examples produced reports;
@@ -437,11 +443,36 @@ equivalence remain `not_run` for this update.
 - **Dependencies:** a locally readable REP and new output paths. The original
   inventory may contain SQL; all outputs may contain sensitive metadata.
 - **Validation / exit:** inspection reports do not generate or validate a
-  target. Zero candidates do not prove absence; source authenticity, prompt
-  behavior, layout, data, runtime security and equivalence remain unverified.
+  target. Formula references do not expose expressions or establish source
+  identity, coverage or semantics. Zero candidates do not prove absence; source
+  authenticity, prompt behavior, layout, data, runtime security and equivalence
+  remain unverified.
 - **Risks / non-goals:** no fidelity score or automatic layout/prompt recovery;
   RDL/PBIP rendering, query execution, refresh, deployment and Fabric execution
   remain `not_run` by this inspection.
+
+### Local increment — Static quality check for REP PBIP draft (2026-11-18; bounded)
+
+- **Outcome / delivered scope:** run the existing static `ArtifactValidator`
+  after generating the REP PBIP draft. Validator errors fail only the PBIP
+  target and appear in the manifest; warnings are non-blocking. The independent
+  RDL target is unaffected, and a failed generated PBIP may remain for diagnosis.
+- **Evidence:** focused `tests/test_desktop_intelligence_extractor.py`:
+  **24 passed, 1 skipped, 7 subtests**. Full local suite:
+  **755 passed, 1 skipped, 791 subtests**.
+- **First change / cohesive scope:** validate the generated PBIP draft and
+  report errors at the PBIP target boundary without coupling the independent
+  RDL target.
+- **Owners:** `Visual` owns PBIP generation; `Assessor` owns static validation;
+  `Orchestrator` owns target/manifest integration; `Tester` owns regression
+  coverage.
+- **Dependencies:** the generated REP PBIP draft, existing `ArtifactValidator`,
+  and migration manifest. No remote service.
+- **Validation / exit:** the stated local tests pass. Static validation does
+  not execute SQL or establish Desktop opening/rendering, refresh, or
+  source/target equivalence; those checks remain `not_run`.
+- **Risks / non-goals:** this check is not readiness, full migration, or parity
+  evidence. It does not validate query results or establish runtime behavior.
 
 ## Separate roadmap: SAP BW/BW/4HANA to Fabric and BW retirement
 

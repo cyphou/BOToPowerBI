@@ -1,6 +1,6 @@
 # Advanced migration reference
 
-Detailed procedures and historical local evidence. Start with the concise [README](../README.md); commands and options remain unchanged.
+Detailed procedures and historical local evidence. Start with the concise [README](../README.md).
 
 ## Additional BO command paths
 
@@ -68,9 +68,12 @@ applies one explicitly declared SQL Server connection
 them; the snapshot does not prove that connection is the one each provider
 used. Result columns, layout and report-to-provider links are not inferred, so
 report tabs produce no worksheet, and `adapt_bo_to_converted_objects` plus
-`PowerBIImporter` generate a semantic-model-only PBIP with the SQL partition
-(zero columns; the quality report flags the missing Report folder). Refresh, SQL
-execution and source equivalence remain `not_run`.
+`PowerBIImporter` generate a model with the SQL partition (zero columns) and an
+empty report shell. No source visuals are reconstructed. Desktop opening,
+refresh, SQL execution and source equivalence remain `not_run`.
+Direct Python callers need a UTF-8-capable stdout: unlike `migrate.py`, the
+generator does not reconfigure the stream, and status messages can raise
+`UnicodeEncodeError` on legacy encodings.
 
 To inspect a data-provider plan separately:
 
@@ -562,8 +565,20 @@ remain `not_run`. See the [BW design](SAP_BW_TO_FABRIC_DESIGN.md#bw-5-offline-be
 `migrate.py --output-format rdl` and the separate `migrate_paginated.py` create
 a basic RDL 2016 table from a local, explicit mapping. SQL can also be selected
 from supported local BO metadata; the resulting table is not an automatic BO
-report conversion. PBIP remains the default. The DAX-to-semantic-model mapping
-remains supported:
+report conversion. PBIP remains the default.
+
+For a reviewed mapping that contains its SQL or DAX query:
+
+```powershell
+python migrate.py --rdl-mapping mapping.json
+```
+
+Only when `--output-format` is omitted does the mapping option infer RDL and
+default to a sibling `mapping.rdl`. `--rdl-output` may select another new file.
+If `--output-format rdl` is explicit, `--rdl-output` is required. Existing
+output files and final-path symlinks are rejected; use a trusted directory.
+The single-mapping mode does not accept a positional BO file or unrelated
+migration options. The DAX-to-semantic-model mapping remains supported:
 
 #### DAX query against a Power BI semantic model
 
@@ -585,6 +600,8 @@ python migrate.py --output-format rdl --rdl-mapping mapping.json --rdl-output re
 # Equivalent standalone entry point:
 python migrate_paginated.py --mapping mapping.json --output report.rdl
 ```
+
+These commands are alternatives; choose a different new output file if running both.
 
 This DAX contract uses exactly `title`, `source_kind`, `workspace`,
 `semantic_model`, `dax` and `columns`. Its declared source kind is one of
@@ -729,6 +746,28 @@ and server names.
 
 #### Desktop Intelligence: experimental local REP inventory (in progress)
 
+The main CLI can print the existing partial pre-migration report as JSON,
+without writing an inventory:
+
+```powershell
+python migrate.py "report.rep" --assess
+python migrate.py "report.rep" --assess -o "assessment"
+python migrate.py "report.rep" --assess --dry-run -o "assessment"
+```
+
+Without `-o`, no report file is written. With a nonempty `-o DIR`, the CLI
+requests exclusive creation of `DIR/<stem>_deski_assessment.json`; an existing
+file or final-path symlink is rejected. An empty `-o` value is rejected.
+`--dry-run` writes nothing even when `-o` is supplied. This REP assessment
+accepts only `--assess`, `--dry-run`, `-o`/`--output-dir` and
+`--verbose`/`-v` as assessment options; non-applicable flags are rejected.
+Use a trusted output directory.
+
+The report omits SQL text, formula expressions and literal prompt/variable
+arguments, but names and other metadata can be sensitive. It is partial static
+evidence, not a fidelity score or verified conversion; its runtime checks remain
+`not_run`.
+
 A separate experimental `.rep` inventory is under implementation. It inspects
 locally and returns partial candidates, not a verified migration result. Check
 its options with `python migrate_deski_inspect.py --help`:
@@ -829,10 +868,54 @@ python migrate.py --output-format rdl `
 An optional `--rdl-power-query-output "query.m"` writes the same selected
 SQL as an M query when the mapping has no report parameters. Both outputs
 must be new. This option is not a PBIP and does not validate the source SQL.
-The REP acknowledgement is only accepted for a single `.rep` source in RDL
-mode, not in batch or other modes.
+`--rdl-accept-unverified-rep-sql` is the single-source CLI acknowledgement and
+is not accepted in folder mode. In RDL-only or combined PBIP/RDL folder mode,
+declare `"accept_unverified_rep_sql": true` for each `.rep` entry that selects
+an SQL candidate.
 
 #### Desktop Intelligence XI 3.1: experimental SQL handoff
+
+##### Prepare the authorized client
+
+1. Use an authorized interactive Windows workstation with the licensed
+   Desktop Intelligence XI 3.1 client, its registered COM SDK and VBA support.
+   The offline REP inspector does not require the Desktop client.
+2. With the same Windows account intended to run the client, check registration:
+
+   ```powershell
+   python migrate_deski_inspect.py --check-sdk
+   ```
+
+   This only reads `BusinessObjects.Application`, its CLSID and COM server
+   registration in the 32-bit and 64-bit Windows registry views. `registered`
+   means those registry entries exist and contain a server value;
+   `incomplete` means the chain is missing or malformed, and `absent` means
+   the ProgID is absent. Exit `0` means at least one view is registered,
+   `1` means neither is registered, and `2` means an unsupported platform,
+   registry access error or invalid CLI usage. Neither COM activation, binary
+   architecture, server existence, licensing nor client compatibility is
+   checked. Do not repair registration automatically; ask the SAP administrator.
+3. If repository access is required, obtain the CMS address, supported
+   authentication method and read permissions through your administrator.
+   Sign in interactively through Desktop Intelligence, without putting
+   credentials in commands, source files, JSON or chat. Offline/standalone
+   availability depends on the installation and document dependencies.
+   This procedure does not configure or test a CMS connection.
+4. Open an authorized REP **copy** in the client, without refreshing. Confirm
+   the expected document is active. Review the macro below and run it only if
+   your security policy permits. SAP documents the Visual Basic Editor under
+   **Tools > Macro** or the Visual Basic toolbar; if it is unavailable, ask
+   the administrator about the VBA components and policy. In the editor,
+   import the `.bas` module, then run `ExportProviderSqlForMigration` from
+   **Tools > Macro > Macros** and choose a new protected local JSON path.
+   Importing VBA can modify the document's VBA project: do not save over the
+   original. These macro steps remain unverified in a real client; the registry
+   check itself never opens or changes a document, launches COM, authenticates
+   or runs VBA.
+5. Review the capture's provider status and SQL, then independently declare
+   connection, columns and any target layout/parameters using the RDL mapping.
+   Inspect and protect both SQL and metadata. No automatic extraction of
+   layout, object-to-cell bindings or BO prompt semantics is provided.
 
 The optional [Desktop Intelligence VBA macro](../examples/desktop_intelligence_export.bas)
 is intended to read provider names and SQL from the **active document** using
@@ -963,14 +1046,17 @@ heuristic candidate, not an authenticated or necessarily complete query. Without
 linked to that query. Optional boolean `power_query` writes `query.m` alongside
 the RDL for SQL mappings only. It defaults to false.
 
-For RDL-only folder runs, `.rep` files can also select a SQL candidate. Their
-per-source entry must include an exact `sql_name` and
+In folder runs, `.rep` files can also select a SQL candidate. The
+per-source entry for a candidate must include an exact `sql_name` and
 `"accept_unverified_rep_sql": true`; an omitted/false acknowledgement fails
 that target. The manifest retains a warning that the REP SQL remains
-unverified. This does not enable REP PBIP/Fabric migration or combined
-PBIP/Fabric sidecar mode.
+unverified. In combined **PBIP** and paginated mode, the REP entry may also
+include a `pbip` object to generate a basic Power BI table-report draft from
+that exact SQL candidate. This is not supported with `--output-format fabric`.
+Without the `pbip` object, the PBIP target fails explicitly while the RDL
+target can still succeed.
 
-For example, the REP entry in `batch.json` is explicit per source:
+For an RDL-only `batch.json`, use an explicit per-source entry:
 
 ```json
 {
@@ -985,8 +1071,57 @@ For example, the REP entry in `batch.json` is explicit per source:
 }
 ```
 
+For a combined PBIP/RDL draft, add a `pbip` declaration:
+
+```json
+{
+  "sources": {
+    "Sales.rep": {
+      "mapping": "sales.json",
+      "sql_name": "#DP#1@1419",
+      "accept_unverified_rep_sql": true,
+      "power_query": true,
+      "pbip": {
+        "connection_name": "Sales SQL",
+        "query_name": "Sales Query",
+        "schema": "dbo",
+        "columns": [
+          {"name": "Customer", "data_type": "string", "role": "dimension"},
+          {"name": "Revenue", "data_type": "decimal", "role": "measure"}
+        ]
+      }
+    }
+  }
+}
+```
+
 Replace the selector with the exact ID from that REP's local inventory; it is
 not a universal provider ID or proof of its association with the report.
+The RDL mapping must declare the same result fields in the same order as
+`pbip.columns`. The PBIP object has exactly `connection_name`, `query_name`,
+`schema`, and a non-empty `columns` list. Each column has exactly `name`,
+`data_type` and `role`; supported data types are `string`, `integer`, `float`,
+`decimal`, `boolean`, `date` and `datetime`. Roles are `dimension` or
+`measure`; measures must use a numeric type. The SQL Server `server` and
+`database` come from the RDL mapping. The explicit `pbip` declaration is a
+user-supplied result schema and binding, not information recovered from the
+REP.
+
+The PBIP draft contains a semantic table and one table visual under
+`<output>\<relative source filename>\PowerBI\<source stem>\`; the paginated
+outputs remain under `PaginatedReport`. It uses the selected candidate SQL
+unchanged. If the inventory detects BO SQL function markers such as
+`@variable` or `@prompt`, the PBIP target fails and requires reviewed SQL
+rewriting; the RDL target outcome is separate. After generation, the PBIP is
+checked by the existing local static `ArtifactValidator`. Validation errors
+fail only the Power BI target and are recorded in the manifest; warnings do not
+block it. A failed PBIP may remain in the output for diagnosis. The paginated
+result remains independent, but the batch returns nonzero when either target
+fails. This bridge does not migrate REP layout, prompt behavior, formula
+semantics, groups, sorts or provider/report links. No query is executed, and
+the static check does not prove Desktop opening/rendering. A generated PBIP/RDL
+pair is not proof of source completeness, refreshability, Report Builder
+rendering, security or source/target equivalence.
 
 Each RDL is written to `<output>\<relative source filename>\report.rdl`.
 Missing mappings, invalid mappings, and BIAR/LCMBIAR archives fail per source
@@ -1004,14 +1139,20 @@ folder run, omit `--output-format rdl` and provide the same mapping config:
 python migrate.py sources --rdl-batch-config rdl-config\batch.json --output-dir sorties
 ```
 
-The normal PBIP output remains under each source's output folder; its RDL and
-optional `query.m` are written under
+The normal PBIP output remains under each source's output folder. For a REP
+with the explicit `pbip` declaration above, the draft PBIP is under its
+`PowerBI` child folder; the RDL and optional `query.m` are written under
 `<output>\<relative source filename>\PaginatedReport\`. The batch manifest
 records separate `powerbi` and `paginated` results for each source. A source
 without an RDL mapping (or an archive that cannot be split into reports) is
 reported as a paginated-target failure even if its PBIP migration succeeds.
+REP entries without a `pbip` declaration report a failed Power BI target even
+when their RDL draft succeeds; the overall batch returns nonzero. A recognized
+BO SQL function marker also blocks only the REP PBIP target.
 Use a mapping only when the query, connection and output fields have been
 reviewed; the two generated targets are not proof of semantic or visual parity.
+The REP PBIP static check covers generated artifact structure only, not SQL,
+bindings or source equivalence.
 
 #### Reuse previously extracted WebI, Crystal or universe SQL
 
@@ -1258,7 +1399,7 @@ Generates relationships, display folders, number formats, parameters, and suppor
 <td>
 
 ### 🚀 Deployment Hooks
-Single-file deployment and multi-tenant hooks are available, with optional cloud dependencies. Shared CLI deployment is not wired. Authentication, binding, publication, and refresh require separately authorized environment checks.
+Separate deployment modules and multi-tenant hooks exist, with optional cloud dependencies. Standard CLI deployment flags are not wired; the multi-tenant path is unverified. Authentication, binding, publication, and refresh require separately authorized environment checks.
 
 </td>
 </tr>
@@ -1266,7 +1407,7 @@ Single-file deployment and multi-tenant hooks are available, with optional cloud
 <td>
 
 ### 🏭 Fabric-Native Output
-Generate **Lakehouse + Dataflow Gen2 + PySpark Notebook + DirectLake Semantic Model + Data Pipeline** with `--output-format fabric`. Full Fabric project from a single BO report.
+Generate local **Lakehouse + Dataflow Gen2 + PySpark Notebook + DirectLake Semantic Model + Data Pipeline** artifacts with `--output-format fabric`. Folder, archive and shared-model workflows do not establish deployability.
 
 </td>
 <td>
@@ -1307,6 +1448,10 @@ Assessment engine (multi-category readiness scoring) • Schedule migration (BO 
 
 ## 🔧 How It Works
 
+The stages below are not one server-to-target command: `--server` only
+downloads and extracts. Generate targets separately from reviewed local inputs;
+deployment requires separate authorization.
+
 ```mermaid
 flowchart LR
     A["📝 .wid/.rpt\nBO Report"] --> B["🔍 EXTRACT\n15 JSON files"]
@@ -1332,7 +1477,7 @@ flowchart LR
 
 **Step 1 — Extract:** Parses BO artifacts into 15 structured JSON files (reports, queries, formulas, etc.)
 
-**Step 2 — Generate:** Converts JSON into a complete `.pbip` project with PBIR v4.0 report and TMDL semantic model
+**Step 2 — Generate:** Creates a local `.pbip` project with PBIR v4.0 report and TMDL semantic model; extracted metadata may be incomplete
 
 **Step 3 — Validate and deploy** *(separate authorization):* Review quality findings, bind the target environment, and verify service-side publication and refresh. Server extraction and shared generation do not automatically execute this step.
 
@@ -1342,7 +1487,7 @@ For target-selection diagrams and migration steps for report-level models, share
 semantic models, and Lakehouse architectures, see the
 [BO architecture and migration guide](BO_ARCHITECTURES_MIGRATION.md).
 
-Use `--output-format fabric` to generate a **full Microsoft Fabric project**:
+Use `--output-format fabric` to generate **local Fabric artifacts**:
 
 ```mermaid
 flowchart LR
@@ -1623,7 +1768,8 @@ BOToPowerBI/
 
 | Flag | Description |
 |------|-------------|
-| `--help` / `-h` | Show CLI help |
+| `--help` / `-h` | Show common workflows |
+| `--help-all` | Show all CLI options |
 | `input` | BO directory or BIAR/LCMBIAR archive; an individual BO file is accepted only for assessment/dry-run |
 | `--biar FILE` | Path to BIAR/LCMBIAR archive for batch migration |
 | `--batch DIR` | Directory containing BO artifacts for batch migration |
@@ -1634,17 +1780,17 @@ BOToPowerBI/
 | `--auth TYPE` | Authentication type: `enterprise`, `ldap`, `windows`, `sap` |
 | `--token TOKEN` | Pre-authenticated BO session token; command-line arguments can expose secrets |
 | `--output-dir DIR` / `-o DIR` | Custom output directory |
-| `--output-format FORMAT` | `pbip` (default), `fabric`, or `rdl` from an explicit mapping |
-| `--rdl-mapping JSON` / `--rdl-output FILE` | RDL mode only: declared mapping and new `.rdl` output |
+| `--output-format FORMAT` | `pbip` (default), `fabric`, or `rdl`; a mapping infers RDL only when this flag is omitted |
+| `--rdl-mapping JSON` / `--rdl-output FILE` | Declared mapping and new `.rdl` output; when format is omitted, the output defaults to a sibling `.rdl`, but explicit `rdl` requires `--rdl-output` |
 | `--rdl-power-query-output FILE` | RDL SQL mode: optional new `.m` query for manual Desktop/Report Server reconstruction |
 | `--rdl-extracted-sql JSON` / `--rdl-sql-name NAME` | Optional pair: select one named SQL entry from a prior extraction |
 | `--rdl-bo-source FILE` / `--rdl-sql-name NAME` | Alternative: select one named SQL entry from a local BO file; with `--rdl-webi-plan`, the WID only checks provider ID |
 | `--rdl-accept-unverified-rep-sql` | Single-source RDL only: acknowledge selection of an unverified `.rep` SQL candidate |
 | `--rdl-webi-plan JSON` | Use a reviewed, saved single-statement WebI API plan with an explicit WebI SQL Server mapping |
-| `--rdl-batch-config JSON` | Folder mode: add paginated RDL from per-source mappings; combines with PBIP/Fabric by default |
+| `--rdl-batch-config JSON` | Folder mode: add paginated RDL from per-source mappings; combines with PBIP by default or Fabric when selected |
 | `--shared-model FILE [FILE ...]` | Build shared semantic model from multiple reports |
 | `--model-name NAME` | Name for shared semantic model |
-| `--assess` | Run local migration readiness assessment; rejected with `--server` |
+| `--assess` | Run local readiness assessment or print a partial REP report; rejected with `--server` |
 | `--global-assess` | Rejected with `--server`; portfolio-assessment dispatch is not connected |
 | `--assess-merge` | Inspect shared-model compatibility without generation |
 | `--force-merge` | Approve a low-overlap merge; does not resolve source ambiguity |
@@ -1697,6 +1843,8 @@ python migrate.py sources --output-dir artifacts/bo-sales
 
 <details>
 <summary><b>Microsoft Fabric</b></summary>
+
+These commands produce local artifacts, not deployed resources.
 
 ```bash
 # Fabric-native output (Lakehouse + Dataflow + Notebook + DirectLake)

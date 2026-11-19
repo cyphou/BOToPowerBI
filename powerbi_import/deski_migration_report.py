@@ -1,6 +1,9 @@
 """Evidence-bounded pre-migration reports for Desktop Intelligence inventories."""
 
-from bo_export.desktop_intelligence_extractor import desktop_intelligence_sql_selector
+from bo_export.desktop_intelligence_extractor import (
+    desktop_intelligence_formula_selector,
+    desktop_intelligence_sql_selector,
+)
 from powerbi_import.html_template import data_table, esc, get_report_css, stat_card, stat_grid
 
 
@@ -33,6 +36,13 @@ def build_deski_migration_report(inventory):
             'literal_argument_count': len(item['literal_arguments']),
         }
         for item in inventory['sql_candidates']
+    ]
+    formulas = [
+        {
+            'selector': desktop_intelligence_formula_selector(item),
+            'formula_status': 'unverified',
+        }
+        for item in inventory['formula_candidates']
     ]
     counts = {
         'sheet_candidates': len(sheets),
@@ -96,9 +106,14 @@ def build_deski_migration_report(inventory):
             'area': 'Business logic',
             'status': 'not_verified',
             'observation': (
-                'Object and formula candidates are partial; this inspection does not convert them.'
+                'Object and formula candidates are partial; formula expressions are omitted, '
+                'and this inspection does not convert them.'
             ),
-            'action': 'Review formulas, aggregations, filters and calculations against the source.',
+            'action': (
+                'Use the stream-local formula selectors to locate expressions in the protected '
+                'inventory, then review formulas, aggregations, filters and calculations against '
+                'the source.'
+            ),
         },
         {
             'area': 'Target generation',
@@ -148,6 +163,7 @@ def build_deski_migration_report(inventory):
         'sheet_candidates': sheets,
         'provider_candidates': providers,
         'sql_candidates': queries,
+        'formula_candidates': formulas,
         'findings': findings,
         'checks': checks,
     }
@@ -194,6 +210,11 @@ def render_deski_migration_report(report):
          for item in report['sql_candidates']],
         'sql-candidates',
     )
+    formulas = table(
+        ['Stream-local selector', 'Formula status'],
+        [[item['selector'], item['formula_status']] for item in report['formula_candidates']],
+        'formula-candidates',
+    )
     checks = table(
         ['Check or action', 'Status for this inspection'],
         [[name.replace('_', ' '), status] for name, status in report['checks'].items()],
@@ -231,6 +252,8 @@ section h2 {{ margin-bottom: 12px; }}
 <section><h2>Provider candidates</h2>{providers}</section>
 <section><h2>SQL candidates</h2><p>Selectors identify unverified candidates; SQL text and
  literal arguments are not copied into this report.</p>{queries}</section>
+<section><h2>Formula candidates</h2><p>Stream-local selectors identify unverified expressions;
+ formula text is not copied into this report.</p>{formulas}</section>
 <section><h2>Checks for this inspection</h2>{checks}</section>
 <p class="footnote">Filenames and other metadata can be sensitive. Keep this report local and
  protected; it is not guaranteed to be sanitized.</p>

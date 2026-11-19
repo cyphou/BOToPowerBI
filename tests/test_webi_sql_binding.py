@@ -5,7 +5,7 @@ import unittest
 from pathlib import Path
 
 from bo_export.converted_objects_adapter import adapt_bo_to_converted_objects
-from bo_export.m_query_builder import build_m_query
+from bo_export.m_query_builder import build_m_query, build_m_query_for_universe
 from bo_export.webi_extractor import extract_webi
 from powerbi_import.dataflow_generator import DataflowGenerator
 from powerbi_import.tmdl_generator import generate_tmdl
@@ -383,6 +383,55 @@ class TestWebiSqlDatasourceAndDataflowContract(unittest.TestCase):
         self.assertIn(
             'File.Contents("C:\\Data\\Région#(#)(tab).xlsx")', m_query
         )
+
+    def test_universe_table_navigation_preserves_schema_and_m_identifiers(self):
+        table_name = 'Orders "2026" #(lf)'
+        extracted = {
+            "datasources": [
+                {"name": "Warehouse", "type": "SQL Server",
+                 "server": "sql.example.test", "database": "Sales"}
+            ],
+            "tables": [
+                {"name": table_name, "schema": 'Finance "East" #(tab)', "type": "table"}
+            ],
+            "columns": [{"name": "OrderID", "table": table_name, "data_type": "integer"}],
+            "custom_sql": [],
+        }
+        converted = adapt_bo_to_converted_objects(extracted)
+        expected = (
+            'Source{[Schema="Finance ""East"" #(#)(tab)", '
+            'Item="Orders ""2026"" #(#)(lf)"]}[Data]'
+        )
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            generate_tmdl(converted["datasources"], "Sales", {}, temporary)
+            DataflowGenerator(temporary, "Sales").generate(converted)
+            model_tables = [
+                path.read_text(encoding="utf-8")
+                for path in (root / "definition" / "tables").glob("*.tmdl")
+            ]
+            dataflow_queries = [
+                path.read_text(encoding="utf-8")
+                for path in (root / "Sales.Dataflow" / "queries").glob("*.m")
+            ]
+
+        self.assertTrue(any(expected in table for table in model_tables))
+        self.assertTrue(any(expected in query for query in dataflow_queries))
+
+    def test_universe_query_map_uses_each_table_schema_without_mutating_connection(self):
+        connection = {"type": "SQL Server", "server": "sql.example.test",
+                      "database": "Sales", "schema": "dbo"}
+        queries = build_m_query_for_universe(connection, [
+            {"name": "Orders", "schema": "finance"},
+            {"name": "Customers", "schema": "crm"},
+            {"name": "Default"},
+        ], [], [])
+
+        self.assertIn('Schema="finance", Item="Orders"', queries["Orders"])
+        self.assertIn('Schema="crm", Item="Customers"', queries["Customers"])
+        self.assertIn('Schema="dbo", Item="Default"', queries["Default"])
+        self.assertEqual(connection["schema"], "dbo")
 
     def test_import_model_keeps_sql_and_navigation_errors_visible(self):
         extracted = {

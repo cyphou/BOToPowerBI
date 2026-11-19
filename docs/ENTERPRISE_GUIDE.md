@@ -52,7 +52,7 @@
 **Objective**: Migrate a pilot wave to validate the approach.
 
 - Select 5–10 representative reports from Wave 1
-- Put pilot reports in a source folder, then run `python migrate.py pilot-sources --output-dir pilot/`
+- Put pilot reports in a source folder, then run `python migrate.py pilot-sources --output-dir pilot/` with a new or empty output directory.
 - Validate output in Power BI Desktop
 - Compare visuals side-by-side: source BO vs generated PBI
 - Identify gaps and calibrate conversion rules
@@ -63,7 +63,11 @@
 
 **Objective**: Migrate all reports in planned waves.
 
-- Batch migrate per wave: `python migrate.py --batch wave1/ --output-dir output/wave1/`
+- Batch migrate per wave to a new or empty directory:
+  `python migrate.py wave1/ --output-dir output/wave1/`. Review failures,
+  skipped sources and warnings in the batch manifest and, when available,
+  HTML report. See the [advanced reference](MIGRATION_REFERENCE.md#additional-bo-command-paths)
+  for legacy `--batch` and other modes.
 - For shared universes: `python migrate.py --shared-model r1.wid r2.wid --model-name "Sales"`
 - DAX optimization runs during folder migration; use `python migrate.py pilot-sources --no-optimize-dax` to disable it for manual review.
 - Generate comparison reports for each workbook

@@ -16,6 +16,7 @@ from typing import Optional
 
 from bo_export.dax_converter import convert_bo_formula_to_dax
 from bo_export.m_query_builder import (
+    _with_table_schema,
     build_m_query,
     build_m_query_for_universe,
     inject_m_steps,
@@ -127,6 +128,7 @@ def generate_power_query_m(datasource_or_connection: dict, table: dict = None, *
         for k in ("server", "database", "schema", "type"):
             if k in table and k not in ds:
                 ds[k] = table[k]
+        ds = _with_table_schema(ds, table)
     else:
         table_names = ds.get("tables") or ds.get("table")
         if isinstance(table_names, str):

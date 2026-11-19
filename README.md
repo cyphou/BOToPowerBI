@@ -13,14 +13,17 @@ From the repository root, put the BO files in a `sources` directory, then run:
 
 ```powershell
 python migrate.py sources --dry-run
-python migrate.py sources --output-dir output
+python migrate.py sources
 ```
 
 The first command inspects without persistent output. The second generates
-local PBIP artifacts in a **new or empty** output directory. Review
+local PBIP artifacts in `sources_pbi` beside `sources` (the input folder name
+plus `_pbi`). The output directory must be **new or empty**. To choose a
+different new or empty destination, use `python migrate.py sources -o output`
+(`-o` is shorthand for `--output-dir`). Review
 `batch_manifest.json` and the `batch_report.html` when available, including
-failures and warnings. A successful command does not prove that the report
-opens, refreshes or matches the source.
+failures, skipped sources and warnings. A successful command does not prove
+that the report opens, refreshes or matches the source.
 
 <a id="more-ways-to-migrate"></a>
 
@@ -28,36 +31,41 @@ opens, refreshes or matches the source.
 
 | What you want | Command or next step |
 |---|---|
-| Assess one BO file before migration | `python migrate.py "report.wid" --assess` |
-| Generate PBIP from a BO folder | `python migrate.py sources --output-dir output` |
-| Generate a local Fabric bundle instead | `python migrate.py sources --output-dir output --output-format fabric` |
-| Generate a paginated RDL from a reviewed mapping | `python migrate.py --output-format rdl --rdl-mapping mapping.json --rdl-output report.rdl` |
+| Assess one BO file without generating a project | `python migrate.py "report.wid" --assess` |
+| Generate PBIP from a BO folder | `python migrate.py sources` |
+| Generate a local Fabric bundle instead | `python migrate.py sources --output-format fabric` |
+| Generate a paginated RDL from a reviewed SQL/DAX mapping | `python migrate.py --rdl-mapping mapping.json` |
+| Assess an experimental Desktop Intelligence REP | `python migrate.py report.rep --assess` |
 | Inspect an experimental Desktop Intelligence REP | `python migrate_deski_inspect.py --source report.rep --output inventory.json` |
+| Check DeskI COM registration on Windows | `python migrate_deski_inspect.py --check-sdk` |
 | Validate a generated PBIP project or Fabric bundle | `python migrate.py --validate-project "path-to-project"` |
 
-Replace example paths with your own. PBIP and Fabric generation require a
-folder, not an individual report file; individual files can be assessed.
-Archives and shared models have separate workflows. Validation checks local
-artifacts, not Desktop rendering or cloud execution.
+Replace example paths with your own. The Fabric folder command uses the same
+`sources_pbi` default, which must also be new or empty; choose different output
+directories if you run both formats. For these PBIP and Fabric commands, use a
+folder rather than an individual report file. The [archive](docs/MIGRATION_REFERENCE.md#additional-bo-command-paths)
+and [shared model](docs/MIGRATION_REFERENCE.md#-shared-semantic-model-mode)
+workflows are separate. Validation checks local artifacts, not Desktop
+rendering or cloud execution.
 Fabric generation can return exit code `6` when local quality findings block
 the bundle; inspect the batch manifest and per-project `quality_report.json`.
+A blocked bundle is not deployment-ready.
 
 ## Parameters you will use most
 
-| Parameter | Purpose |
-|---|---|
-| `--dry-run` | Inspect a local input without persistent outputs. |
-| `--assess` | Assess readiness without generating a project. |
-| `--output-dir DIR` | Select a new or empty destination for folder generation. |
-| `--output-format pbip\|fabric\|rdl` | Choose the local target; `pbip` is the default. |
-| `--rdl-mapping FILE` and `--rdl-output FILE` | Specify a reviewed mapping and a new RDL file for single-mapping RDL generation. |
-| `--validate-project DIR` | Check an existing PBIP project or Fabric bundle. |
-| `--help` | Show all parameters for a command, including advanced options. |
+PBIP is the default output. `python migrate.py --help` shows common workflows;
+`python migrate.py --help-all` shows all options. The
+[CLI reference](docs/MIGRATION_REFERENCE.md#-cli-reference) documents advanced
+options and their limitations.
 
 The RDL mapping declares the query, connection and fields; it does not recover
-the source report layout. To select extracted SQL or generate an optional
+the source report layout. When `--output-format` is omitted, the command above
+infers RDL and defaults to a new `mapping.rdl` beside the mapping. You may
+select another new file with `--rdl-output`; explicit `--output-format rdl`
+still requires that option. To select extracted SQL or generate an optional
 Power Query `.m` file, see the [RDL reference](docs/MIGRATION_REFERENCE.md#local-paginated-rdl-from-a-declared-mapping).
-The command above generates an RDL, not a PBIP or PBIX.
+The RDL output must be a new file. The command above generates an RDL, not a
+PBIP or PBIX.
 
 ## BO XI / Desktop Intelligence
 
@@ -65,15 +73,35 @@ REP inspection is experimental and returns partial **candidates**. The inventory
 can contain SQL and other sensitive metadata; protect it. It is not a PBIP
 conversion or proof that a query belongs to a report.
 
+The main CLI assessment prints a partial report as JSON without writing an
+inventory. It omits SQL text, formula expressions and literal prompt/variable
+arguments, but metadata can still be sensitive. Optional `-o DIR` requests
+exclusive creation of a new `<stem>_deski_assessment.json`; empty directory
+values and non-applicable flags are rejected. `--dry-run` writes nothing.
+
+For an authorized Desktop Intelligence workstation, run
+`python migrate_deski_inspect.py --check-sdk` and follow the
+[client capture procedure](docs/MIGRATION_REFERENCE.md#desktop-intelligence-xi-31-experimental-sql-handoff).
+The check reads COM registration only; it does not connect or prove that
+the SDK, license or extraction works.
+
 To create a draft RDL from a REP candidate, use an exact selector from that
 file's inventory, an explicit SQL Server mapping and
 `--rdl-accept-unverified-rep-sql`. RDL-only folder runs instead require
 `accept_unverified_rep_sql: true` **per source** in the batch configuration.
-The SQL, connection, fields, prompts and layout must be independently reviewed.
+Combined PBIP/RDL folder runs require that same per-source acknowledgement. An
+additional per-source `pbip` declaration can produce a basic PBIP table draft
+from the same SQL candidate. Its typed fields and roles are manual declarations,
+not recovered source metadata; recognized BO SQL function markers block that
+PBIP target. The generated PBIP is checked by the local static artifact validator;
+validation errors fail only that target, while RDL retains its independent
+result. This check does not execute SQL or verify Desktop rendering. Review the
+SQL, connection, fields, prompts and layout independently.
 
 See [REP inspection and single-source RDL](docs/MIGRATION_REFERENCE.md#desktop-intelligence-experimental-local-rep-inventory-in-progress)
 and [RDL folder configuration](docs/MIGRATION_REFERENCE.md#rdl-from-a-mixed-source-folder).
-REP does not enter the ordinary PBIP/Fabric batch migration.
+REP still does not enter ordinary PBIP/Fabric batch migration; the combined
+folder draft is opt-in and does not reconstruct the source report.
 
 ## Sources and targets
 
@@ -81,18 +109,22 @@ REP does not enter the ordinary PBIP/Fabric batch migration.
 |---|---|
 | WebI `.wid`, Crystal `.rpt`, universes `.unx`/`.unv`, Lumira `.lumx`/`.lums` | Local extraction and generation are format-dependent and incomplete. |
 | `.biar`/`.lcmbiar` | Directly recognized archive entries only; embedded or segmented contents are not fully decoded. |
-| Desktop Intelligence `.rep` | Partial inventory and explicitly acknowledged RDL drafts; no automatic PBIP/Fabric conversion. |
+| Desktop Intelligence `.rep` | Partial inventory, explicitly acknowledged RDL drafts and an opt-in manually declared PBIP table draft; no automatic PBIP/Fabric conversion. |
 | Power BI Desktop | PBIP is intended for standard Desktop; open and verify the project separately. |
 | Power BI Report Server | Desktop for Report Server does not support PBIP. An optional SQL-based M query is a manual reconstruction aid; RDL is a separate paginated target. |
 | SAP BW | Separate offline assessment and bounded staged-data tools, not full BW extraction or warehouse replacement. See the [BW design](docs/SAP_BW_TO_FABRIC_DESIGN.md). |
 
+When no source visuals are converted, PBIP generation creates an empty report
+shell for the model; it does not reconstruct the source report. An existing
+report is not overwritten by an empty shell; use a new output directory.
+
 ## Advanced commands and documentation
 
-Use the main command for the common BO paths above. Existing specialized
-entry points and parameters remain available; none were removed or merged.
+For specialized entry points and advanced options, use the built-in help:
 
 ```powershell
 python migrate.py --help
+python migrate.py --help-all
 python migrate_deski_inspect.py --help
 python migrate_paginated.py --help
 ```
@@ -111,6 +143,7 @@ python migrate_paginated.py --help
 - Treat source files and outputs as sensitive. Credential redaction is
   pattern-based and does not guarantee that SQL or other text is sanitized.
   Do not put credentials in mapping files or command-line examples.
+- Use trusted output directories; RDL and REP assessment files must be new.
 - CMS server mode downloads and extracts; it is not target generation.
   The standard CLI deployment flags are unsupported. Remote operations need
   separate authorization and evidence.

@@ -181,6 +181,9 @@ class PowerBIProjectGenerator:
         # Create project structure
         project_dir = os.path.join(self.output_dir, report_name)
         os.makedirs(project_dir, exist_ok=True)
+        report_dir_precreated = self._output_format == 'pbip' and self._datasource_only
+        if report_dir_precreated:
+            os.mkdir(os.path.join(project_dir, f"{report_name}.Report"))
         
         # 1. Create the .pbip file
         pbip_file = self.create_pbip_file(project_dir, report_name)
@@ -191,11 +194,16 @@ class PowerBIProjectGenerator:
             sm_dir = self.create_semantic_model_structure(project_dir, report_name, converted_objects)
             print(f"  ✓ SemanticModel created: {sm_dir}")
         
-        # 3. Create the Report structure (skip for datasource-only .tds migrations)
+        # 3. A PBIP needs a report artifact even when only a model was extracted.
         has_visuals = bool(converted_objects.get('worksheets') or converted_objects.get('dashboards'))
-        if self._output_format in ('pbip', 'pbir') and has_visuals:
-            report_dir = self.create_report_structure(project_dir, report_name, converted_objects)
+        if self._output_format == 'pbip' or (self._output_format == 'pbir' and has_visuals):
+            report_dir = self.create_report_structure(
+                project_dir, report_name, converted_objects,
+                report_dir_precreated=report_dir_precreated,
+            )
             print(f"  ✓ Report created: {report_dir}")
+            if not has_visuals:
+                print("  ℹ No source report visuals: created an empty report shell for the model")
         elif not has_visuals:
             print(f"  ℹ Datasource-only mode: SemanticModel generated (no Report)")
         
@@ -234,9 +242,8 @@ class PowerBIProjectGenerator:
             }
         }
         
-        # For datasource-only migrations (.tds), remove report artifact
-        # and reference only the SemanticModel.
-        if hasattr(self, '_datasource_only') and self._datasource_only:
+        if (getattr(self, '_datasource_only', False)
+                and getattr(self, '_output_format', 'pbip') != 'pbip'):
             pbip_content["artifacts"] = [
                 {
                     "report": {
@@ -1171,7 +1178,8 @@ class PowerBIProjectGenerator:
         
         return created
 
-    def create_report_structure(self, project_dir, report_name, converted_objects):
+    def create_report_structure(self, project_dir, report_name, converted_objects,
+                                *, report_dir_precreated=False):
         """Creates the Report structure in PBIR v4.0 format (identical to PBI Hero reference)
         
         Structure:
@@ -1198,7 +1206,7 @@ class PowerBIProjectGenerator:
         report_dir = os.path.join(project_dir, f"{report_name}.Report")
         
         # Clean previous content (with retries for OneDrive sync locks)
-        if os.path.exists(report_dir):
+        if not report_dir_precreated and os.path.exists(report_dir):
             for attempt in range(5):
                 try:
                     shutil.rmtree(report_dir)
@@ -1768,7 +1776,7 @@ class PowerBIProjectGenerator:
             page_json = {
                 "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/report/definition/page/2.0.0/schema.json",
                 "name": page_name,
-                "displayName": "Tableau Migration",
+                "displayName": "BusinessObjects Migration",
                 "displayOption": "FitToPage",
                 "height": 720,
                 "width": 1280

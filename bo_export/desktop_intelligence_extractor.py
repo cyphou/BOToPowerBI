@@ -508,6 +508,11 @@ def desktop_intelligence_sql_selector(candidate):
     return f"{provider_id}@{candidate['stream_offset']}"
 
 
+def desktop_intelligence_formula_selector(candidate):
+    """Return a stream-local review reference for a formula candidate."""
+    return f"{candidate['stream']}@{candidate['stream_offset']}"
+
+
 def inspect_desktop_intelligence(path):
     """Return a partial static REP inventory, not migration-ready BO objects."""
     source = Path(path)

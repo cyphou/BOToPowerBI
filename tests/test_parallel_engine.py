@@ -131,14 +131,19 @@ class TestParallelMigrator:
 
     def test_run_batch_empty(self):
         with tempfile.TemporaryDirectory() as tmp:
-            pm = ParallelMigrator(max_workers=1)
+            pm = ParallelMigrator(
+                max_workers=1, checkpoint_path=os.path.join(tmp, "checkpoint.json"),
+            )
             result = pm.run_batch([], output_root=tmp)
             assert result["aggregate"]["total_artifacts"] == 0
             assert result["aggregate"]["success"] == 0
 
     def test_run_batch_nonexistent_files(self):
         with tempfile.TemporaryDirectory() as tmp:
-            pm = ParallelMigrator(max_workers=1, timeout_per_artifact=10)
+            pm = ParallelMigrator(
+                max_workers=1, timeout_per_artifact=10,
+                checkpoint_path=os.path.join(tmp, "checkpoint.json"),
+            )
             result = pm.run_batch(
                 ["nonexistent1.wid", "nonexistent2.wid"],
                 output_root=tmp,

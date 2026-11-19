@@ -29,7 +29,7 @@
       "migrate_bw_convert.py", "migrate_paginated.py", "migrate_lcm_inventory.py",
       "migrate_deski_inspect.py",
       "generate_report.py", "powerbi_import/import_to_powerbi.py",
-      "powerbi_import/parallel_engine.py", "powerbi_import/progress.py",
+      "powerbi_import/file_io.py", "powerbi_import/parallel_engine.py", "powerbi_import/progress.py",
       "powerbi_import/incremental.py", "powerbi_import/wizard.py",
       "powerbi_import/api_server.py", "powerbi_import/notebook_api.py",
       "powerbi_import/plugins.py", "powerbi_import/__init__.py",

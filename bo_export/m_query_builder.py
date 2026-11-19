@@ -63,8 +63,8 @@ def build_m_query(datasource, tables=None, transforms=None, custom_sql=None):
         steps.append(("CustomSQL", f'Value.NativeQuery(Source, "{escaped_sql}")'))
     elif tables:
         # Navigate to specific table
-        table_name = tables[0] if isinstance(tables, list) else tables
-        schema = datasource.get("schema", "dbo")
+        table_name = _m_escape_string(tables[0] if isinstance(tables, list) else tables)
+        schema = _m_escape_string(datasource.get("schema", "dbo"))
         steps.append(("Navigation", f'Source{{[Schema="{schema}", Item="{table_name}"]}}[Data]'))
 
     # Apply transforms
@@ -77,6 +77,11 @@ def build_m_query(datasource, tables=None, transforms=None, custom_sql=None):
                 steps.append((step_name, step_expr))
 
     return _assemble_m_query(steps)
+
+
+def _with_table_schema(datasource, table):
+    schema = table.get("schema")
+    return {**datasource, "schema": schema} if schema else datasource
 
 
 def build_m_query_for_universe(datasource, universe_tables, columns, joins):
@@ -106,7 +111,7 @@ def build_m_query_for_universe(datasource, universe_tables, columns, joins):
         else:
             # Regular table → navigation
             queries[table_name] = build_m_query(
-                datasource, tables=[table_name]
+                _with_table_schema(datasource, table), tables=[table_name]
             )
 
     return queries

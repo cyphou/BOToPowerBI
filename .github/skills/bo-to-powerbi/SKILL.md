@@ -10,7 +10,7 @@ Use this repository's migration engine. Prefer the CLI over manually recreating 
 ## BO Procedure
 
 1. Read `.github/copilot-instructions.md`, `.github/agents/shared.instructions.md`, and `docs/AGENTS.md`.
-2. Identify the source artifact, required universe metadata, output format (`pbip`, `fabric`, or separately declared `rdl`), and output directory. Read `python migrate.py --help` before choosing flags.
+2. Identify the source artifact, required universe metadata, output format (`pbip`, `fabric`, or separately declared `rdl`), and output directory. Use `python migrate.py --help` for common workflows and `--help-all` for all options.
 3. Assess or dry-run first when the source's compatibility is unknown. Use a separate output directory and do not overwrite customer artifacts without confirmation.
 4. Run the existing CLI workflow. Keep BO's 15 extracted object types and adapter contract intact; do not substitute Tableau's schema or subcommands.
 5. Inspect produced artifacts and available validation reports. Fix defects in the owning extractor/converter/generator, not only in output files.
@@ -28,7 +28,8 @@ and it does not establish report-to-provider links; the Python-only
 `bo_export.webi_snapshot_adapter.extract_webi_snapshot(snapshot, connection)`
 maps verbatim single-statement SQL plus one explicitly declared SQL Server
 connection (name, server, database; no credentials) to the 15 collections,
-inferring no columns or layout, so generation is semantic-model-only.
+inferring no columns or layout, so generation produces a model with an empty
+report shell, not source visuals.
 `include_element_details=True` requests SAP's `allInfo` option, available from
 BI 4.2 SP04; live version and permission compatibility remain unverified.
 
@@ -40,6 +41,15 @@ no data source or layout). It never reads connection strings, owners or values.
 UNX components with an embedded `Cipher` member are CMS-protected: the extractor
 warns and does not decrypt them. Data-bound output needs an authorized CMS or
 verified exports.
+
+For Desktop Intelligence, `python migrate.py report.rep --assess` prints the
+existing partial pre-migration report as JSON without writing an inventory.
+Optional `-o assessment` requests exclusive creation of a new
+`<stem>_deski_assessment.json`; empty directory values are rejected.
+`--dry-run` writes nothing. Only applicable assessment options are accepted.
+SQL text, formula expressions and literal prompt/variable arguments are omitted,
+but names and other metadata can still be sensitive. Runtime checks remain
+`not_run`.
 
 For Desktop Intelligence, the experimental local `python migrate_deski_inspect.py
 --source <report.rep> --output <new.json>` inventory is under implementation.
@@ -84,14 +94,21 @@ establishes source authenticity, rendering or equivalence.
 For Desktop Intelligence XI 3.1, the optional
 `examples/desktop_intelligence_export.bas` is an experimental VBA macro for
 capturing active-document provider SQL into the existing extracted-SQL list.
-It has not been tested with a real Desktop Intelligence client or `.rep`.
+`python migrate_deski_inspect.py --check-sdk` checks 32-bit and 64-bit
+Windows COM registry entries without activating the client; it does not
+verify login, licensing, document access or SDK functionality.
+The macro has not been tested with a real Desktop Intelligence client or `.rep`.
 Review the macro, SQL, connection and fields, then use the advanced reference's explicit
 RDL mapping and exact SQL-name selector. The macro does not parse `.rep`, recover
 layout or establish report/query linkage. Capture status must be `captured`
 with integer `sql_error` zero; this does not authenticate the inventory.
 BO prompt conversion in the RDL handoff remains unsupported.
 
-For a separately declared paginated target, single-mapping `migrate.py --output-format rdl`
+For a separately declared paginated target with a reviewed mapping,
+`python migrate.py --rdl-mapping mapping.json` infers RDL only when
+`--output-format` is omitted and defaults to a new sibling `mapping.rdl`;
+`--rdl-output` can select another new file. Use trusted output directories.
+Single-mapping `migrate.py --output-format rdl`
 requires `--rdl-mapping` and `--rdl-output`, and accepts no positional BO file
 or other migration options. It generates the same basic table as `migrate_paginated.py`;
 optionally `--rdl-sql-name` selects one SQL entry from a previously extracted
@@ -113,7 +130,9 @@ Manual SQL and DAX mappings also accept declared BO source labels `crystal`,
 not add parsers or automatic report conversion. Direct source selection accepts
 `.wid`, `.rpt`, `.unx`, `.unv` and experimental `.rep`. A `.rep` candidate
 requires `--rdl-accept-unverified-rep-sql`, an exact selector and a manual
-SQL Server mapping; this acknowledgement is not accepted for folder mode.
+SQL Server mapping; that single-source flag is not accepted in folder mode.
+For RDL-only or combined PBIP/RDL folder mode, each `.rep` entry selecting a
+candidate must set `"accept_unverified_rep_sql": true`.
 Crystal selection uses heuristic readable-text SQL candidates; inspect the exact
 selected query before using it.
 `--rdl-power-query-output` can additionally write a new `.m` expression for the
@@ -130,10 +149,20 @@ For a folder target, use `python migrate.py <folder> --output-format rdl
 an optional exact SQL name and optional SQL-only Power Query output. A `.rep`
 entry with `sql_name` must additionally declare
 `"accept_unverified_rep_sql": true`; the batch manifest retains an explicit
-unverified-candidate warning. This works only for RDL-only folder mode, not a
-PBIP/Fabric sidecar run. RDL batch does not convert BIAR contents and fails
-archive entries explicitly. See the advanced reference for the config contract; the output
-directory must be new or empty.
+unverified-candidate warning. A combined PBIP and RDL folder run can also
+generate a basic PBIP table draft when the REP entry includes a `pbip`
+declaration with a connection name, query name, schema and typed columns
+matching the RDL field list. This remains a manual review draft; recognized BO
+SQL function markers block its PBIP target, and source layout, prompts,
+formulas, provider links and equivalence are not recovered. The declaration is
+not supported for Fabric output. Generated PBIP drafts receive a local static
+artifact check: validation errors fail only the PBIP target, while RDL remains
+independent; warnings do not block. This does not execute SQL or prove Desktop
+rendering or equivalence, and failed generated files may remain for diagnosis.
+Without the declaration, the REP PBIP target fails explicitly. RDL batch does
+not convert BIAR contents and fails archive entries explicitly. See the
+advanced reference for the config contract; the positional output directory
+must be new or empty.
 
 ## CLI Examples
 
@@ -141,6 +170,7 @@ Run from the repository root using the selected project interpreter:
 
 ```powershell
 python migrate.py --help
+python migrate.py --help-all
 python migrate.py examples/Enterprise_Sales.wid --assess
 python migrate.py examples/Enterprise_Sales.wid --dry-run
 python migrate.py sources --output-dir artifacts/bo-sales

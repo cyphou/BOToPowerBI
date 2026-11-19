@@ -1,15 +1,13 @@
 """CLI entry point for Business Objects to Power BI migration.
 
 Usage:
-    python migrate.py path/to/reports --output-dir /tmp/output
-    python migrate.py --biar path/to/archive.biar --output-dir /tmp/batch
-    python migrate.py --server https://bo-server:6405 --folder "/Public/Sales"
-    python migrate.py path/to/report.wid --assess
-    python migrate.py path/to/reports --output-format fabric
+    python migrate.py reports
+    python migrate.py report.rep --assess
+    python migrate.py --rdl-mapping mapping.json
 """
 
 import argparse
-from contextlib import redirect_stderr
+from contextlib import redirect_stderr, redirect_stdout
 from io import StringIO
 import json
 import logging
@@ -28,6 +26,30 @@ EXIT_GENERATION_ERROR = 5
 EXIT_VALIDATION_ERROR = 6
 
 logger = logging.getLogger("bo_migrate")
+
+_QUICK_HELP = """\
+BusinessObjects to Power BI - common workflows
+
+  python migrate.py reports                  Generate PBIP from a BO folder
+  python migrate.py reports --dry-run        Inspect without writing output
+  python migrate.py report.wid --assess      Assess one report
+  python migrate.py report.rep --assess      Inspect a DeskI report (partial)
+  python migrate.py --rdl-mapping map.json   Generate map.rdl from a reviewed SQL/DAX mapping
+  python migrate.py --validate-project path  Validate a generated project
+
+For PBIP, Fabric, or DeskI assessment, -o DIRECTORY selects an output folder.
+For RDL, --rdl-output FILE overrides the default path next to the mapping.
+Use --output-format fabric to select Fabric.
+Use --help-all for all options. See docs/MIGRATION_REFERENCE.md for advanced workflows.
+Generated artifacts need independent source, data and rendering validation.
+Protect outputs: SQL and metadata may be sensitive.
+"""
+
+
+class _QuickHelpAction(argparse.Action):
+    def __call__(self, parser, namespace, values, option_string=None):
+        print(_QUICK_HELP, end="")
+        parser.exit()
 
 
 class MigrationStats:
@@ -63,6 +85,7 @@ def build_parser():
     """Build the CLI argument parser."""
     parser = argparse.ArgumentParser(
         description="Migrate SAP BusinessObjects reports to Power BI or generate a declared RDL",
+        add_help=False,
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
@@ -77,6 +100,9 @@ Examples:
   python migrate.py --shared-model r1.wid r2.wid --model-name "Shared"
         """,
     )
+    parser.add_argument("-h", "--help", action=_QuickHelpAction, nargs=0,
+                        help="Show common workflows")
+    parser.add_argument("--help-all", action="help", help="Show all options")
 
     # Input sources
     parser.add_argument("input", nargs="?", help="Directory of BO artifacts, BIAR/LCMBIAR archive, or file to assess")
@@ -100,8 +126,9 @@ Examples:
     parser.add_argument("--output-format", choices=["pbip", "fabric", "rdl"], default="pbip",
                         help="Output: pbip (default), fabric, or rdl from an explicit mapping")
     parser.add_argument("--rdl-mapping",
-                        help="RDL mode only: explicit credential-free mapping JSON")
-    parser.add_argument("--rdl-output", help="RDL mode: new .rdl file")
+                        help="Explicit credential-free RDL mapping JSON; implies RDL if format omitted")
+    parser.add_argument("--rdl-output",
+                        help="RDL mode: new .rdl file (defaults to mapping name when format omitted)")
     parser.add_argument("--rdl-power-query-output",
                         help="RDL SQL mode: optional new .m file for Desktop or Desktop RS")
     parser.add_argument("--rdl-extracted-sql", help="RDL mode: previously extracted custom_sql.json")
@@ -121,7 +148,8 @@ Examples:
     parser.add_argument("--force-merge", action="store_true", help="Force merge despite conflicts")
 
     # Assessment
-    parser.add_argument("--assess", action="store_true", help="Run migration readiness assessment")
+    parser.add_argument("--assess", action="store_true",
+                        help="Run readiness assessment or partial DeskI inspection")
     parser.add_argument("--global-assess", action="store_true", help="Run cross-report portfolio assessment")
     parser.add_argument("--validate-project", metavar="DIRECTORY",
                         help="Read-only local validation of generated PBIP projects or Fabric bundles")
@@ -172,6 +200,12 @@ Examples:
 
 def main(argv=None):
     """Main entry point."""
+    # Keep redirected output and diagnostics consistent for Unicode paths.
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if stream.encoding and stream.encoding.lower() != "utf-8" and callable(reconfigure):
+            reconfigure(encoding="utf-8")
+
     parser = build_parser()
     raw_args = sys.argv[1:] if argv is None else argv
     args = parser.parse_args(raw_args)
@@ -184,13 +218,6 @@ def main(argv=None):
         datefmt="%Y-%m-%d %H:%M:%S",
     )
 
-    # Ensure stdout handles unicode
-    if sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8":
-        try:
-            sys.stdout.reconfigure(encoding="utf-8")
-        except AttributeError:
-            pass
-
     stats = MigrationStats()
 
     try:
@@ -201,6 +228,17 @@ def main(argv=None):
                 "--deploy and --deploy-refresh are not supported by this CLI; "
                 "no remote deployment was attempted"
             )
+
+        inferred_rdl = False
+        if args.rdl_mapping is not None:
+            format_parser = argparse.ArgumentParser(add_help=False)
+            format_parser.add_argument("--output-format")
+            format_args, _ = format_parser.parse_known_args(raw_args)
+            if format_args.output_format is None:
+                inferred_rdl = True
+                args.output_format = "rdl"
+                if args.rdl_output is None:
+                    args.rdl_output = os.path.splitext(args.rdl_mapping)[0] + ".rdl"
 
         if args.output_format == "rdl":
             folder_mode = bool(args.batch or (
@@ -254,6 +292,8 @@ def main(argv=None):
                 rdl_args.extend(["--sql-name", args.rdl_sql_name])
             if args.rdl_accept_unverified_rep_sql:
                 rdl_args.append("--accept-unverified-rep-sql")
+            if inferred_rdl:
+                logger.info("RDL destination (new file only): %s", args.rdl_output)
             return generate_paginated(rdl_args)
         if any(value is not None for value in (
                 args.rdl_mapping, args.rdl_output, args.rdl_power_query_output,
@@ -277,6 +317,22 @@ def main(argv=None):
             return EXIT_VALIDATION_ERROR if failed else EXIT_SUCCESS
         if args.quality_output or args.quality_strict:
             raise ValueError("Quality options require --validate-project")
+        if (args.input and not os.path.isdir(args.input)
+                and os.path.splitext(args.input)[1].lower() == ".rep"
+                and (args.assess or args.dry_run)):
+            deski_parser = argparse.ArgumentParser(add_help=False, allow_abbrev=False)
+            deski_parser.add_argument("input")
+            deski_parser.add_argument("--assess", action="store_true")
+            deski_parser.add_argument("--dry-run", action="store_true")
+            deski_parser.add_argument("--output-dir", "-o")
+            deski_parser.add_argument("--verbose", "-v", action="store_true")
+            _, unsupported = deski_parser.parse_known_args(raw_args)
+            if unsupported:
+                raise ValueError(
+                    "REP assessment accepts only --assess, --dry-run, "
+                    "--output-dir and --verbose"
+                )
+            return _run_deski_assessment(args, stats)
         if args.input and os.path.isdir(args.input) and (
                 args.server or args.biar or args.batch or args.shared_model):
             raise ValueError("A directory input cannot be combined with another migration source")
@@ -309,7 +365,7 @@ def main(argv=None):
                 "place the file in a directory and migrate the directory"
             )
         else:
-            parser.print_help()
+            print(_QUICK_HELP, end="")
             return EXIT_GENERAL_ERROR
 
     except FileNotFoundError as e:
@@ -323,6 +379,31 @@ def main(argv=None):
         return EXIT_GENERAL_ERROR
     finally:
         logger.info("Migration stats: %s", json.dumps(stats.summary(), indent=2))
+
+
+def _run_deski_assessment(args, stats):
+    """Inspect one REP and report partial evidence without generating targets."""
+    from pathlib import Path
+
+    from bo_export.desktop_intelligence_extractor import inspect_desktop_intelligence
+    from powerbi_import.deski_migration_report import build_deski_migration_report
+
+    if args.output_dir is not None and not args.output_dir.strip():
+        raise ValueError("--output-dir must not be empty")
+    start = time.time()
+    report = build_deski_migration_report(inspect_desktop_intelligence(args.input))
+    stats.extraction_time = time.time() - start
+    content = json.dumps(report, indent=2, ensure_ascii=False) + "\n"
+    if args.assess and args.output_dir and not args.dry_run:
+        from migrate_deski_inspect import _write_new_deski_outputs
+
+        output_dir = Path(args.output_dir)
+        output_dir.mkdir(parents=True, exist_ok=True)
+        output = output_dir / (Path(args.input).stem + "_deski_assessment.json")
+        _write_new_deski_outputs([(output, content)])
+        logger.info("Partial REP assessment written: %s", output)
+    print(content, end="")
+    return EXIT_SUCCESS
 
 
 def _record_migration_object_warnings(extracted, converted, stats, artifact_name=""):
@@ -348,6 +429,13 @@ def _record_migration_object_warnings(extracted, converted, stats, artifact_name
         warnings.append(
             "Native WID extraction is partial: report layout, SQL, connections, "
             "formulas and source completeness are not established."
+        )
+
+    if (converted.get("datasources")
+            and not (converted.get("worksheets") or converted.get("dashboards"))):
+        warnings.append(
+            "No source report visuals were converted; a PBIP report, if generated, "
+            "is an empty shell and needs manual reconstruction."
         )
 
     checks = _check_datasources(converted).checks
@@ -746,7 +834,7 @@ def _load_rdl_batch_config(path):
             raise ValueError(f"Duplicate RDL batch source path: {normalized}")
         if (not isinstance(entry, dict) or "mapping" not in entry
                 or set(entry) - {"mapping", "sql_name", "power_query",
-                                 "accept_unverified_rep_sql"}):
+                                 "accept_unverified_rep_sql", "pbip"}):
             raise ValueError(f"Invalid RDL batch entry for {normalized}")
         if not isinstance(entry["mapping"], str) or not entry["mapping"].strip():
             raise ValueError(f"RDL mapping path is required for {normalized}")
@@ -760,17 +848,13 @@ def _load_rdl_batch_config(path):
             raise ValueError(
                 f"RDL accept_unverified_rep_sql must be a boolean for {normalized}"
             )
+        if "pbip" in entry and not isinstance(entry["pbip"], dict):
+            raise ValueError(f"RDL batch PBIP declaration must be an object for {normalized}")
         sources[normalized] = entry
     return sources
 
 
-def _run_rdl_batch_item(source_path, item_output, source_kind, entry, config_dir, dry_run):
-    if source_kind == "biar":
-        raise ValueError("RDL batch cannot select reports inside BIAR/LCMBIAR; export individual files")
-    if entry is None:
-        raise ValueError("No RDL mapping configured for this source")
-
-    mapping_name = entry["mapping"]
+def _load_rdl_batch_mapping(mapping_name, config_dir, source_kind):
     if os.path.isabs(mapping_name):
         raise ValueError("RDL mapping paths must be relative to the batch config directory")
     mapping_path = os.path.realpath(os.path.join(config_dir, mapping_name))
@@ -780,6 +864,20 @@ def _run_rdl_batch_item(source_path, item_output, source_kind, entry, config_dir
         mapping = json.load(handle)
     if not isinstance(mapping, dict) or mapping.get("source_kind") != source_kind:
         raise ValueError("RDL mapping source_kind must match the source extension")
+    return mapping_path, mapping
+
+
+def _run_rdl_batch_item(source_path, item_output, source_kind, entry, config_dir, dry_run):
+    if source_kind == "biar":
+        raise ValueError("RDL batch cannot select reports inside BIAR/LCMBIAR; export individual files")
+    if entry is None:
+        raise ValueError("No RDL mapping configured for this source")
+
+    mapping_path, mapping = _load_rdl_batch_mapping(
+        entry["mapping"], config_dir, source_kind,
+    )
+    if "pbip" in entry and source_kind != "desktop_intelligence":
+        raise ValueError("The per-source PBIP declaration is currently only supported for .rep")
 
     sql_name = entry.get("sql_name")
     accept_unverified_rep_sql = entry.get("accept_unverified_rep_sql", False)
@@ -824,6 +922,214 @@ def _run_rdl_batch_item(source_path, item_output, source_kind, entry, config_dir
             return generate(temporary_dir)
     os.makedirs(item_output, exist_ok=True)
     return generate(item_output)
+
+
+def _run_deski_pbip_target(source_path, item_output, entry, config_dir, dry_run, item_stats):
+    if not isinstance(entry, dict) or entry.get("pbip") is None:
+        raise ValueError(
+            "Automatic REP-to-PBIP migration is not supported; declare a per-source "
+            "pbip mapping for a manual SQL table draft"
+        )
+    if not entry.get("accept_unverified_rep_sql"):
+        raise ValueError("REP PBIP generation requires accept_unverified_rep_sql: true")
+    sql_name = entry.get("sql_name")
+    if not isinstance(sql_name, str) or not sql_name.strip():
+        raise ValueError("REP PBIP generation requires an exact sql_name selector")
+
+    mapping_path, rdl_mapping = _load_rdl_batch_mapping(
+        entry.get("mapping"), config_dir, "desktop_intelligence",
+    )
+    pbip_mapping = entry["pbip"]
+    expected_keys = {"connection_name", "query_name", "schema", "columns"}
+    if not isinstance(pbip_mapping, dict) or set(pbip_mapping) != expected_keys:
+        raise ValueError(
+            "REP pbip declaration must contain exactly connection_name, query_name, "
+            "schema and columns"
+        )
+    for key in ("connection_name", "query_name", "schema"):
+        value = pbip_mapping[key]
+        if (not isinstance(value, str) or not value.strip()
+                or any(ord(character) < 32 or ord(character) == 127 for character in value)):
+            raise ValueError(f"REP PBIP {key} must be a non-empty string without control characters")
+    if (not isinstance(rdl_mapping.get("server"), str) or not rdl_mapping["server"].strip()
+            or not isinstance(rdl_mapping.get("database"), str)
+            or not rdl_mapping["database"].strip()
+            or not isinstance(rdl_mapping.get("title"), str)
+            or not rdl_mapping["title"].strip()):
+        raise ValueError("REP PBIP requires declared RDL title, SQL Server and database mappings")
+    declared_rdl_columns = rdl_mapping.get("columns")
+    if (not isinstance(declared_rdl_columns, list) or not declared_rdl_columns
+            or not all(isinstance(name, str) and name.strip() for name in declared_rdl_columns)):
+        raise ValueError("REP PBIP requires non-empty declared RDL result columns")
+
+    columns = pbip_mapping["columns"]
+    if not isinstance(columns, list) or not columns:
+        raise ValueError("REP pbip columns must be a non-empty list")
+    supported_types = {
+        "string", "integer", "float", "decimal", "boolean", "date", "datetime",
+    }
+    column_names = []
+    for column in columns:
+        if not isinstance(column, dict) or set(column) != {"name", "data_type", "role"}:
+            raise ValueError(
+                "Each REP PBIP column must contain exactly name, data_type and role"
+            )
+        name, data_type, role = (
+            column["name"], column["data_type"], column["role"],
+        )
+        if (not isinstance(name, str) or not name.strip()
+                or any(ord(character) < 32 or ord(character) == 127 for character in name)):
+            raise ValueError("REP PBIP column names must be non-empty strings without control characters")
+        if not isinstance(data_type, str) or data_type not in supported_types:
+            raise ValueError(
+                "REP PBIP data_type must be one of string, integer, float, decimal, "
+                "boolean, date or datetime"
+            )
+        if not isinstance(role, str) or role not in {"dimension", "measure"}:
+            raise ValueError("REP PBIP column role must be dimension or measure")
+        if role == "measure" and data_type not in {"integer", "float", "decimal"}:
+            raise ValueError("REP PBIP measure columns must have a numeric data_type")
+        column_names.append(name)
+    if len({name.casefold() for name in column_names}) != len(column_names):
+        raise ValueError("REP PBIP column names must be unique")
+    if column_names != declared_rdl_columns:
+        raise ValueError("REP PBIP columns must match the RDL mapping columns in order")
+
+    from bo_export.desktop_intelligence_extractor import (
+        desktop_intelligence_sql_selector,
+        inspect_desktop_intelligence,
+    )
+
+    extraction_started = time.time()
+    inventory = inspect_desktop_intelligence(source_path)
+    item_stats.extraction_time += time.time() - extraction_started
+    candidates = [
+        candidate for candidate in inventory["sql_candidates"]
+        if desktop_intelligence_sql_selector(candidate) == sql_name
+    ]
+    if len(candidates) != 1:
+        raise ValueError("REP sql_name must match exactly one SQL candidate in this source")
+    candidate = candidates[0]
+    if candidate["bo_function_markers"]:
+        markers = ", ".join(f"@{marker}" for marker in candidate["bo_function_markers"])
+        raise ValueError(
+            f"REP SQL contains unresolved BO function markers ({markers}); "
+            "rewrite and review them before PBIP generation"
+        )
+
+    extracted = {
+        "reports": [{
+            "name": rdl_mapping["title"],
+            "title": rdl_mapping["title"],
+            "type": "desktop_intelligence",
+        }],
+        "queries": [{
+            "id": sql_name,
+            "name": pbip_mapping["query_name"],
+            "type": "sql_server",
+            "datasource": pbip_mapping["connection_name"],
+            "sql": candidate["sql"],
+            "objects": [],
+        }],
+        "datasources": [{
+            "name": pbip_mapping["connection_name"],
+            "type": "sql_server",
+            "server": rdl_mapping["server"],
+            "database": rdl_mapping["database"],
+            "schema": pbip_mapping["schema"],
+        }],
+        "formulas": [],
+        "prompts": [],
+        "filters": [],
+        "tables": [],
+        "columns": [{
+            "name": column["name"],
+            "table": pbip_mapping["query_name"],
+            "data_type": column["data_type"],
+            "qualification": column["role"],
+        } for column in columns],
+        "joins": [],
+        "groups": [],
+        "sorts": [],
+        "alerts": [],
+        "subreports": [],
+        "charts": [{
+            "name": rdl_mapping["title"],
+            "title": rdl_mapping["title"],
+            "report": rdl_mapping["title"],
+            "type": "table",
+            "dimensions": [
+                column["name"] for column in columns if column["role"] == "dimension"
+            ],
+            "measures": [
+                column["name"] for column in columns if column["role"] == "measure"
+            ],
+        }],
+        "custom_sql": [{
+            "name": pbip_mapping["query_name"],
+            "sql": candidate["sql"],
+            "datasource": pbip_mapping["connection_name"],
+        }],
+    }
+
+    from bo_export.converted_objects_adapter import adapt_bo_to_converted_objects
+    from bo_export.extract_bo_data import _write_json_outputs
+    from powerbi_import.import_to_powerbi import PowerBIImporter
+
+    report_name = os.path.splitext(os.path.basename(source_path))[0]
+
+    def generate(source_dir, target_dir):
+        os.makedirs(source_dir, exist_ok=True)
+        os.makedirs(target_dir, exist_ok=True)
+        if os.listdir(target_dir):
+            raise ValueError(f"REP PBIP target directory is not empty: {target_dir}")
+        _write_json_outputs(extracted, source_dir)
+        converted = adapt_bo_to_converted_objects(extracted)
+        _record_migration_object_warnings(
+            extracted, converted, item_stats, os.path.basename(source_path),
+        )
+        generation_started = time.time()
+        with redirect_stdout(StringIO()):
+            project_path = PowerBIImporter(source_dir=source_dir).import_all(
+                report_name=report_name, output_dir=target_dir,
+            )
+        item_stats.generation_time += time.time() - generation_started
+        if not project_path or not os.path.isfile(
+                os.path.join(project_path, f"{report_name}.pbip")):
+            raise ValueError("REP PBIP generator did not create the expected project file")
+        from powerbi_import.validator import ArtifactValidator
+
+        validation = ArtifactValidator.validate_project(project_path)
+        if not validation["valid"]:
+            findings = "; ".join(validation["errors"]) or "validator returned invalid"
+            raise ValueError(
+                f"REP PBIP draft failed local static validation: {findings}"
+            )
+        item_stats.warnings.extend(
+            f"REP PBIP static validation: {warning}"
+            for warning in validation["warnings"]
+        )
+
+    if dry_run:
+        with tempfile.TemporaryDirectory(prefix="bo_rep_pbip_dry_") as temporary_dir:
+            generate(
+                os.path.join(temporary_dir, "source"),
+                os.path.join(temporary_dir, "target"),
+            )
+    else:
+        pbip_output = os.path.join(item_output, "PowerBI")
+        if os.path.exists(pbip_output):
+            raise ValueError(f"REP PBIP target already exists: {pbip_output}")
+        os.makedirs(item_output, exist_ok=True)
+        with tempfile.TemporaryDirectory(prefix="bo_rep_pbip_source_") as source_dir:
+            generate(source_dir, pbip_output)
+        item_stats.warnings.append(
+            "REP PBIP is a manually declared table draft; source layout, formulas, prompts, "
+            "provider/report links and equivalence remain unverified"
+        )
+        logger.info("Generated REP PBIP draft: %s", pbip_output)
+    item_stats.reports_processed += 1
+    return EXIT_SUCCESS
 
 
 def _run_rdl_batch_target(source_path, item_output, source_kind, entry,
@@ -883,6 +1189,8 @@ def _run_batch_migration(args, stats):
         config_path = os.path.realpath(args.rdl_batch_config)
         config_dir = os.path.dirname(config_path)
         rdl_sources = _load_rdl_batch_config(config_path)
+        if rdl_mode and any("pbip" in entry for entry in rdl_sources.values()):
+            raise ValueError("Per-source pbip declarations require combined PBIP and RDL mode")
 
     artifacts = []
     skipped = []
@@ -908,7 +1216,7 @@ def _run_batch_migration(args, stats):
             if os.path.islink(path):
                 skipped.append({"source": os.path.relpath(path, batch_dir).replace("\\", "/"),
                                 "reason": "Symbolic-link file not followed"})
-            elif ext in SUPPORTED_EXTENSIONS or (rdl_mode and ext == ".rep"):
+            elif ext in SUPPORTED_EXTENSIONS or ((rdl_mode or rdl_sidecar) and ext == ".rep"):
                 artifacts.append(path)
             else:
                 relative = os.path.relpath(path, batch_dir)
@@ -934,7 +1242,7 @@ def _run_batch_migration(args, stats):
         source_key = relative_path.replace("\\", "/")
         extension = os.path.splitext(artifact_path)[1].lower()
         source_kind = (
-            "desktop_intelligence" if rdl_mode and extension == ".rep"
+            "desktop_intelligence" if extension == ".rep"
             else SUPPORTED_EXTENSIONS[extension]
         )
         item_output = os.path.join(output_dir, relative_path)
@@ -950,7 +1258,17 @@ def _run_batch_migration(args, stats):
             )
         else:
             try:
-                if source_kind == 'biar':
+                if source_kind == 'desktop_intelligence':
+                    if args.output_format != "pbip":
+                        raise ValueError(
+                            "Declared REP Power BI drafts currently require --output-format pbip; "
+                            "REP-to-Fabric generation is not supported"
+                        )
+                    target_exit = _run_deski_pbip_target(
+                        artifact_path, item_output, rdl_sources.get(source_key),
+                        config_dir, args.dry_run, item_stats,
+                    )
+                elif source_kind == 'biar':
                     item_args.biar = artifact_path
                     target_exit = _run_biar_migration(item_args, item_stats)
                 else:
@@ -966,7 +1284,10 @@ def _run_batch_migration(args, stats):
                     "status": "success" if target_exit == EXIT_SUCCESS else "failed",
                     "exit_code": target_exit,
                     "error": target_error,
-                    "output_dir": item_output,
+                    "output_dir": (
+                        os.path.join(item_output, "PowerBI")
+                        if source_kind == "desktop_intelligence" else item_output
+                    ),
                 }
             except Exception as error:
                 logger.warning("Power BI migration failed for %s: %s", artifact_path, error)

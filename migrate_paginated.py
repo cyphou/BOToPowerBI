@@ -2,10 +2,12 @@
 
 import argparse
 import json
+import os
 import sys
 import zipfile
 from pathlib import Path
 
+from powerbi_import.file_io import open_new_text
 from powerbi_import.paginated_generator import generate_semantic_model_rdl
 
 
@@ -164,7 +166,7 @@ def main(argv=None):
             mapping = _mapping_with_sql(mapping, plan["statements"][0]["sql"])
         content = generate_semantic_model_rdl(mapping) + "\n"
         if m_output is None:
-            with output.open("x", encoding="utf-8", newline="\n") as handle:
+            with open_new_text(output) as handle:
                 handle.write(content)
         else:
             if "sql" not in mapping:
@@ -173,7 +175,7 @@ def main(argv=None):
                 raise ValueError(
                     "Power Query output does not support RDL report parameters."
                 )
-            if output.exists() or m_output.exists():
+            if os.path.lexists(output) or os.path.lexists(m_output):
                 raise ValueError("RDL and Power Query outputs must both be new files.")
             if not m_output.parent.is_dir():
                 raise ValueError("Power Query output directory must already exist.")
@@ -183,8 +185,8 @@ def main(argv=None):
                  "database": mapping["database"]},
                 custom_sql=mapping["sql"],
             ) + "\n"
-            with (output.open("x", encoding="utf-8", newline="\n") as rdl_handle,
-                  m_output.open("x", encoding="utf-8", newline="\n") as m_handle):
+            with (open_new_text(output) as rdl_handle,
+                  open_new_text(m_output) as m_handle):
                 rdl_handle.write(content)
                 m_handle.write(m_content)
     except json.JSONDecodeError:

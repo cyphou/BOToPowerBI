@@ -3,29 +3,63 @@
 ## [Unreleased]
 
 ### In progress
+- Universe physical-table navigation now preserves a table's declared schema
+  and escapes its schema and table names in generated Power Query M.
+- PBIP generation without source visuals now creates an empty report shell
+  referencing the semantic model instead of pointing the report descriptor at
+  the model. Batch results warn that source visuals were not converted; an
+  existing report is not overwritten by an empty shell.
+- `migrate.py --help` shows common workflows; `--help-all` shows all options.
+- Without an explicit `--output-format`, `--rdl-mapping map.json` infers RDL
+  and defaults to a new sibling `map.rdl`. Explicit `--output-format rdl`
+  still requires `--rdl-output`; the REP SQL acknowledgement remains mandatory.
+- `migrate.py report.rep --assess` prints the existing partial pre-migration
+  report as JSON. Optional `-o DIR` requests exclusive creation of
+  `<stem>_deski_assessment.json`; `--dry-run` writes nothing, and empty
+  directory values and non-applicable flags are rejected. SQL text, formula
+  expressions and literal prompt/variable arguments are omitted, but metadata
+  may be sensitive; runtime checks remain `not_run`.
+- RDL and DeskI report outputs use exclusive creation: existing files and
+  final-path symlinks, including dangling links on Windows, are rejected.
+  Links in parent directories may still be followed.
+- `migrate.py` switches stdout and stderr to UTF-8 when their known encoding
+  differs and the streams support reconfiguration, covering output and
+  diagnostics.
+- `migrate_deski_inspect.py --check-sdk` checks 32-bit and 64-bit Windows COM
+  registration without starting DeskI or connecting. It does not validate
+  activation, licensing, CMS login, document access or extraction.
 - Simplified the README around common workflows and parameters; detailed
   migration procedures and the full CLI reference remain available in
-  `docs/MIGRATION_REFERENCE.md`. Existing commands and options are unchanged.
+  `docs/MIGRATION_REFERENCE.md`. This documentation simplification did not
+  change existing commands or options.
 - The main CLI now routes a single `.rep` SQL candidate to the existing
   paginated generator with explicit `--rdl-accept-unverified-rep-sql`.
   This reuses the existing partial inspection and manual SQL Server mapping;
   it does not recover report layout or establish source/target equivalence.
-- RDL-only folder batches can select a REP SQL candidate per source when its
-  config explicitly sets `accept_unverified_rep_sql: true`. The manifest
-  carries the unverified-candidate warning; PBIP/Fabric batch routes still
-  do not recognize REP as an automatically migratable source.
+- Folder batches can select a REP SQL candidate per source when its config
+  explicitly sets `accept_unverified_rep_sql: true`. Combined PBIP and RDL
+  batches can also generate a basic PBIP table draft when an exact per-source
+  `pbip` declaration supplies connection, query, schema and typed columns.
+  Recognized BO SQL function markers block the PBIP target. Both target
+  outcomes remain separate in the manifest. The generated PBIP now runs
+  through the local static artifact validator; errors fail only the PBIP
+  target, while RDL retains its independent result. These drafts do not recover
+  REP layout, prompts, formulas or source equivalence. Fabric output does not
+  support this PBIP declaration.
 - The local MCP `inventory` discovers DeskI `.rep` files, and `assess` returns
   their partial pre-migration summary without writing files or returning raw
   SQL, formula expressions or literal prompt arguments. DeskI generation
   remains outside the MCP workflow.
 - `migrate_deski_inspect.py` can optionally write deterministic JSON and/or HTML
   pre-migration reports, alongside the required inventory. They identify
-  partial candidates, unverified SQL selectors, design/prompt review actions
-  and checks not run by this inspection, without a fidelity score. SQL text,
-  literal prompt/variable arguments and formula expressions are omitted from
-  the reports, but metadata may still be sensitive. All outputs must be new;
-  failed writes attempt to clean up newly created files and report cleanup
-  failures. This is not RDL/PBIP generation or source/target equivalence.
+  partial candidates, unverified SQL selectors, stream-local references for
+  detected formula candidates, design/prompt review actions and checks not run
+  by this inspection, without a fidelity score. SQL text, literal prompt/variable
+  arguments and formula expressions are omitted from the reports, but metadata
+  may still be sensitive. Formula references do not establish completeness,
+  source identity or formula semantics. All outputs must be new; failed writes
+  attempt to clean up newly created files and report cleanup failures. This is
+  not RDL/PBIP generation or source/target equivalence.
 - `migrate_deski_inspect.py` provides an experimental standalone local DeskI
   `.rep` inventory, still under implementation. It reads ZIP, including
   prefixed ZIP, and OLE via Windows Structured Storage on Windows. It returns
@@ -36,14 +70,18 @@
   a possible universe, not a verified universe or connection.
 - The reader opens selected metadata streams, not data-cache or macro streams,
   but hashes the whole source as raw bytes. It executes no macros, performs no
-  refresh and generates no PBIP; `migrate.py` does not automatically parse
-  `.rep`, and report-to-provider links are not verified. A separate, gated
+  refresh and generates no PBIP. A separate, gated
   paginated route can generate an RDL from one explicitly selected
   candidate and a manual SQL Server mapping. Declared styling and report
   parameters do not reconstruct REP layout or BO prompt semantics. The JSON
   must be a new file, kept local and protected because it may contain sensitive
   SQL and metadata. SQL, bindings, completeness and equivalence require
   independent review.
+- The combined-folder PBIP option is an explicit table-report draft from one
+  selected REP SQL candidate and caller-declared result columns. It is not
+  automatic REP conversion; BO function markers block PBIP generation and
+  report-to-provider links, layout, prompts, formulas and equivalence remain
+  unverified.
 - The 2026-11-18 eight-sample candidate counts were replayed locally for the
   report update; the prior byte-framing observation was not independently
   replayed. A separate manually declared RDL/M illustration and a one-sample
@@ -139,7 +177,7 @@
 - `extract_webi_snapshot()` adapts a saved WebI CMS snapshot to the 15 BO
   collections: verbatim single-statement SQL plus one explicitly declared SQL
   Server connection (no credentials). It infers no columns, layout or
-  report-to-provider links; generation yields a semantic-model-only PBIP.
+  report-to-provider links; generation yields a model with an empty report shell.
 - A user-invocable WebI Migration development agent coordinates WebI source,
   query, model, visual and evidence work through existing module owners. It is
   not a CLI runtime stage and does not by itself add extraction or parity.

@@ -8,7 +8,9 @@ from pathlib import Path
 
 from bo_export.converted_objects_adapter import adapt_bo_to_converted_objects
 from bo_export.webi_snapshot_adapter import extract_webi_snapshot
+from powerbi_import.pbip_generator import PowerBIProjectGenerator
 from powerbi_import.tmdl_generator import generate_tmdl
+from powerbi_import.validator import ArtifactValidator
 
 ROOT = Path(__file__).resolve().parents[1]
 CONNECTION = {"name": "Declared SQL", "server": "sql.example.invalid", "database": "Sales"}
@@ -62,6 +64,49 @@ class TestWebiSnapshotAdapter(unittest.TestCase):
             )
         self.assertIn('Sql.Database("sql.example.invalid", "Sales")', model)
         self.assertIn("SELECT [Region] FROM [dbo].[Sales]", model)
+
+    def test_snapshot_without_visuals_creates_a_report_shell_for_the_model(self):
+        extracted = extract_webi_snapshot(self.snapshot, CONNECTION)
+        converted = adapt_bo_to_converted_objects(extracted)
+
+        with tempfile.TemporaryDirectory() as directory:
+            project = Path(PowerBIProjectGenerator(directory).generate_project("Snapshot", converted))
+            descriptor = json.loads((project / "Snapshot.pbip").read_text(encoding="utf-8"))
+            report_path = descriptor["artifacts"][0]["report"]["path"]
+            self.assertEqual(report_path, "Snapshot.Report")
+            report = project / report_path
+            definition = json.loads((report / "definition.pbir").read_text(encoding="utf-8"))
+            self.assertEqual(definition["datasetReference"]["byPath"]["path"],
+                             "../Snapshot.SemanticModel")
+            pages = json.loads((report / "definition" / "pages" / "pages.json")
+                               .read_text(encoding="utf-8"))
+            self.assertEqual(len(pages["pageOrder"]), 1)
+            page = json.loads((report / "definition" / "pages" / pages["pageOrder"][0]
+                               / "page.json").read_text(encoding="utf-8"))
+            self.assertEqual(page["displayName"], "BusinessObjects Migration")
+            self.assertEqual(list(report.rglob("visual.json")), [])
+            validation = ArtifactValidator.validate_project(project)
+            self.assertTrue(validation["valid"], validation["errors"])
+
+    def test_empty_report_shell_does_not_replace_an_existing_report(self):
+        extracted = extract_webi_snapshot(self.snapshot, CONNECTION)
+        converted = adapt_bo_to_converted_objects(extracted)
+
+        with tempfile.TemporaryDirectory() as directory:
+            project = Path(directory) / "Snapshot"
+            report = project / "Snapshot.Report"
+            report.mkdir(parents=True)
+            sentinel = report / "existing.txt"
+            sentinel.write_text("existing report", encoding="utf-8")
+            descriptor = project / "Snapshot.pbip"
+            descriptor.write_text("existing project", encoding="utf-8")
+
+            with self.assertRaises(FileExistsError):
+                PowerBIProjectGenerator(directory).generate_project("Snapshot", converted)
+
+            self.assertEqual(sentinel.read_text(encoding="utf-8"), "existing report")
+            self.assertEqual(descriptor.read_text(encoding="utf-8"), "existing project")
+            self.assertFalse((project / "Snapshot.SemanticModel").exists())
 
     def test_only_single_statement_providers_are_used_and_names_stay_unique(self):
         snapshot = copy.deepcopy(self.snapshot)

@@ -1,14 +1,74 @@
-"""Write a partial REP inventory and optional pre-migration reports."""
+"""Inspect a REP or check Desktop Intelligence COM registration."""
 
 import argparse
 import json
 import sys
+import uuid
 import zipfile
 import zlib
 from contextlib import ExitStack
 from pathlib import Path
 
 from bo_export.desktop_intelligence_extractor import inspect_desktop_intelligence
+from powerbi_import.file_io import open_new_text
+
+
+def _deski_registration_status(winreg, view):
+    access = winreg.KEY_READ | view
+    try:
+        with winreg.OpenKey(
+            winreg.HKEY_CLASSES_ROOT, r"BusinessObjects.Application", 0, access
+        ):
+            pass
+    except FileNotFoundError:
+        return "absent"
+
+    try:
+        with winreg.OpenKey(
+            winreg.HKEY_CLASSES_ROOT, r"BusinessObjects.Application\CLSID", 0, access
+        ) as key:
+            clsid, _ = winreg.QueryValueEx(key, None)
+        if not isinstance(clsid, str):
+            return "incomplete"
+        clsid = "{" + str(uuid.UUID(clsid)).upper() + "}"
+    except (FileNotFoundError, ValueError, AttributeError):
+        return "incomplete"
+
+    for kind in ("LocalServer32", "InprocServer32"):
+        try:
+            with winreg.OpenKey(
+                winreg.HKEY_CLASSES_ROOT, f"CLSID\\{clsid}\\{kind}", 0, access
+            ) as key:
+                server, _ = winreg.QueryValueEx(key, None)
+            if isinstance(server, str) and server.strip():
+                return "registered"
+        except FileNotFoundError:
+            continue
+    return "incomplete"
+
+
+def _check_deski_sdk():
+    if sys.platform != "win32":
+        print("DeskI SDK registration check requires Windows.", file=sys.stderr)
+        return 2
+    import winreg
+
+    try:
+        views = {
+            "32_bit": _deski_registration_status(winreg, winreg.KEY_WOW64_32KEY),
+            "64_bit": _deski_registration_status(winreg, winreg.KEY_WOW64_64KEY),
+        }
+    except OSError as error:
+        print(f"DeskI SDK registry check failed: {error}", file=sys.stderr)
+        return 2
+    print(json.dumps({
+        "registration": views,
+        "checks_not_run": [
+            "com_activation", "client_license", "cms_login", "document_open",
+            "provider_sql_capture", "report_layout_and_prompts", "query_execution",
+        ],
+    }, indent=2))
+    return 0 if "registered" in views.values() else 1
 
 
 def _write_new_deski_outputs(outputs):
@@ -18,7 +78,7 @@ def _write_new_deski_outputs(outputs):
         with ExitStack() as stack:
             handles = []
             for path, content in outputs:
-                handle = stack.enter_context(path.open("x", encoding="utf-8", newline="\n"))
+                handle = stack.enter_context(open_new_text(path))
                 created.append(path)
                 handles.append((handle, content))
             for handle, content in handles:
@@ -41,8 +101,13 @@ def _write_new_deski_outputs(outputs):
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--source", required=True, help="Local Desktop Intelligence .rep file")
-    parser.add_argument("--output", required=True, help="New JSON file; may contain sensitive SQL")
+    mode = parser.add_mutually_exclusive_group(required=True)
+    mode.add_argument("--source", help="Local Desktop Intelligence .rep file")
+    mode.add_argument(
+        "--check-sdk", action="store_true",
+        help="Check Windows COM registration without starting or connecting to DeskI",
+    )
+    parser.add_argument("--output", help="New JSON file; may contain sensitive SQL")
     parser.add_argument(
         "--migration-report", help="Optional new JSON pre-migration report; protect metadata"
     )
@@ -50,6 +115,12 @@ def main(argv=None):
         "--html-report", help="Optional new HTML pre-migration report; protect metadata"
     )
     args = parser.parse_args(argv)
+    if args.check_sdk:
+        if args.output is not None or args.migration_report is not None or args.html_report is not None:
+            parser.error("--check-sdk does not accept output options")
+        return _check_deski_sdk()
+    if args.output is None:
+        parser.error("--source requires --output")
     try:
         output = Path(args.output)
         if output.suffix.lower() != ".json":
