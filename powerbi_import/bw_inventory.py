@@ -595,6 +595,87 @@ def assess_bw0(snapshot: Any) -> dict:
     }
 
 
+def trace_declared_lineage(
+    snapshot: Any, selected_object_id: Any, scope_object_ids: Any,
+) -> dict:
+    """Trace declared dependencies within an explicit object scope.
+
+    This is a report over validated local declarations only. It does not verify
+    source lineage, runtime behavior, or inventory completeness.
+    """
+    inventory = validate_snapshot(snapshot)
+    _string(selected_object_id, "$.selected_object_id")
+    object_ids = {item["id"] for item in inventory["objects"]}
+    if selected_object_id not in object_ids:
+        _fail("$.selected_object_id", "must reference a known object")
+
+    if not isinstance(scope_object_ids, list):
+        _fail("$.scope_object_ids", "must be an explicit array")
+    scoped_ids = set()
+    for index, object_id in enumerate(scope_object_ids):
+        path = f"$.scope_object_ids[{index}]"
+        _string(object_id, path)
+        if object_id in scoped_ids:
+            _fail(path, "scope object identifiers must be unique")
+        if object_id not in object_ids:
+            _fail(path, "must reference a known object")
+        scoped_ids.add(object_id)
+    if selected_object_id not in scoped_ids:
+        _fail("$.scope_object_ids", "must contain the selected object")
+
+    # Build an undirected traversal index in manifest order while retaining
+    # each declaration's original direction in the reported edge.
+    adjacency = {object_id: [] for object_id in scoped_ids}
+    for edge in inventory["dependencies"]:
+        if edge["resolution_status"] != "resolved":
+            continue
+        source_id, target_id = edge["source_id"], edge["target_id"]
+        if source_id in scoped_ids and target_id in scoped_ids:
+            adjacency[source_id].append(target_id)
+            adjacency[target_id].append(source_id)
+
+    reached = [selected_object_id]
+    reached_ids = {selected_object_id}
+    pending = [selected_object_id]
+    next_pending = 0
+    while next_pending < len(pending):
+        current = pending[next_pending]
+        next_pending += 1
+        for neighbor in adjacency[current]:
+            if neighbor not in reached_ids:
+                reached_ids.add(neighbor)
+                reached.append(neighbor)
+                pending.append(neighbor)
+
+    traversed = [
+        copy.deepcopy(edge)
+        for edge in inventory["dependencies"]
+        if edge["resolution_status"] == "resolved"
+        and edge["source_id"] in reached_ids
+        and edge["target_id"] in reached_ids
+    ]
+    unresolved = [
+        copy.deepcopy(edge)
+        for edge in inventory["dependencies"]
+        if edge["resolution_status"] != "resolved"
+        and (edge["source_id"] in reached_ids or edge["target_id"] in reached_ids)
+    ]
+    return {
+        "assessment": "declared_lineage_trace",
+        "selected_object_id": selected_object_id,
+        "scope_object_ids": list(scope_object_ids),
+        "reached_object_ids": reached,
+        "traversed_dependencies": traversed,
+        "unresolved_dependencies": unresolved,
+        "evidence_boundary": "validated_local_inventory_declarations_only",
+        "verification_boundaries": {
+            "source": "unverified",
+            "runtime": "not_run",
+            "completeness": "unverified",
+        },
+    }
+
+
 def _draft_01_shape(snapshot: Any) -> dict:
     if not isinstance(snapshot, dict):
         _fail("$", "draft snapshot must be an object")
@@ -777,5 +858,5 @@ def load_snapshot(path: str | Path) -> dict:
 __all__ = [
     "BWInventoryError", "CURRENT_SCHEMA_VERSION", "DRAFT_SCHEMA_VERSION",
     "sanitize_snapshot", "validate_snapshot", "assess_bw0", "load_snapshot",
-    "upgrade_snapshot",
+    "upgrade_snapshot", "trace_declared_lineage",
 ]

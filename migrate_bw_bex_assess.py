@@ -16,7 +16,7 @@ from powerbi_import.bw_inventory import BWInventoryError, load_snapshot
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--inventory", required=True, help="Local BW inventory snapshot JSON (1.0)")
-    parser.add_argument("--semantics", required=True, help="Local BEx semantic manifest JSON (1.0)")
+    parser.add_argument("--semantics", required=True, help="Local BEx semantic manifest JSON (1.0, 1.1, and 1.2)")
     parser.add_argument("--output", required=True, help="New JSON report path; existing files are not overwritten")
     args = parser.parse_args(argv)
 

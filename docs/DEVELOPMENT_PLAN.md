@@ -183,6 +183,371 @@
   clean up or restore earlier artifacts. Source extraction, conversion, target
   generation and quality metrics are outside this remote-operation slice.
 
+## Next BEx, InfoCube and SAP BW roadmap — 2026-11-23
+
+**Planning only; no implementation or release authorization.** This sequence
+refines BW-0–BW-8 below without replacing their dated evidence, open gates or
+the parallel CI recovery work. Priorities order dependencies and risk, not
+dates. Local declaration work can proceed independently of blocked native
+source evidence; neither is proof of SAP identity or feature parity.
+
+### Baseline and decision boundaries
+
+- **Implemented locally, partial:** [BW inventory](schemas/sap_bw_inventory.schema.json)
+  1.0 records declared objects and edges; [BEx semantic capture](schemas/sap_bw_bex_semantics.schema.json)
+  1.0/1.1 records query, variables, filters, hierarchies, key-figure and
+  authorization declarations. The [synthetic BEx fixture](fixtures/sap_bw_bex_semantics.partial.example.json)
+  has a filter but incomplete hierarchy and exception-aggregation evidence.
+  The assessor checks direct query/provider and consumer edges, not transitive
+  provider composition or SAP origin. The schema does not distinguish
+  restricted from calculated key figures.
+- **Implemented locally, partial:** the [PBIP plan](schemas/sap_bw_bex_pbip_plan.schema.json)
+  1.0–1.6 describes one manually navigated BW cube, Import columns, optional
+  local BEx linkage, explicit parameters/member properties and an optional
+  column-only review table. Linked output reports selected key figures and
+  variables plus counts, coverage and declared filter and hierarchy IDs and
+  statuses for unconverted semantics. BW columns suppress implicit
+  summarization; no BEx DAX measure is generated. This is a BW-connected
+  transition draft, not an independent replacement.
+- **Implemented locally, partial:** the [BEx vector contract](schemas/sap_bw_bex_result_vectors.schema.json)
+  compares declared rows, keys, measures and matching context strings. Its
+  [synthetic example](fixtures/sap_bw_bex_result_vectors.example.json) is not
+  an independent SAP capture. References, `complete` declarations, matching
+  hashes and a comparison pass do not authenticate evidence or establish
+  coverage. Zero observations carry a limitation, not measure agreement.
+- **Unsupported / unverified:** SAP discovery and native InfoCube identity,
+  general BEx/ABAP conversion, automatic provider composition, BW analysis
+  authorization equivalence and BW-independent ingestion are not established.
+  The inventory has `infocube`, `adso`, `infoprovider` and
+  `composite_provider` types, but no dedicated `multiprovider` type. Do not
+  silently equate generic `infoprovider` with MultiProvider; MultiProvider-specific
+  typed assessment is planned, not current coverage. A direct CompositeProvider
+  edge is a declaration, not its joins or unions.
+- **Connector evidence gate:** `bo_export/m_query_builder.py` already emits
+  `Implementation="2.0"`. Microsoft Learn's
+  [implementation details](https://learn.microsoft.com/en-us/power-query/connectors/sap-bw/implementation-details)
+  say `ScaleMeasures` is deprecated and values are unscaled; scaling and
+  reversed-sign display behavior must not be assumed equivalent. Check actual
+  units, currency, dates/times and execution settings against the selected
+  source and target. The
+  [Fabric SAP BW application-server connector guidance](https://learn.microsoft.com/en-us/fabric/data-factory/connector-sap-bw-application-server)
+  distinguishes Dataflow Gen2 prerequisites and Copy authentication support.
+  Confirm supported versions, drivers, gateway and authentication for the
+  chosen route rather than assuming them. Connectivity is coexistence, not
+  a BW-independent replacement; these links are not runtime evidence.
+- **Common implementation gate:** `Tester` runs the focused tests named below,
+  `tests/test_agent_contracts.py` when contracts/ownership are affected, and
+  `python -m pytest tests/ --tb=short -q` for every implementation slice.
+  Preserve old contract versions, exact Unicode identifiers and negative
+  cases; run relevant schema/fixture and CLI tests. Do not lower assertions,
+  lint/type checks or the unchanged 80% CI coverage gate. Historical CI
+  baselines above are not current measurements; hosted CI is `not_run`.
+  `Documentation Guardian` reviews capability and documentation claims before
+  and after any authorized implementation.
+
+### P1-A delivered — identify unconverted filter and hierarchy declarations
+
+- **Outcome / evidence:** the linked PBIP's `bex_linkage_assessment.json`
+  now includes
+  `bex_semantics_not_converted.unconverted_filter_declarations` and
+  `bex_semantics_not_converted.unconverted_hierarchy_declarations`. Each
+  list contains only `{id, status}` from the validated local manifest, in
+  manifest order. Previously the summary exposed counts and coverage but
+  not these individual IDs.
+- **Hypothesis / delivered change:** additive report-only lists make declared
+  omissions traceable without converting them; a missing/duplicated ID,
+  changed order or list suggesting conversion falsifies that hypothesis.
+  Existing counts, coverage, warning, gate, report schema version and
+  `native_infocube_identity_verification: not_verified` remain unchanged.
+- **Owner / scope:** `Orchestrator` owns
+  `migrate_bw_bex_pbip.py` and its linkage evidence; `Tester` owns
+  `tests/test_migrate_bw_bex_pbip.py`. This changes reporting only: no new
+  input schema, M, DAX, model, visual, extraction, comparison or remote
+  behavior. The new lists exclude names, selectors, evidence references and
+  literals; identifiers themselves still require appropriate data handling.
+- **Dependencies:** existing valid linked plan and local manifest only;
+  **no native identity sample or SAP access required**. The additive report
+  fields may affect consumers that reject unknown fields; existing plan
+  versions and report fields remain supported.
+- **Local validation / exit:** `Tester`'s regression checks Unicode, order,
+  statuses, empty lists, absence of names/selectors/evidence/literals, and
+  existing counts, coverage, warning, native identity and schema compatibility.
+  The parent reports focused
+  `python -m pytest tests\test_migrate_bw_bex_pbip.py --tb=short -q` exit 0
+  (31 tests in `Tester`'s run); full
+  `python -m pytest -o 'addopts=' tests\ --tb=short -q` passed 945 tests,
+  1 skipped and 1333 subtests; required
+  `python -m pytest tests\ --tb=short -q` exited 0; `git diff --check` passed.
+  This is local report traceability, not BW-5 closure.
+- **Risk / non-goal:** declarations do not establish source completeness,
+  native SAP identity or filter/hierarchy semantics; zero items do not prove
+  absence in SAP. Native InfoCube identity remains `not_verified`; SAP,
+  Desktop/Power BI and Fabric runtime checks remain `not_run`.
+
+### P1-B — owner-approved native InfoCube identity (blocked)
+
+- **Outcome / evidence:** distinguish the declared provider from the actual
+  native InfoCube before source-backed linkage or measure generation. Current
+  plan cube ID, inventory `id`/`name`/`source_reference`, client and direct
+  edge do not define a verified native identity mapping.
+- **Hypothesis / first change:** a sanitized sample, provenance and field
+  mapping explicitly approved by the BW source owner can support a bounded
+  local consistency check; absent or ambiguous evidence cannot. First request
+  that sample and mapping; if it does not fit the existing contract, stop for
+  contract review rather than guessing an SAP API or identifier.
+- **Owners / dependencies:** `Assessor` owns offline identity assessment;
+  `Orchestrator` owns any approved linked-PBIP gate/plan changes; `Tester` owns
+  regressions. Source-owner approval and meaning of the native field are
+  **blocking external dependencies**, not dependencies of P1-A or P1-C.
+  Live SAP discovery and direct-feed ownership remain unassigned.
+- **Validation / exit:** after approval, exercise unique match, mismatch,
+  missing, ambiguous and wrong-client cases, before-output refusal where
+  applicable, and v1.0–1.6 compatibility; any new mandatory evidence gate
+  needs an explicitly versioned opt-in so existing plans retain their prior
+  behavior and unverified disclosure. Run
+  `tests/test_bw_inventory_contract.py`, `tests/test_bw_bex_assessment.py`,
+  `tests/test_migrate_bw_bex_pbip.py` and the common suite. Local exit requires
+  traceability to the approved mapping and an honest distinction between a
+  declaration check and live verification. SAP confirmation is `not_run`
+  until separately authorized and performed.
+- **Risk / non-goal:** this does not prove query membership, business grain,
+  selectors or BEx equivalence; no source access or semantic conversion is
+  authorized by obtaining a sample.
+
+### P1-C delivered — declare key-figure kinds without converting them
+
+- **Outcome / verified contract:** semantic manifest schema/validator v1.2
+  supports a per-key-figure `kind` of `basic`, `restricted`, `calculated` or
+  `unknown`; it continues to require the v1.1 provider bindings. Schema
+  versions 1.0 and 1.1 retain legacy acceptance. CLI help now identifies
+  manifest versions 1.0/1.1/1.2. Assessment report shape/schema remains 1.0
+  for manifest 1.0/1.1; manifest 1.2 produces assessment output schema 1.1
+  with `key_figure_kinds` entries containing `key_figure_id`, `declared_kind`,
+  `declaration_boundary` and `assessment`. Its `verification` records
+  identity/provenance and equivalence as `unverified`.
+- **First change / evidence:** the versioned addition is declaration-only and
+  exposes kind review without interpreting expressions or asserting source
+  truth. `Dax` reviewed the vocabulary. The labels are bounded: `basic` does
+  not imply additive, `SUM`, or aggregation-safe; `restricted` and
+  `calculated` do not capture restriction/formula/dependencies and are not
+  converted; `unknown` is explicitly unresolved. No kind changes gates,
+  `gate_closed` remains false, and runtime status remains `not_run`.
+- **Owners / dependencies / scope:** `Assessor` owns the offline manifest and
+  assessment contract; `Tester` owns regressions; `Dax` reviewed terminology,
+  not conversion. Local declarations only; independent of P1-B. P1-B native
+  InfoCube identity remains blocked. No parser, expression evaluation, target
+  generation, semantic conversion or SAP access is included.
+- **Validation / exit:** focused
+  `python -m pytest tests\test_bw_bex_assessment.py --tb=short -q` passed:
+  20 passed, 49 subtests. Parent validation:
+  `python -m pytest -o 'addopts=' tests\ --tb=short -q` passed 948 tests,
+  1 skipped and 1352 subtests; required
+  `python -m pytest tests\ --tb=short -q` exited 0. `py_compile`, JSON parse
+  and `git diff --check` passed. This closes the local declaration contract
+  only; it does not establish that any real SAP key figure has its declared
+  kind or semantics.
+- **Risk / non-goal:** kind alone omits formulas, nested restrictions,
+  dependencies, units, exception aggregation and context. It establishes no
+  aggregation safety, conversion, source identity, provenance or equivalence;
+  no measures are generated from it.
+
+### P1-D — query semantics and source-backed mapping (blocked for conversion)
+
+- **Outcome / evidence:** map one selected BEx query's variables, filters,
+  hierarchy and key figures to an agreed target design, without confusing a
+  selector or variable-ID association with source behavior. Plan 1.5 links
+  variable IDs to manually specified parameter selectors and literal lists;
+  it does not establish prompt defaults, range/exclusion semantics or results.
+- **Hypothesis / first change:** one source-owner-approved, sanitized query
+  definition, field mapping and independently captured cases can resolve a
+  single feature's source meaning. Request these plus query/provider identity,
+  formula/restriction definitions, fiscal and time-dependent hierarchy
+  context, units/currency and authorization scope. Until approved, synthetic
+  documentation and P1-A/P1-C declarations are safe; parser and semantic
+  translation are blocked. A matching declared hash alone is insufficient.
+- **Owners / dependencies:** `Assessor` owns the offline BEx contract;
+  `Extractor` is a proposed local parser collaborator only after source format
+  and ownership are agreed; `Wiring` owns M, `Semantic` the model, `Dax`
+  formulas, `Visual` the report and `Evidence` comparisons. Assign a live
+  SAP connectivity owner before any live implementation. Identity for an
+  InfoCube-linked conversion depends on P1-B; use BW-0/1 scope and BW-6
+  controls. Source/business-owner review is separate from repository roles.
+- **Validation / exit:** plan separate feature cases for mandatory/optional
+  variables, defaults and ranges/exclusions; fixed versus dynamic filters;
+  hierarchy version, level, parent/child and time validity; plus query grain,
+  fiscal periods, nulls and units. Include positive and negative/mismatched
+  local declarations in `tests/test_bw_bex_assessment.py` and
+  `tests/test_sap_bw_m_query.py`, relevant owner tests and the common suite.
+  A feature exits only with approved mapping and independently obtained
+  source/target results at agreed role, prompts and grain; otherwise it stays
+  blocked. SAP and Power BI execution are `not_run` here.
+- **Risk / non-goal:** no automatic BEx query/report translation, source
+  identity, hierarchy or prompt parity follows from a static M expression.
+
+### P2-A — bounded key-figure semantics, not general formula migration
+
+- **Outcome / evidence:** independently validate a single selected key figure
+  before considering target generation. The 1.1 manifest can record exception
+  aggregation and currency, but neither a provider binding nor a `SUM` label
+  proves safe aggregation; implicit BW column summarization is disabled.
+- **Hypothesis / first change:** after P1-B/P1-D, an owner-approved additive
+  basic figure with no exception aggregation and explicit unit/currency rules
+  can be evaluated against independently captured detailed and total cases.
+  First define that one case and its exclusions; only then scope any opt-in
+  DAX/model measure. Restricted and calculated figures require separate
+  approved selection/formula, dependency and evaluation-context mappings;
+  exception aggregation additionally needs its reference characteristic,
+  inner/outer grain, totals and hierarchy/time context. Unknowns block.
+- **Owners / dependencies:** `Dax` owns any formula conversion, `Semantic`
+  target model, `Assessor` source declarations, `Evidence` result comparison
+  and `Tester` tests. Requires native identity, approved query and semantics,
+  source-to-target mapping, independently captured vectors and business
+  approval of units, rounding and tolerances. P1-C classification alone is not
+  sufficient.
+- **Validation / exit:** synthetic local tests for detail versus totals,
+  nulls, duplicates, scale/sign display versus underlying values, mixed
+  units/currencies, date/time typing and rejection of restriction, formula or
+  exception-aggregation unknowns; run
+  `tests/test_bw_bex_assessment.py`, `tests/test_sap_bw_m_query.py`,
+  `tests/test_bw_reconciliation.py`, affected DAX/model tests and the common
+  suite. Real-case exit additionally compares approved SAP and target results
+  across grain, role, period and hierarchy levels and records discrepancies
+  and owner acceptance. Runtime is `not_run`; no general RKF/CKF or exception
+  aggregation conversion is promised.
+- **Risk / non-goal:** matching detail rows may still yield wrong grand totals;
+  do not generate a guessed measure or weaken evidence thresholds.
+
+### P1/P2-B — provider lineage and source mapping
+
+- **Outcome / evidence:** the bounded local declaration-trace slice is
+  implemented as `trace_declared_lineage(snapshot, selected_object_id,
+  scope_object_ids)` in `powerbi_import/bw_inventory.py`. It validates an
+  explicit unique scope of known objects containing the selected object,
+  traverses resolved declarations in either direction with cycle-safe O(V+E)
+  BFS, and preserves each declaration's direction and status in the report.
+  Unresolved or unknown declarations touching reached objects are reported,
+  not traversed. This is report-only local evidence: BW-0/BW-5 gates are
+  unchanged. The
+  [partial inventory fixture](fixtures/sap_bw_inventory.partial.example.json)
+  remains incomplete; MultiProvider has no dedicated inventory type and
+  provider composition or transitive lineage completeness is not established.
+- **Hypothesis / first change:** the bounded first change is delivered by
+  `Assessor` in `powerbi_import/bw_inventory.py`, with graph tests owned by
+  `Tester`. It exposes declarations within the caller's explicit scope without
+  inferring composition from names or claiming that reachability proves
+  dependency semantics. Keep MultiProvider as a documented unknown/generic
+  declaration until a reviewed versioned contract distinguishes it; do not
+  classify a generic InfoProvider automatically. Synthetic local graph work
+  does not need P1-B.
+- **Dependencies / later source work:** source-owner approvals remain blocked
+  for actual object identities, provider membership, ADSO activation/change/
+  delete and history, InfoCube identity, grain and aggregation,
+  CompositeProvider joins/unions, MultiProvider harmonization/precedence,
+  master data and upstream mappings. Provider composition and lineage
+  completeness remain unverified. `Fabric` owns any later staged mapping;
+  source-definition parsing and direct-feed owners/formats must be explicitly
+  assigned before implementation.
+- **Validation / exit:** focused three-file validation passed:
+  `tests/test_bw_inventory_contract.py`,
+  `tests/test_bw_inventory_assessment.py` and
+  `tests/test_bw_bex_assessment.py`; the assessment file passed 13 tests. The
+  full suite command `python -m pytest tests/ --tb=short -q` exited 0 (quiet
+  output omitted the numeric summary). Source-backed exit needs an approved
+  inventory and mapping per edge, identity, grain and disposition; unknown
+  composition blocks its wave. Runtime is `not_run`. No generic provider
+  conversion.
+- **Risk / non-goal:** a reachable graph does not prove source coverage,
+  join cardinality, data correctness or absence of unrecorded dependencies
+  or hidden consumers.
+
+### P1/P2-C — security and operational controls
+
+- **Outcome / evidence:** track one role's allowed and denied access and
+  planning/compliance obligations independently of a model draft. The
+  [BW controls contract](schemas/sap_bw_controls.schema.json) and
+  [partial fixture](fixtures/sap_bw_controls.partial.example.json) record
+  declarations and fixed `not_run` scenarios, not deployed authorization.
+- **Hypothesis / first change:** an owner-reviewed role-by-data matrix and
+  explicit planning/write-back, audit, retention and recovery dispositions
+  can reveal a missing control. First obtain sanitized owner-approved
+  scenarios; local synthetic negative cases may proceed without SAP identity.
+  `Assessor` owns controls assessment; `Semantic` designs applicable RLS;
+  `Deployer` owns separately authorized binding/access execution; `Evidence`
+  records results; `Tester` owns tests.
+- **Dependencies / validation:** query/provider scope, named security,
+  business and compliance owners, identity and target design. Test missing
+  owners, unknown scope, both allowed/denied scenarios and undeclared planning
+  obligations in `tests/test_bw_controls_assessment.py`, plus common suite.
+  Exit requires separately authorized role impersonation and allow/deny tests,
+  planning locks/write-back/recovery where applicable, and owner sign-off.
+- **Risk / non-goal:** local RLS or a reference is not authorization proof;
+  unsupported write-back or missing retention disposition blocks retirement.
+
+### P2-D — staged Fabric versus BW-connected transition
+
+- **Outcome / evidence:** choose and evidence two distinct routes. The Import
+  PBIP still queries BW on refresh; staged Bronze reads explicitly staged
+  Parquet, and the bounded conversion notebook supports declared transfers,
+  typed constants and same-scale decimal add/subtract. These local artifacts
+  do not extract BW, parse ABAP or create an independent upstream feed.
+- **Hypothesis / first change:** a frozen source snapshot plus a separately
+  sourced delta feed and reviewed transformations can sustain one target
+  without BW. First obtain owner-approved snapshot grain, upstream field
+  mapping, watermark, delete/replay contract and source definition; identify
+  and assign the direct-feed owner. A BW connector or BW-managed queue in the
+  steady state falsifies independence.
+- **Owners / dependencies:** `Fabric` owns staged notebook generation and
+  `Orchestrator` its CLIs; `Assessor` source declarations, `Evidence`
+  snapshot/handoff/vector checks, `Deployer` authorized binding/runtime and
+  `Tester` tests. Depends on P1/P2-B, BW-2/3/4 and source-owner approvals;
+  source extraction and any direct-upstream connector are separate, currently
+  unassigned implementation surfaces.
+- **Validation / exit:** local cases cover snapshot counts and keys, duplicate,
+  overlap/gap, late arrival, delete, restart and drift, rule/hash mismatch and
+  no-overwrite. For any separately authorized BW-connected route, verify
+  applicable connector version, driver, gateway, authentication, execution
+  settings, date/time and scale/unit behavior with the actual source and
+  target. Run `tests/test_bw_bronze_generator.py`,
+  `tests/test_bw_handoff.py`, `tests/test_bw_transform_generator.py`,
+  `tests/test_bw_transform_validation.py`, `tests/test_bw_reconciliation.py`
+  and common suite. Operational exit requires authorized SAP/source and Fabric
+  execution, independently captured reconciliation, recovery and an observed
+  BW-unavailable period; all are `not_run` here.
+- **Risk / non-goal:** a staged snapshot alone does not provide continuity,
+  transformation equivalence, security or retirement.
+
+### P2/P3-E — independent evidence, transition and cutover
+
+- **Outcome / evidence:** accept each consumer and wave only on independently
+  reviewed feature and operational evidence. BEx vector comparison checks
+  supplied context strings and rows; BW-7/8 assess declarations, and BW-8
+  checks direct incident edges only. Neither authenticates references or
+  authorizes cutover.
+- **Hypothesis / first change:** independent captures for the same query,
+  prompt, access role, filter, hierarchy, period and grain expose mismatched
+  values and totals. `Evidence` first prepares feature-scoped positive and
+  negative synthetic comparison cases, retaining the already implemented
+  zero-observation limitation; do not interpret the vector field `role` or a
+  reference as authenticated identity.
+  `Reviewer` reviews acceptance, `Orchestrator` coordinates the wave, and
+  `Tester` owns regressions.
+- **Dependencies / validation:** BW-0–BW-7, approved independent feeds,
+  feature and security evidence, source/business/security/compliance and
+  operations owners, tolerances, parallel-run window and rollback objectives.
+  Run `tests/test_bw_reconciliation.py`, `tests/test_bw_wave_evidence_index.py`,
+  `tests/test_bw_cutover_assessment.py` and the common suite. Test context
+  mismatch, zero observations, duplicate/missing keys, failed evidence,
+  unresolved dependencies and absent approvals; no gate closes from a local
+  candidate status.
+- **Exit / risks / non-goals:** independently capture and review SAP and Power
+  BI/Fabric results, refresh, access and consumer acceptance; exercise
+  rollback, demonstrate all feeds and consumers while BW is unavailable,
+  reconcile unresolved exceptions and obtain separate go/no-go and retirement
+  approvals. SAP, Desktop/Power BI, Fabric, live access, refresh, rollback,
+  cutover, retirement and owner approval are all `not_run` here; source
+  authenticity remains `not_verified`. No automatic decommission or broad
+  equivalence claim follows.
+
 ## Next actionable roadmap — 2026-11-22
 
 This sequence is **planned**, not authorization to implement or release. It

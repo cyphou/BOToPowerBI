@@ -178,6 +178,13 @@ class TestBWBExAssessment(unittest.TestCase):
         self.inventory = _inventory()
         self.manifest = _manifest()
 
+    def _v12_manifest(self, kind="basic"):
+        manifest = copy.deepcopy(self.manifest)
+        manifest["schema_version"] = "1.2"
+        manifest["key_figures"][0]["kind"] = kind
+        manifest["provider_key_figure_bindings"] = []
+        return manifest
+
     def _assert_invalid(self, manifest):
         with self.assertRaises(BWBExAssessmentError):
             validate_bex_semantics(manifest)
@@ -481,6 +488,125 @@ class TestBWBExAssessment(unittest.TestCase):
             copy.deepcopy(manifest["provider_key_figure_bindings"][0])
         )
         self._assert_invalid(manifest)
+
+    def test_v12_requires_kind_and_bindings_and_rejects_duplicate_key_figure_ids(self):
+        for kind in ("basic", "restricted", "calculated", "unknown"):
+            with self.subTest(kind=kind):
+                validate_bex_semantics(self._v12_manifest(kind))
+
+        manifest = self._v12_manifest()
+        del manifest["key_figures"][0]["kind"]
+        with self.subTest("missing kind"):
+            self._assert_invalid(manifest)
+
+        for invalid_kind in ("Basic", "formula", "", None, 1):
+            manifest = self._v12_manifest(invalid_kind)
+            with self.subTest(invalid_kind=invalid_kind):
+                self._assert_invalid(manifest)
+
+        for version in ("1.0", "1.1"):
+            manifest = self._v12_manifest()
+            manifest["schema_version"] = version
+            if version == "1.0":
+                del manifest["provider_key_figure_bindings"]
+            with self.subTest(kind_forbidden_in_legacy_version=version):
+                self._assert_invalid(manifest)
+
+        manifest = self._v12_manifest()
+        del manifest["provider_key_figure_bindings"]
+        with self.subTest("v1.2 requires provider bindings field"):
+            self._assert_invalid(manifest)
+
+        manifest = self._v12_manifest()
+        manifest["key_figures"].append(copy.deepcopy(manifest["key_figures"][0]))
+        with self.subTest("duplicate key-figure IDs"):
+            self._assert_invalid(manifest)
+
+        manifest = self._v12_manifest()
+        binding = {
+            "key_figure_id": "kf-net-sales",
+            "provider_id": "provider-id",
+            "provider_measure_name": "Net sales amount",
+            "status": "observed",
+            "evidence_reference": "synthetic://evidence/key-figure-binding",
+        }
+        manifest["provider_key_figure_bindings"] = [
+            copy.deepcopy(binding), copy.deepcopy(binding),
+        ]
+        with self.subTest("duplicate binding key-figure IDs"):
+            self._assert_invalid(manifest)
+
+    def test_v12_kind_assessments_are_declaration_only_and_do_not_change_gates(self):
+        expected_assessments = {
+            "basic": "aggregation_safety_and_conversion_unverified",
+            "restricted": "not_converted; restriction_details_unverified",
+            "calculated": "not_converted; formula_and_dependencies_unverified",
+            "unknown": "unresolved",
+        }
+        baseline = None
+        for kind, assessment in expected_assessments.items():
+            with self.subTest(kind=kind):
+                report = assess_bex_semantics(
+                    _candidate_inventory(), self._v12_manifest(kind)
+                )
+                self.assertEqual(report["schema_version"], "1.1")
+                self.assertFalse(report["gate_closed"])
+                self.assertEqual(
+                    report["key_figure_kinds"],
+                    [{
+                        "key_figure_id": "kf-net-sales",
+                        "declared_kind": kind,
+                        "declaration_boundary": (
+                            "declaration_only; no expression or behavior captured"
+                        ),
+                        "assessment": assessment,
+                    }],
+                )
+                self.assertEqual(report["verification"], {
+                    "identity": "unverified",
+                    "provenance": "unverified",
+                    "equivalence": "unverified",
+                })
+                self.assertTrue(report["runtime_evidence"])
+                self.assertEqual(
+                    set(report["runtime_evidence"].values()), {"not_run"}
+                )
+                if baseline is None:
+                    baseline = report
+                else:
+                    self.assertEqual(report["gate_status"], baseline["gate_status"])
+                    self.assertEqual(report["findings"], baseline["findings"])
+
+    def test_v10_and_v11_keep_legacy_report_schema_and_findings(self):
+        legacy_v10 = copy.deepcopy(self.manifest)
+        report_v10 = assess_bex_semantics(_candidate_inventory(), legacy_v10)
+        self.assertEqual(report_v10["schema_version"], "1.0")
+        self.assertEqual(report_v10["gate_status"], "candidate_for_owner_review")
+        self.assertEqual(
+            {item["code"] for item in report_v10["findings"]},
+            {
+                "bex_key_figure_provider_mapping_not_assessed",
+                "consumer_acceptance_not_run",
+            },
+        )
+        self.assertNotIn("key_figure_kinds", report_v10)
+        self.assertNotIn("verification", report_v10)
+
+        legacy_v11 = copy.deepcopy(legacy_v10)
+        legacy_v11["schema_version"] = "1.1"
+        legacy_v11["provider_key_figure_bindings"] = []
+        report_v11 = assess_bex_semantics(_candidate_inventory(), legacy_v11)
+        self.assertEqual(report_v11["schema_version"], "1.0")
+        self.assertEqual(report_v11["gate_status"], "open")
+        self.assertEqual(
+            {item["code"] for item in report_v11["findings"]},
+            {
+                "bex_key_figure_provider_mapping_missing",
+                "consumer_acceptance_not_run",
+            },
+        )
+        self.assertNotIn("key_figure_kinds", report_v11)
+        self.assertNotIn("verification", report_v11)
 
     def test_documented_partial_semantics_fixture_assesses_open_with_runtime_not_run(self):
         manifest_path = (

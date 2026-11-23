@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "urn:bo-to-powerbi:schema:sap-bw-bex-semantics:1.1",
+  "$id": "urn:bo-to-powerbi:schema:sap-bw-bex-semantics:1.2",
   "title": "SAP BW BEx semantic capture",
   "description": "Strict offline declaration of selected BEx query semantics and direct key-figure bindings; not a parser or formula conversion contract.",
   "type": "object",
@@ -11,7 +11,7 @@
     "consumers"
   ],
   "properties": {
-    "schema_version": { "enum": ["1.0", "1.1"] },
+    "schema_version": { "enum": ["1.0", "1.1", "1.2"] },
     "query": { "$ref": "#/$defs/query" },
     "coverage": { "$ref": "#/$defs/coverage" },
     "variables": { "type": "array", "items": { "$ref": "#/$defs/variable" } },
@@ -30,11 +30,25 @@
   "allOf": [
     {
       "if": {
-        "properties": { "schema_version": { "const": "1.1" } },
+        "properties": { "schema_version": { "enum": ["1.1", "1.2"] } },
         "required": ["schema_version"]
       },
       "then": { "required": ["provider_key_figure_bindings"] },
       "else": { "not": { "required": ["provider_key_figure_bindings"] } }
+    },
+    {
+      "if": {
+        "properties": { "schema_version": { "const": "1.2" } },
+        "required": ["schema_version"]
+      },
+      "then": {
+        "properties": { "key_figures": { "items": { "required": ["kind"] } } }
+      },
+      "else": {
+        "properties": {
+          "key_figures": { "items": { "not": { "required": ["kind"] } } }
+        }
+      }
     }
   ],
   "$defs": {
@@ -167,6 +181,7 @@
       "properties": {
         "id": { "$ref": "#/$defs/text" },
         "name": { "$ref": "#/$defs/text" },
+        "kind": { "enum": ["basic", "restricted", "calculated", "unknown"] },
         "aggregation": { "$ref": "#/$defs/nullableText" },
         "exception_aggregation": { "$ref": "#/$defs/exceptionAggregation" },
         "unit_currency": { "$ref": "#/$defs/unitCurrency" },

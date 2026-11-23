@@ -956,6 +956,8 @@ class TestMigrateBWBExPBIP(unittest.TestCase):
                         "key_figure_semantics": 1,
                         "authorization_contexts": 0,
                     },
+                    "unconverted_filter_declarations": [],
+                    "unconverted_hierarchy_declarations": [],
                 },
             )
             self.assertEqual(
@@ -1171,6 +1173,110 @@ class TestMigrateBWBExPBIP(unittest.TestCase):
                 evidence["bex_semantics_not_converted"]["counts"]["filters"],
                 1,
             )
+
+    def test_unconverted_filter_and_hierarchy_declarations_are_id_status_only(self):
+        plan, inventory, semantics = self._linked_plan_and_evidence()
+        semantics["coverage"]["filters"] = "complete"
+        semantics["coverage"]["hierarchies"] = "complete"
+        semantics["filters"] = [
+            {
+                "id": "fílter-東京-01",
+                "name": "FILTER_NAME_CANARY Ω",
+                "target": "FILTER_SELECTOR_CANARY [0REGION]",
+                "operator": "selection",
+                "selection_reference": "FILTER_LITERAL_CANARY 秘密値-01",
+                "status": "observed",
+                "evidence_reference": "FILTER_EVIDENCE_CANARY",
+            },
+            {
+                "id": "fílter-東京-02",
+                "name": "FILTER_NAME_CANARY 第二",
+                "target": "FILTER_SELECTOR_CANARY [0COUNTRY]",
+                "operator": "exclude",
+                "selection_reference": "FILTER_LITERAL_CANARY 秘密値-02",
+                "status": "inferred",
+                "evidence_reference": "FILTER_EVIDENCE_CANARY_SECOND",
+            },
+        ]
+        semantics["hierarchies"] = [
+            {
+                "id": "階層-東京-01",
+                "characteristic": "HIERARCHY_NAME_CANARY Ω",
+                "hierarchy_reference": "HIERARCHY_SELECTOR_CANARY [0REGION]",
+                "versioning": "static",
+                "selection_behavior_reference": "HIERARCHY_LITERAL_CANARY 選択値-01",
+                "status": "observed",
+                "evidence_reference": "HIERARCHY_EVIDENCE_CANARY",
+            },
+            {
+                "id": "階層-東京-02",
+                "characteristic": "HIERARCHY_NAME_CANARY 第二",
+                "hierarchy_reference": "HIERARCHY_SELECTOR_CANARY [0COUNTRY]",
+                "versioning": "time_dependent",
+                "selection_behavior_reference": "HIERARCHY_LITERAL_CANARY 選択値-02",
+                "status": "inferred",
+                "evidence_reference": "HIERARCHY_EVIDENCE_CANARY_SECOND",
+            },
+        ]
+        expected_coverage = copy.deepcopy(semantics["coverage"])
+        private_declaration_values = (
+            "FILTER_NAME_CANARY",
+            "FILTER_SELECTOR_CANARY",
+            "FILTER_LITERAL_CANARY",
+            "FILTER_EVIDENCE_CANARY",
+            "HIERARCHY_NAME_CANARY",
+            "HIERARCHY_SELECTOR_CANARY",
+            "HIERARCHY_LITERAL_CANARY",
+            "HIERARCHY_EVIDENCE_CANARY",
+        )
+
+        with tempfile.TemporaryDirectory() as temporary:
+            output_dir = Path(temporary) / "generated"
+            result = self._run_cli(
+                plan, output_dir, temporary, inventory=inventory, semantics=semantics,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("candidate_for_owner_review", result.stdout)
+            self.assertIn(
+                "declared BEx semantics are not reproduced in this PBIP draft "
+                "(filters=2, hierarchies=2, key_figure_semantics=1)",
+                result.stderr,
+            )
+            evidence = json.loads(
+                (output_dir / "bex_linkage_assessment.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            summary = evidence["bex_semantics_not_converted"]
+            self.assertEqual(summary["counts"], {
+                "variables": 0,
+                "filters": 2,
+                "hierarchies": 2,
+                "master_data": 0,
+                "key_figure_semantics": 1,
+                "authorization_contexts": 0,
+            })
+            self.assertEqual(summary["declared_coverage"], expected_coverage)
+            self.assertEqual(summary["unconverted_filter_declarations"], [
+                {"id": "fílter-東京-01", "status": "observed"},
+                {"id": "fílter-東京-02", "status": "inferred"},
+            ])
+            self.assertEqual(summary["unconverted_hierarchy_declarations"], [
+                {"id": "階層-東京-01", "status": "observed"},
+                {"id": "階層-東京-02", "status": "inferred"},
+            ])
+            for declarations in (
+                summary["unconverted_filter_declarations"],
+                summary["unconverted_hierarchy_declarations"],
+            ):
+                for declaration in declarations:
+                    self.assertEqual(set(declaration), {"id", "status"})
+            evidence_text = json.dumps(evidence, ensure_ascii=False)
+            for value in private_declaration_values:
+                self.assertNotIn(value, evidence_text)
+            self.assertEqual(evidence["native_infocube_identity_verification"], "not_verified")
+            self.assertEqual(evidence["schema_version"], "1.0")
+            self.assertEqual(plan["schema_version"], "1.2")
 
     def test_partial_key_figure_selection_is_reported_without_blocking_pbip(self):
         plan, inventory, semantics = self._linked_plan_and_evidence()

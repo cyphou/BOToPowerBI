@@ -207,6 +207,27 @@ validation and upgrade behavior; they do not prove that a customer's export can
 be parsed or that every BW concept has been modeled. No independent JSON Schema
 validator has been run against the schema file.
 
+### Declared-lineage trace (local Python API)
+
+`powerbi_import.bw_inventory.trace_declared_lineage(snapshot,
+selected_object_id, scope_object_ids)` traces dependencies from a selected
+known object inside an explicit list of unique, known object IDs that must
+include the selection. Only resolved dependencies with both endpoints in that
+scope expand reachability. Each resolved declaration is treated as a
+cycle-safe traversal connection in either direction, while reported records
+keep their original source-to-target direction and all declared statuses.
+`traversed_dependencies` contains resolved declarations between reached
+objects; `unresolved_dependencies` contains non-resolved declarations touching
+any reached object, without traversing them. The output also records
+`reached_object_ids` and the supplied scope.
+
+Import it from `powerbi_import.bw_inventory`; there is intentionally no new
+CLI. The result validates local declarations only. It does not establish SAP
+identity or source truth, inventory completeness, semantic provider
+composition, or runtime evidence (`source` and `completeness` are
+`unverified`; `runtime` is `not_run`). A usage example with the synthetic
+inventory is in the [README](../README.md#offline-bw-declared-lineage-api).
+
 ## BW-2 local slice: staged history into Bronze
 
 The separate `migrate_bw.py` entry point consumes an inventory 1.0 and an
@@ -608,6 +629,25 @@ remains accepted for semantic capture but reports a review item because it has
 no provider-measure binding check. This declaration does not evaluate formulas
 or prove the BEx-to-provider association or business equivalence;
 calculated/restricted key figures still need a separately reviewed conversion.
+The CLI help lists supported manifest versions 1.0, 1.1 and 1.2. Versions 1.0
+and 1.1 retain their prior acceptance and assessment report schema/output
+shape 1.0. Manifest 1.2 requires `provider_key_figure_bindings` and requires
+every `key_figures` entry to declare `kind` as `basic`, `restricted`,
+`calculated` or `unknown`. Only this manifest version produces assessment
+report schema 1.1, which adds `key_figure_kinds` entries containing
+`key_figure_id`, `declared_kind`, `declaration_boundary` and `assessment`, plus
+a `verification` object whose `identity`, `provenance` and `equivalence` are
+`unverified`.
+
+The kind declaration is a local manifest label, not evidence of SAP source
+truth, identity, provenance or semantic equivalence. `basic` does not prove
+additive, `SUM` or aggregation-safe behavior; `restricted` captures no
+restrictions; `calculated` captures no formula or dependencies; and `unknown`
+remains unresolved. No kind generates DAX or measures. Kind reporting does not
+change assessment gates: `gate_closed` remains false, and runtime statuses
+remain `not_run`. These declarations do not execute SAP or Fabric or establish
+production readiness.
+
 The assessment report includes one `key_figure_provider_links` row per captured
 key figure, with `resolved`, `blocked`, `missing` or `not_assessed` status.
 `resolved` means only that the local declarations cross-reference successfully.
@@ -906,7 +946,15 @@ the evidence path. `evidence_scope` is
 category's coverage declaration from the local BEx manifest. Counts and
 coverage are not independently verified: zero counts or `not_applicable`
 do not prove absence in SAP, and neither field implies that any listed
-behavior was mapped.
+behavior was mapped. The report also includes
+`bex_semantics_not_converted.unconverted_filter_declarations` and
+`bex_semantics_not_converted.unconverted_hierarchy_declarations`. Each list
+contains only `id` and `status` from the corresponding local BEx manifest
+declarations, in manifest order, alongside the existing `counts` and
+`declared_coverage`. These declaration lists do not prove source completeness
+or SAP identity, and do not convert or implement filter or hierarchy
+semantics.
+
 The CLI validates the output column declarations and PBIP structure locally;
 it cannot confirm that SAP objects exist or that the declared query returns
 those names/types. Static validation warnings are reported but do not fail the

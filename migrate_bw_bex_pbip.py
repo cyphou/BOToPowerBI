@@ -748,6 +748,14 @@ def main(argv=None):
                 "evidence_scope": "declared_local_manifest_counts_only",
                 "declared_coverage": dict(semantics["coverage"]),
                 "counts": unconverted_semantic_counts,
+                "unconverted_filter_declarations": [
+                    {"id": item["id"], "status": item["status"]}
+                    for item in semantics["filters"]
+                ],
+                "unconverted_hierarchy_declarations": [
+                    {"id": item["id"], "status": item["status"]}
+                    for item in semantics["hierarchies"]
+                ],
             },
             "key_figure_selection": {
                 "status": selection_status,

@@ -116,6 +116,34 @@ folder draft is opt-in and does not reconstruct the source report.
 | Power BI Report Server | Desktop for Report Server does not support PBIP. An optional SQL-based M query is a manual reconstruction aid; RDL is a separate paginated target. |
 | SAP BW | Offline assessments, staged-data tools, a declaration-based single-cube PBIP draft with optional local BW-5 linkage checks, and a local BEx result-vector comparator; not BW extraction, BEx conversion, or warehouse replacement. See the [BW design](docs/SAP_BW_TO_FABRIC_DESIGN.md). |
 
+### Offline BW declared-lineage API
+
+`powerbi_import.bw_inventory.trace_declared_lineage` is a local Python API;
+there is no CLI for it. Give it a validated snapshot, a selected object ID,
+and an explicit list of known object IDs that bounds traversal. Resolved
+dependencies connect objects in either direction for a cycle-safe walk within
+that scope. Reported dependency records retain their declared source-to-target
+direction and statuses; non-resolved dependency declarations touching reached
+objects are also returned, but are not traversed.
+
+```python
+from powerbi_import.bw_inventory import load_snapshot, trace_declared_lineage
+
+snapshot = load_snapshot("docs/fixtures/sap_bw_inventory.partial.example.json")
+trace = trace_declared_lineage(
+    snapshot,
+    selected_object_id="SYNTHETIC-BW-01:SOURCE:ERP-SALES",
+    scope_object_ids=[
+        "SYNTHETIC-BW-01:SOURCE:ERP-SALES",
+        "SYNTHETIC-BW-01:DS:VENTES",
+    ],
+)
+print(trace["reached_object_ids"])
+```
+
+This validates local declarations only; it does not establish SAP identity or
+source truth, completeness, semantic provider composition, or runtime evidence.
+
 For WebI, an optional CMS snapshot can capture report elements, provider
 summaries and query plans. The adapter checks the IDs and statement shape of
 selected single-statement plans before carrying their SQL into a model, but the
@@ -133,6 +161,29 @@ cube plan can instead declare an optional [review table](docs/fixtures/sap_bw_be
 using selected model columns. This table is not a converted BEx report.
 An existing report is not overwritten by an empty shell; use a new output
 directory.
+
+Linked BW cube PBIP evidence now lists declared filter and hierarchy IDs and
+statuses, in manifest order, under
+`bex_semantics_not_converted.unconverted_filter_declarations` and
+`bex_semantics_not_converted.unconverted_hierarchy_declarations`, alongside
+the existing count and coverage data. Each list item contains only `id` and
+`status`. These are local manifest declarations: they do not prove source
+completeness or SAP identity, and do not implement filter or hierarchy
+semantics.
+
+The offline BEx assessment accepts manifest versions 1.0, 1.1 and 1.2
+(`python migrate_bw_bex_assess.py --help`). Versions 1.0/1.1 retain their
+prior acceptance and assessment-report schema/output shape 1.0. Version 1.2
+requires `provider_key_figure_bindings` and a `kind` for every key figure,
+declared as `basic`, `restricted`, `calculated` or `unknown`. Its assessment
+report schema 1.1 adds `key_figure_kinds` and verification fields for identity,
+provenance and equivalence, all `unverified`. The kind is a local declaration,
+not evidence of SAP source truth or semantics: `basic` does not prove additive,
+`SUM` or aggregation-safe behavior; `restricted` records no restrictions;
+`calculated` records no formula or dependencies; and `unknown` remains
+unresolved. No kind generates DAX or measures. Assessment gates are unchanged,
+`gate_closed` remains false and runtime statuses remain `not_run`. See the
+[BEx assessment contract](docs/SAP_BW_TO_FABRIC_DESIGN.md#bw-5-offline-bex-semantic-capture).
 
 To compare locally declared BEx source and target result vectors, use a
 versioned manifest and a new report path:

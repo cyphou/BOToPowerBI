@@ -1,4 +1,15 @@
-"""Validate and assess declared BW BEx semantics without executing queries."""
+"""Validate and assess declared BW BEx semantics without executing queries.
+
+Assessment output stays at schema 1.0 for manifest versions 1.0/1.1. Manifest
+version 1.2 uses output schema 1.1, adding key-figure kind summaries
+(`key_figure_id`, `declared_kind`, `declaration_boundary`, `assessment`) and a
+`verification` object whose identity, provenance, and equivalence values are
+`unverified`. Every kind is explicitly declaration-only. `unknown` is
+unresolved; `restricted` and `calculated` remain not converted, without
+capturing restrictions, formula, or dependencies; `basic` does not establish
+aggregation safety or conversion. Kinds do not affect gate decisions. All
+runtime checks remain `not_run`, and the assessment gate never closes.
+"""
 
 from __future__ import annotations
 
@@ -21,6 +32,7 @@ _ROOT_FIELDS_V1_0 = {
     "consumers",
 }
 _ROOT_FIELDS_V1_1 = _ROOT_FIELDS_V1_0 | {"provider_key_figure_bindings"}
+_ROOT_FIELDS_V1_2 = _ROOT_FIELDS_V1_1
 _COVERAGE_FIELDS = {
     "variables", "filters", "hierarchies", "master_data", "key_figures",
     "exception_aggregation", "units_currencies", "authorization_contexts",
@@ -78,12 +90,14 @@ def validate_bex_semantics(manifest: Any) -> dict:
     if not isinstance(manifest, dict):
         _fail("$", "must contain exactly the supported fields")
     schema_version = manifest.get("schema_version")
-    if not isinstance(schema_version, str) or schema_version not in {"1.0", "1.1"}:
-        _fail("$.schema_version", "expected version 1.0 or 1.1")
+    if not isinstance(schema_version, str) or schema_version not in {"1.0", "1.1", "1.2"}:
+        _fail("$.schema_version", "expected version 1.0, 1.1, or 1.2")
     root = _object(
         manifest,
         "$",
-        _ROOT_FIELDS_V1_0 if schema_version == "1.0" else _ROOT_FIELDS_V1_1,
+        _ROOT_FIELDS_V1_0 if schema_version == "1.0" else (
+            _ROOT_FIELDS_V1_2 if schema_version == "1.2" else _ROOT_FIELDS_V1_1
+        ),
     )
     try:
         encoded = json.dumps(manifest, ensure_ascii=False, default=str)
@@ -136,10 +150,10 @@ def validate_bex_semantics(manifest: Any) -> dict:
             "text_fields": ("characteristic",),
         },
         "key_figures": {
-            "fields": {
+            "fields": ({
                 "id", "name", "aggregation", "exception_aggregation",
                 "unit_currency", "status", "evidence_reference",
-            },
+            } | ({"kind"} if schema_version == "1.2" else set())),
             "text_fields": ("name",),
         },
         "authorization_contexts": {
@@ -198,7 +212,7 @@ def validate_bex_semantics(manifest: Any) -> dict:
                 _text(item["evidence_reference"], f"{path}.evidence_reference", nullable=True)
 
     provider_bindings = []
-    if schema_version == "1.1":
+    if schema_version in {"1.1", "1.2"}:
         raw_bindings = root["provider_key_figure_bindings"]
         if not isinstance(raw_bindings, list):
             _fail("$.provider_key_figure_bindings", "must be an array")
@@ -257,6 +271,11 @@ def validate_bex_semantics(manifest: Any) -> dict:
 
     for index, item in enumerate(records["key_figures"]):
         path = f"$.key_figures[{index}]"
+        if schema_version == "1.2" and (
+            not isinstance(item["kind"], str)
+            or item["kind"] not in {"basic", "restricted", "calculated", "unknown"}
+        ):
+            _fail(f"{path}.kind", "has an unsupported key-figure kind")
         _text(item["aggregation"], f"{path}.aggregation", nullable=True)
         exception = _object(
             item["exception_aggregation"], f"{path}.exception_aggregation",
@@ -478,7 +497,7 @@ def assess_bex_semantics(inventory: Any, manifest: Any) -> dict:
             add("semantic_coverage_incomplete", "blocker", f"$.coverage.{field}")
 
     key_figure_provider_links = []
-    if bex_manifest["schema_version"] == "1.1":
+    if bex_manifest["schema_version"] in {"1.1", "1.2"}:
         key_figures_by_id = {
             item["id"]: index
             for index, item in enumerate(bex_manifest["key_figures"])
@@ -660,8 +679,8 @@ def assess_bex_semantics(inventory: Any, manifest: Any) -> dict:
 
     blockers = sum(item["severity"] == "blocker" for item in findings)
     reviews = sum(item["severity"] == "review" for item in findings)
-    return {
-        "schema_version": "1.0",
+    report = {
+        "schema_version": "1.1" if bex_manifest["schema_version"] == "1.2" else "1.0",
         "assessment": "bw5_bex_semantic_capture",
         "gate_status": "open" if blockers else "candidate_for_owner_review",
         "gate_closed": False,
@@ -704,3 +723,25 @@ def assess_bex_semantics(inventory: Any, manifest: Any) -> dict:
         },
         "findings": findings,
     }
+    if bex_manifest["schema_version"] == "1.2":
+        kind_assessments = {
+            "basic": "aggregation_safety_and_conversion_unverified",
+            "restricted": "not_converted; restriction_details_unverified",
+            "calculated": "not_converted; formula_and_dependencies_unverified",
+            "unknown": "unresolved",
+        }
+        report["key_figure_kinds"] = [
+            {
+                "key_figure_id": item["id"],
+                "declared_kind": item["kind"],
+                "declaration_boundary": "declaration_only; no expression or behavior captured",
+                "assessment": kind_assessments[item["kind"]],
+            }
+            for item in bex_manifest["key_figures"]
+        ]
+        report["verification"] = {
+            "identity": "unverified",
+            "provenance": "unverified",
+            "equivalence": "unverified",
+        }
+    return report

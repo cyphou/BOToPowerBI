@@ -3,6 +3,20 @@
 ## [Unreleased]
 
 ### In progress
+- BEx semantic manifest 1.2 now requires `provider_key_figure_bindings` and a
+  `kind` (`basic`, `restricted`, `calculated` or `unknown`) on every key
+  figure. Assessment report schema 1.1 adds `key_figure_kinds` entries
+  (`key_figure_id`, `declared_kind`, `declaration_boundary`, `assessment`) and
+  verification identity, provenance and equivalence fields set to
+  `unverified`. Manifests 1.0/1.1 retain their prior acceptance and report
+  schema/output shape 1.0; CLI help lists all three manifest versions. Kinds
+  are local declarations only: `basic` does not prove additive/`SUM` or
+  aggregation-safe behavior, `restricted` records no restrictions,
+  `calculated` records no formula/dependencies, and `unknown` remains
+  unresolved. No kind generates DAX or measures; gates are unchanged,
+  `gate_closed` remains false and runtime statuses remain `not_run`. SAP
+  source truth, provenance and equivalence remain unverified; no SAP execution
+  is claimed.
 - The offline BEx result-vector comparator now adds
   `no_measure_observations_compared` when `summary.measures_compared` is zero.
   After a successful report write, the CLI prints
