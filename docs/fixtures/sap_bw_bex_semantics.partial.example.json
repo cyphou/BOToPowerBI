@@ -1,5 +1,5 @@
 {
-  "schema_version": "1.0",
+  "schema_version": "1.1",
   "query": {
     "object_id": "SYNTHETIC-BW-01:BEX:VENTES-MENSUELLES",
     "definition_reference": "synthetic://bw/bex/ventes-mensuelles",
@@ -70,6 +70,7 @@
       "evidence_reference": "synthetic fixture only"
     }
   ],
+  "provider_key_figure_bindings": [],
   "authorization_contexts": [
     {
       "id": "synthetic-sales-role",

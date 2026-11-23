@@ -15,11 +15,12 @@ class BWBExAssessmentError(ValueError):
     """Raised when a local BEx semantic manifest is invalid."""
 
 
-_ROOT_FIELDS = {
+_ROOT_FIELDS_V1_0 = {
     "schema_version", "query", "coverage", "variables", "filters",
     "hierarchies", "master_data", "key_figures", "authorization_contexts",
     "consumers",
 }
+_ROOT_FIELDS_V1_1 = _ROOT_FIELDS_V1_0 | {"provider_key_figure_bindings"}
 _COVERAGE_FIELDS = {
     "variables", "filters", "hierarchies", "master_data", "key_figures",
     "exception_aggregation", "units_currencies", "authorization_contexts",
@@ -74,9 +75,16 @@ def _record_list(value: Any, path: str, fields: set[str]) -> list[dict]:
 
 def validate_bex_semantics(manifest: Any) -> dict:
     """Validate a versioned, local BEx semantic-capture manifest."""
-    root = _object(manifest, "$", _ROOT_FIELDS)
-    if root["schema_version"] != "1.0":
-        _fail("$.schema_version", "expected version 1.0")
+    if not isinstance(manifest, dict):
+        _fail("$", "must contain exactly the supported fields")
+    schema_version = manifest.get("schema_version")
+    if not isinstance(schema_version, str) or schema_version not in {"1.0", "1.1"}:
+        _fail("$.schema_version", "expected version 1.0 or 1.1")
+    root = _object(
+        manifest,
+        "$",
+        _ROOT_FIELDS_V1_0 if schema_version == "1.0" else _ROOT_FIELDS_V1_1,
+    )
     try:
         encoded = json.dumps(manifest, ensure_ascii=False, default=str)
     except (TypeError, ValueError):
@@ -188,6 +196,29 @@ def validate_bex_semantics(manifest: Any) -> dict:
                 status_field = "validity_status" if section == "master_data" else "status"
                 _status(item[status_field], f"{path}.{status_field}")
                 _text(item["evidence_reference"], f"{path}.evidence_reference", nullable=True)
+
+    provider_bindings = []
+    if schema_version == "1.1":
+        raw_bindings = root["provider_key_figure_bindings"]
+        if not isinstance(raw_bindings, list):
+            _fail("$.provider_key_figure_bindings", "must be an array")
+        seen_key_figures = set()
+        binding_fields = {
+            "key_figure_id", "provider_id", "provider_measure_name",
+            "status", "evidence_reference",
+        }
+        for index, raw in enumerate(raw_bindings):
+            path = f"$.provider_key_figure_bindings[{index}]"
+            item = _object(raw, path, binding_fields)
+            for field in ("key_figure_id", "provider_id", "provider_measure_name"):
+                _text(item[field], f"{path}.{field}")
+            _status(item["status"], f"{path}.status")
+            _text(item["evidence_reference"], f"{path}.evidence_reference", nullable=True)
+            if item["key_figure_id"] in seen_key_figures:
+                _fail(f"{path}.key_figure_id", "must be unique")
+            seen_key_figures.add(item["key_figure_id"])
+            provider_bindings.append(item)
+    records["provider_key_figure_bindings"] = provider_bindings
 
     for index, item in enumerate(records["variables"]):
         path = f"$.variables[{index}]"
@@ -330,6 +361,19 @@ def assess_bex_semantics(inventory: Any, manifest: Any) -> dict:
         _fail("$.query.definition_sha256", "does not match the inventory query definition hash")
 
     inventory_objects = {item["id"]: item for item in bw_inventory["objects"]}
+    inventory_object_indices = {
+        item["id"]: index for index, item in enumerate(bw_inventory["objects"])
+    }
+    provider_edges = [
+        (index, edge)
+        for index, edge in enumerate(bw_inventory["dependencies"])
+        if edge["kind"] == "queries" and edge["source_id"] == query_id
+    ]
+    observed_provider_ids = {
+        edge["target_id"]
+        for _index, edge in provider_edges
+        if edge["resolution_status"] == "resolved" and edge["evidence_status"] == "observed"
+    }
     consumer_edges = [
         (index, edge)
         for index, edge in enumerate(bw_inventory["dependencies"])
@@ -365,6 +409,61 @@ def assess_bex_semantics(inventory: Any, manifest: Any) -> dict:
         add("bex_query_not_in_scope", "blocker", "$.query.object_id")
     if query["discovery_status"] != "observed":
         add("bex_query_not_observed", "blocker", "$.query.object_id")
+    if (
+        query["definition"]["status"] != "observed"
+        or query["definition"]["hash_algorithm"] != "sha256"
+        or query["definition"]["hash"] is None
+    ):
+        query_path = f"$.inventory.objects[{inventory_object_indices[query_id]}]"
+        add("bex_query_definition_unverified", "blocker", f"{query_path}.definition")
+    if query["migration_decision"]["classification"] == "blocked":
+        add("bex_query_migration_blocked", "blocker", "$.query.object_id")
+    if not provider_edges:
+        add("provider_dependency_missing", "blocker", "$.inventory.dependencies")
+    for index, edge in provider_edges:
+        path = f"$.inventory.dependencies[{index}]"
+        provider = inventory_objects.get(edge["target_id"])
+        if edge["resolution_status"] != "resolved" or edge["evidence_status"] != "observed":
+            add("provider_dependency_unverified", "blocker", path)
+        if provider is None or provider["type"] not in {
+            "infocube", "infoprovider", "adso", "composite_provider",
+        }:
+            add("provider_type_unverified", "blocker", path)
+            continue
+        provider_path = f"$.inventory.objects[{inventory_object_indices[provider['id']]}]"
+        if provider["disposition"] != "in_scope":
+            add("provider_not_in_scope", "blocker", f"{provider_path}.disposition")
+        if provider["discovery_status"] != "observed":
+            add("provider_not_observed", "blocker", f"{provider_path}.discovery_status")
+        if provider["migration_decision"]["classification"] == "blocked":
+            add("provider_migration_blocked", "blocker", f"{provider_path}.migration_decision.classification")
+        if provider["type"] == "infocube":
+            for field in ("metadata_status", "keys_status"):
+                if provider[field] != "observed":
+                    add("infocube_metadata_unverified", "blocker", f"{provider_path}.{field}")
+            if not provider["keys"]:
+                add("infocube_keys_missing", "blocker", f"{provider_path}.keys")
+            for key_index, key in enumerate(provider["keys"]):
+                if key["role"] == "unknown":
+                    add(
+                        "infocube_key_role_unverified",
+                        "blocker",
+                        f"{provider_path}.keys[{key_index}].role",
+                    )
+            if provider["semantics"]["status"] != "observed":
+                add("infocube_semantics_unverified", "blocker", f"{provider_path}.semantics.status")
+            for section in ("measures", "dimensions", "functions"):
+                for item_index, item in enumerate(provider["semantics"][section]):
+                    if item["status"] != "observed":
+                        add("infocube_semantic_item_unverified", "blocker",
+                            f"{provider_path}.semantics.{section}[{item_index}].status")
+        for feature_index, feature in enumerate(bw_inventory["unsupported_features"]):
+            if (
+                feature["object_id"] == provider["id"]
+                and feature["support_status"] in {"unsupported", "unknown"}
+            ):
+                add("provider_feature_unresolved", "blocker",
+                    f"$.inventory.unsupported_features[{feature_index}]")
     for index, edge in consumer_edges:
         if (
             edge["resolution_status"] != "resolved"
@@ -377,6 +476,123 @@ def assess_bex_semantics(inventory: Any, manifest: Any) -> dict:
     for field, state in coverage.items():
         if state not in {"complete", "not_applicable"}:
             add("semantic_coverage_incomplete", "blocker", f"$.coverage.{field}")
+
+    key_figure_provider_links = []
+    if bex_manifest["schema_version"] == "1.1":
+        key_figures_by_id = {
+            item["id"]: index
+            for index, item in enumerate(bex_manifest["key_figures"])
+        }
+        bindings_by_key_figure = {
+            item["key_figure_id"]: item
+            for item in bex_manifest["provider_key_figure_bindings"]
+        }
+        for key_figure_id, index in key_figures_by_id.items():
+            if key_figure_id not in bindings_by_key_figure:
+                add(
+                    "bex_key_figure_provider_mapping_missing",
+                    "blocker",
+                    f"$.key_figures[{index}]",
+                )
+                key_figure_provider_links.append({
+                    "key_figure_id": key_figure_id,
+                    "provider_id": None,
+                    "provider_measure_name": None,
+                    "binding_status": "missing",
+                })
+        for binding_index, binding in enumerate(bex_manifest["provider_key_figure_bindings"]):
+            binding_path = f"$.provider_key_figure_bindings[{binding_index}]"
+            if binding["key_figure_id"] not in key_figures_by_id:
+                _fail(
+                    f"{binding_path}.key_figure_id",
+                    "must reference a declared BEx key figure",
+                )
+            finding_start = len(findings)
+            if binding["status"] != "observed" or binding["evidence_reference"] is None:
+                add("bex_key_figure_provider_mapping_unverified", "blocker", binding_path)
+            provider_id = binding["provider_id"]
+            if provider_id not in observed_provider_ids:
+                add(
+                    "key_figure_provider_unlinked",
+                    "blocker",
+                    f"{binding_path}.provider_id",
+                )
+                key_figure_provider_links.append({
+                    "key_figure_id": binding["key_figure_id"],
+                    "provider_id": provider_id,
+                    "provider_measure_name": binding["provider_measure_name"],
+                    "binding_status": "blocked",
+                })
+                continue
+            provider = inventory_objects.get(provider_id)
+            if provider is None or provider["type"] not in {
+                "infocube", "infoprovider", "adso", "composite_provider",
+            }:
+                add(
+                    "key_figure_provider_unverified",
+                    "blocker",
+                    f"{binding_path}.provider_id",
+                )
+                key_figure_provider_links.append({
+                    "key_figure_id": binding["key_figure_id"],
+                    "provider_id": provider_id,
+                    "provider_measure_name": binding["provider_measure_name"],
+                    "binding_status": "blocked",
+                })
+                continue
+            provider_path = f"$.inventory.objects[{inventory_object_indices[provider_id]}]"
+            if provider["semantics"]["status"] != "observed":
+                add(
+                    "key_figure_provider_semantics_unverified",
+                    "blocker",
+                    f"{provider_path}.semantics.status",
+                )
+            measure_matches = [
+                (measure_index, measure)
+                for measure_index, measure in enumerate(provider["semantics"]["measures"])
+                if measure["name"] == binding["provider_measure_name"]
+            ]
+            if not measure_matches:
+                add(
+                    "key_figure_provider_measure_unresolved",
+                    "blocker",
+                    f"{binding_path}.provider_measure_name",
+                )
+            elif len(measure_matches) > 1:
+                add(
+                    "key_figure_provider_measure_ambiguous",
+                    "blocker",
+                    f"{binding_path}.provider_measure_name",
+                )
+            else:
+                measure_index, measure = measure_matches[0]
+                if measure["status"] != "observed":
+                    add(
+                        "key_figure_provider_measure_unverified",
+                        "blocker",
+                        f"{provider_path}.semantics.measures[{measure_index}].status",
+                    )
+            key_figure_provider_links.append({
+                "key_figure_id": binding["key_figure_id"],
+                "provider_id": provider_id,
+                "provider_measure_name": binding["provider_measure_name"],
+                "binding_status": "blocked" if len(findings) > finding_start else "resolved",
+            })
+    elif bex_manifest["key_figures"]:
+        add(
+            "bex_key_figure_provider_mapping_not_assessed",
+            "review",
+            "$.key_figures",
+        )
+        key_figure_provider_links = [
+            {
+                "key_figure_id": item["id"],
+                "provider_id": None,
+                "provider_measure_name": None,
+                "binding_status": "not_assessed",
+            }
+            for item in bex_manifest["key_figures"]
+        ]
 
     for section in (
         "variables", "filters", "hierarchies", "master_data", "key_figures",
@@ -457,6 +673,16 @@ def assess_bex_semantics(inventory: Any, manifest: Any) -> dict:
             "consumer_acceptance": "not_run",
             "desktop_service_rendering": "not_run",
         },
+        "provider_links": [
+            {
+                "provider_id": edge["target_id"],
+                "provider_type": inventory_objects.get(edge["target_id"], {}).get("type"),
+                "resolution_status": edge["resolution_status"],
+                "evidence_status": edge["evidence_status"],
+            }
+            for _index, edge in provider_edges
+        ],
+        "key_figure_provider_links": key_figure_provider_links,
         "summary": {
             "query_id": query_id,
             "inventory_gate_status": inventory_review["gate_status"],
@@ -469,6 +695,10 @@ def assess_bex_semantics(inventory: Any, manifest: Any) -> dict:
             ),
             "consumers_linked": len(linked_consumers),
             "consumers_captured": len(declared_consumers),
+            "provider_dependencies": len(provider_edges),
+            "provider_key_figure_bindings": len(
+                bex_manifest.get("provider_key_figure_bindings", [])
+            ),
             "blockers": blockers,
             "review_items": reviews,
         },

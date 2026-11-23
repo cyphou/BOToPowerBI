@@ -26,8 +26,12 @@
       "migrate.py", "migrate_bw.py", "migrate_bw_assess.py", "migrate_bw_reconcile.py",
       "migrate_bw_handoff.py", "migrate_bw_transform_validate.py", "migrate_bw_bex_assess.py",
       "migrate_bw_controls_assess.py", "migrate_bw_wave_assess.py", "migrate_bw_cutover_assess.py",
-      "migrate_bw_convert.py", "migrate_paginated.py", "migrate_lcm_inventory.py",
-      "migrate_deski_inspect.py",
+      "migrate_bw_convert.py", "migrate_bw_bex_pbip.py", "migrate_paginated.py", "migrate_lcm_inventory.py",
+      "migrate_deski_inspect.py", "migrate_coverage_ledger.py",
+      "docs/schemas/sap_bw_bex_pbip_plan.schema.json",
+      "docs/fixtures/sap_bw_bex_pbip_plan.example.json",
+      "docs/fixtures/sap_bw_bex_pbip_properties.example.json",
+      "docs/fixtures/sap_bw_bex_pbip_report.example.json",
       "generate_report.py", "powerbi_import/import_to_powerbi.py",
       "powerbi_import/file_io.py", "powerbi_import/parallel_engine.py", "powerbi_import/progress.py",
       "powerbi_import/incremental.py", "powerbi_import/wizard.py",
@@ -51,7 +55,7 @@
       "docs/fixtures/webi_document_snapshot.example.json"
     ],
     "Dax": ["bo_export/dax_converter.py", "powerbi_import/dax_optimizer.py", "powerbi_import/dax_recipes.py"],
-    "Wiring": ["bo_export/m_query_builder.py", "powerbi_import/m_query_generator.py", "powerbi_import/calc_column_utils.py"],
+    "Wiring": ["bo_export/m_query_builder.py", "powerbi_import/m_query_generator.py", "powerbi_import/calc_column_utils.py", "powerbi_import/expression_export.py"],
     "Semantic": ["powerbi_import/tmdl_generator.py", "powerbi_import/semantic_intelligence.py", "powerbi_import/model_templates.py"],
     "Visual": [
       "powerbi_import/pbip_generator.py", "powerbi_import/visual_generator.py",
@@ -97,6 +101,8 @@
       "powerbi_import/deski_migration_report.py",
       "powerbi_import/bw_reconciliation.py", "docs/schemas/sap_bw_reconciliation.schema.json",
       "docs/fixtures/sap_bw_reconciliation.example.json",
+      "docs/schemas/sap_bw_bex_result_vectors.schema.json",
+      "docs/fixtures/sap_bw_bex_result_vectors.example.json",
       "powerbi_import/bw_handoff.py", "docs/fixtures/sap_bw_handoff.example.json",
       "docs/schemas/sap_bw_handoff.schema.json",
       "powerbi_import/bw_transform_validation.py",
@@ -108,6 +114,9 @@
       "powerbi_import/bw_cutover_assessment.py",
       "docs/schemas/sap_bw_cutover.schema.json",
       "docs/fixtures/sap_bw_cutover.partial.example.json",
+      "powerbi_import/coverage_ledger.py",
+      "docs/schemas/feature_coverage_ledger.schema.json",
+      "docs/fixtures/feature_coverage_ledger.synthetic.example.json",
       "powerbi_import/comparison_report.py", "powerbi_import/equivalence_tester.py",
       "powerbi_import/regression_suite.py", "powerbi_import/fidelity_scorer.py",
       "powerbi_import/visual_diff.py", "powerbi_import/monitoring.py", "powerbi_import/sla_tracker.py"
@@ -130,7 +139,7 @@
     "Roadmap Planner": ["docs/DEVELOPMENT_PLAN.md"],
     "Documentation Guardian": [
       "README.md", "CHANGELOG.md", "docs/AGENTS.md", "docs/ARCHITECTURE.md", "docs/GAP_ANALYSIS.md",
-      "docs/SAP_BW_TO_FABRIC_DESIGN.md",
+      "docs/MIGRATION_REFERENCE.md", "docs/SAP_BW_TO_FABRIC_DESIGN.md",
       ".github/copilot-instructions.md", ".github/agent-instructions.md"
     ],
     "Tester": ["tests/**/*.py"],

@@ -205,6 +205,26 @@ class TestMCPServer(unittest.TestCase):
         self.assertEqual(report['evidence']['data_refresh'], 'not_run')
         self.assertEqual(len(list((self.root / 'output').rglob('*.pbip'))), 1)
         self.assertTrue((self.root / 'output/Sales.wid/comparison_report.html').is_file())
+        manifests = list((self.root / 'output').rglob('expression_export.json'))
+        self.assertEqual(len(manifests), 1)
+        entries = json.loads(manifests[0].read_text(encoding='utf-8'))['exports']
+        self.assertTrue(any(item['kind'] == 'm_partition' for item in entries))
+        self.assertTrue(any(item['kind'] == 'dax_measures' for item in entries))
+
+    def test_confirmed_shared_model_exports_expressions(self):
+        repository = Path(__file__).resolve().parents[1]
+        self.tools.allow_write = True
+        for name in ('eFashion_Universe.unx', 'HR_Universe.unx'):
+            shutil.copyfile(repository / 'examples' / name, self.root / name)
+        result = self.request('shared_model', {
+            'files': ['eFashion_Universe.unx', 'HR_Universe.unx'],
+            'model_name': 'Shared', 'output_dir': 'output', 'force_merge': True, 'confirm': True,
+        })['result']
+        self.assertFalse(result['isError'], result)
+        manifest = self.root / 'output' / 'Shared' / 'expression_export.json'
+        entries = json.loads(manifest.read_text(encoding='utf-8'))['exports']
+        self.assertTrue(any(item['kind'] == 'm_partition' for item in entries))
+        self.assertTrue(any(item['kind'] == 'dax_measures' for item in entries))
 
     def test_real_stdio_fabric_generation_returns_blockers_not_success(self):
         repository = Path(__file__).resolve().parents[1]

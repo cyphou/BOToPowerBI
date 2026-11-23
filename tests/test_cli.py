@@ -25,6 +25,7 @@ from migrate import (
     build_parser,
     main,
 )
+from powerbi_import.validator import ArtifactValidator
 
 
 class TestCLIParser(unittest.TestCase):
@@ -283,8 +284,11 @@ class TestCLIParser(unittest.TestCase):
     def test_generation_reads_default_extraction_and_can_skip_optimizer(self):
         with patch("bo_export.extract_bo_data.extract_bo_data", return_value={}) as extract, \
              patch("powerbi_import.import_to_powerbi.PowerBIImporter") as importer, \
+             patch("powerbi_import.expression_export.export_generated_project",
+                   return_value={"exports": []}), \
              patch("powerbi_import.dax_optimizer.optimize_dax_project") as optimize, \
              patch("powerbi_import.comparison_report.generate_comparison_report") as compare:
+            importer.return_value.import_all.return_value = "generated-project"
             args = build_parser().parse_args(["report.wid", "--no-optimize-dax", "--no-compare"])
             self.assertEqual(_run_single_migration(args, MigrationStats()), EXIT_SUCCESS)
             expected = os.path.splitext(os.path.abspath("report.wid"))[0] + "_pbi"
@@ -296,6 +300,8 @@ class TestCLIParser(unittest.TestCase):
     def test_comparison_is_generated_from_the_returned_project_path(self):
         with patch("bo_export.extract_bo_data.extract_bo_data", return_value={}), \
              patch("powerbi_import.import_to_powerbi.PowerBIImporter") as importer, \
+             patch("powerbi_import.expression_export.export_generated_project",
+                   return_value={"exports": []}), \
              patch("powerbi_import.comparison_report.generate_comparison_report") as compare:
             importer.return_value.import_all.return_value = "generated-project"
             args = build_parser().parse_args(["report.wid", "--no-optimize-dax"])
@@ -372,16 +378,118 @@ class TestCLIParser(unittest.TestCase):
                 archive.write(fixture, "Folder/Sales.wid")
             output = root / "output"
             self.assertEqual(main([str(sources), "--output-dir", str(output),
+                                   "--dry-run"]), EXIT_SUCCESS)
+            self.assertFalse(output.exists())
+            self.assertEqual(main([str(sources), "--output-dir", str(output),
                                    "--no-compare", "--no-optimize-dax"]), EXIT_SUCCESS)
             manifest = json.loads((output / "batch_manifest.json").read_text(encoding="utf-8"))
             self.assertEqual({item["source_kind"] for item in manifest["artifacts"]}, {"webi", "biar"})
             self.assertTrue(all(item["status"] == "success" for item in manifest["artifacts"]))
             self.assertTrue(list((output / "Sales.wid").rglob("*.pbip")))
             self.assertTrue(list((output / "Export.biar").rglob("*.pbip")))
+            for source_output in (output / "Sales.wid", output / "Export.biar"):
+                projects = list(source_output.rglob("*.pbip"))
+                self.assertEqual(len(projects), 1)
+                project = projects[0].parent
+                exported = json.loads((project / "expression_export.json").read_text(
+                    encoding="utf-8"
+                ))
+                self.assertTrue(any(entry["kind"] == "m_partition" for entry in exported["exports"]))
+                self.assertTrue(any(entry["kind"] == "dax_measures" for entry in exported["exports"]))
+                self.assertTrue((project / "DAX" / "FACT_SALES.dax").is_file())
             for item in manifest["artifacts"]:
                 self.assertIn("12 extracted column(s)", " ".join(item["warnings"]))
             self.assertIn("12 extracted column(s)",
                           (output / "batch_report.html").read_text(encoding="utf-8"))
+
+    def test_synthetic_webi_visual_model_bindings_remain_unresolved(self):
+        fixture = Path(__file__).resolve().parents[1] / "examples" / "Enterprise_Sales.wid"
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            sources = root / "sources"
+            sources.mkdir()
+            (sources / fixture.name).write_bytes(fixture.read_bytes())
+            output = root / "output"
+            generated = subprocess.run(
+                [
+                    sys.executable, str(Path(__file__).resolve().parents[1] / "migrate.py"),
+                    str(sources), "--output-dir", str(output),
+                ],
+                capture_output=True, text=True, check=False,
+            )
+            self.assertEqual(generated.returncode, 0, generated.stdout + generated.stderr)
+
+            project = output / "Enterprise_Sales.wid" / "Enterprise_Sales"
+            self.assertTrue((project / "Enterprise_Sales.pbip").is_file())
+            model_dir = project / "Enterprise_Sales.SemanticModel"
+            symbols = ArtifactValidator._collect_model_symbols(str(model_dir))
+            model_fields = {
+                table: symbols["columns"].get(table, set())
+                | symbols["measures"].get(table, set())
+                for table in symbols["tables"]
+            }
+
+            references = []
+
+            def collect_references(value, visual_id):
+                if isinstance(value, dict):
+                    for kind in ("Column", "Measure"):
+                        field = value.get(kind)
+                        if not isinstance(field, dict):
+                            continue
+                        expression = field.get("Expression", {})
+                        source_ref = expression.get("SourceRef", {}) if isinstance(
+                            expression, dict
+                        ) else {}
+                        entity = source_ref.get("Entity") if isinstance(source_ref, dict) else None
+                        prop = field.get("Property")
+                        if isinstance(entity, str) and isinstance(prop, str):
+                            references.append((visual_id, entity, prop))
+                    for child in value.values():
+                        collect_references(child, visual_id)
+                elif isinstance(value, list):
+                    for child in value:
+                        collect_references(child, visual_id)
+
+            for visual_path in project.rglob("visual.json"):
+                visual = json.loads(visual_path.read_text(encoding="utf-8"))
+                collect_references(visual, visual_path.parent.name)
+
+            self.assertTrue(references, "Generated visuals must contain model field references")
+            unresolved = {
+                reference for reference in references
+                if reference[1] not in model_fields
+                or reference[2] not in model_fields[reference[1]]
+            }
+            self.assertTrue(unresolved, "The synthetic sample's unresolved binding must remain visible")
+            self.assertTrue(all(entity == "Table" for _, entity, _ in unresolved))
+            unresolved_visuals = {visual_id for visual_id, _, _ in unresolved}
+
+            validation = subprocess.run(
+                [
+                    sys.executable, str(Path(__file__).resolve().parents[1] / "migrate.py"),
+                    "--validate-project", str(project),
+                ],
+                capture_output=True, text=True, check=False,
+            )
+            validation_output = validation.stdout + validation.stderr
+            self.assertEqual(validation.returncode, 0, validation_output)
+
+            report = ArtifactValidator.validate_project(project)
+            self.assertTrue(report["valid"], report["errors"])
+            self.assertEqual(report["errors"], [])
+            expected_findings = {
+                f'Visual {visual_id}: unknown Entity "Table" (not in TMDL model)'
+                for visual_id in unresolved_visuals
+            }
+            self.assertTrue(
+                expected_findings.issubset(set(report["warnings"])),
+                f"Expected unresolved visual findings {expected_findings}; "
+                f"got {report['warnings']}",
+            )
+            for finding in expected_findings:
+                self.assertIn(finding, validation_output)
+            self.assertTrue(report["warnings"], "Other static warnings must not be suppressed")
 
     def test_webi_sql_columns_and_unbound_warning_reach_folder_output(self):
         xml = """\
@@ -432,6 +540,16 @@ class TestCLIParser(unittest.TestCase):
             self.assertIn("sourceColumn: 'Région'", model)
             self.assertIn("sourceColumn: Revenue", model)
             self.assertIn("SELECT [Région], Revenue FROM Sales", model)
+            project = model_path.parents[3]
+            partition_lines = []
+            for line in model.split("\t\tsource =\n", 1)[1].split("\n"):
+                if not line.startswith("\t\t\t\t"):
+                    break
+                partition_lines.append(line[4:])
+            self.assertEqual(
+                (project / "PowerQuery" / "Sales_Query.pq").read_text(encoding="utf-8"),
+                "\n".join(partition_lines) + "\n",
+            )
             visuals = [
                 json.loads(path.read_text(encoding="utf-8"))["visual"]
                 for path in output.rglob("visual.json")
@@ -491,6 +609,26 @@ class TestCLIParser(unittest.TestCase):
             )
             self.assertIn('Table.RenameColumns(CheckedSource, {{"Région", "R_gion"}})',
                           dataflow)
+            fabric_project = next(fabric_output.rglob("expression_export.json")).parent
+            mashup = (fabric_project / "Sales.Dataflow" / "mashup.pq").read_text(
+                encoding="utf-8"
+            )
+            self.assertIn(dataflow.split("\n\n", 1)[1].rstrip("\n"), mashup)
+            self.assertEqual(
+                (fabric_project / "PowerQuery" / "Dataflow" / "Sales_Query.pq").read_text(
+                    encoding="utf-8"
+                ),
+                dataflow,
+            )
+            fabric_manifest = json.loads(
+                (fabric_project / "expression_export.json").read_text(encoding="utf-8")
+            )
+            self.assertIn({
+                "path": "PowerQuery/Dataflow/Sales_Query.pq",
+                "source": "Sales.Dataflow/queries/Sales_Query.m",
+                "kind": "dataflow_m_query",
+                "source_scope": "project",
+            }, fabric_manifest["exports"])
 
     def test_synthetic_lumira_objects_reach_pbip_with_explicit_warnings(self):
         fixture = Path(__file__).resolve().parent.parent / "examples" / "Sales_Exploration.lumx"
@@ -511,6 +649,7 @@ class TestCLIParser(unittest.TestCase):
             self.assertTrue(all(column.get("table") == "Sales" for column in columns))
             sales_tables = list(source_output.rglob("Sales.tmdl"))
             self.assertEqual(len(sales_tables), 1)
+            self.assertTrue((sales_tables[0].parents[3] / "PowerQuery" / "Sales.pq").is_file())
             model_columns = {
                 line.strip()[len("column "):].strip("'")
                 for line in sales_tables[0].read_text(encoding="utf-8").splitlines()
@@ -629,6 +768,170 @@ class TestCLIParser(unittest.TestCase):
             quality = build_quality_report(output)
             self.assertEqual(quality["summary"]["projects"], 2)
             self.assertEqual(quality["summary"]["errors"], 0, quality["priorities"])
+
+    def test_crystal_and_unv_projects_export_generated_expressions(self):
+        repository = Path(__file__).resolve().parent.parent
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            sources = root / "sources"
+            sources.mkdir()
+            (sources / "Invoice_Report.rpt").write_bytes(
+                (repository / "examples" / "Invoice_Report.rpt").read_bytes()
+            )
+            (sources / "Synthetic.unv").write_text(
+                '<?xml version="1.0"?><DataFoundation>'
+                '<Connection name="Warehouse" type="SQL Server" '
+                'server="db.example.invalid" database="Sales"/>'
+                '<Table name="Orders"/></DataFoundation>',
+                encoding="utf-8",
+            )
+            output = root / "output"
+            with redirect_stdout(StringIO()):
+                self.assertEqual(main([str(sources), "--output-dir", str(output),
+                                       "--no-compare", "--no-optimize-dax"]), EXIT_SUCCESS)
+            for source, project_name in (("Invoice_Report.rpt", "Invoice_Report"),
+                                         ("Synthetic.unv", "Synthetic")):
+                project = output / source / project_name
+                manifest = json.loads((project / "expression_export.json").read_text(
+                    encoding="utf-8"
+                ))
+                self.assertTrue(any(entry["kind"] == "m_partition" for entry in manifest["exports"]))
+                for entry in manifest["exports"]:
+                    self.assertTrue((project / entry["path"]).is_file())
+
+    def test_fabric_biar_exports_actual_dataflow_queries(self):
+        fixture = Path(__file__).resolve().parent.parent / "examples" / "HR_Universe.unx"
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source = root / "HR.biar"
+            with zipfile.ZipFile(source, "w") as archive:
+                archive.write(fixture, "Folder/HR_Universe.unx")
+            output = root / "output"
+            with redirect_stdout(StringIO()):
+                self.assertEqual(main([str(source), "--output-dir", str(output),
+                                       "--output-format", "fabric", "--no-compare",
+                                       "--no-optimize-dax"]), EXIT_SUCCESS)
+            project = output / "HR_Universe" / "HR_Universe"
+            self.assertNotEqual(json.loads((project / "quality_report.json").read_text(
+                encoding="utf-8"
+            ))["status"], "FAIL")
+            manifest = json.loads((project / "expression_export.json").read_text(encoding="utf-8"))
+            queries = [item for item in manifest["exports"] if item["kind"] == "dataflow_m_query"]
+            self.assertTrue(queries)
+            mashup = (project / "HR_Universe.Dataflow" / "mashup.pq").read_text(encoding="utf-8")
+            for item in queries:
+                exported = (project / item["path"]).read_text(encoding="utf-8")
+                self.assertEqual(exported, (project / item["source"]).read_text(encoding="utf-8"))
+                self.assertIn(exported.split("\n\n", 1)[1].rstrip("\n"), mashup)
+
+    def test_file_only_fabric_model_does_not_invent_dataflow_queries(self):
+        from powerbi_import.import_to_powerbi import PowerBIImporter
+
+        data = {"datasources": [{
+            "name": "Source",
+            "connection": {"type": "CSV", "details": {"filename": "orders.csv"}},
+            "tables": [{"name": "Orders", "columns": [{"name": "Id", "datatype": "integer"}]}],
+        }]}
+        with tempfile.TemporaryDirectory() as temporary, redirect_stdout(StringIO()):
+            project = Path(PowerBIImporter().generate_powerbi_project(
+                "FileOnly", data, output_dir=temporary, output_format="fabric"
+            ))
+            manifest = json.loads((project / "expression_export.json").read_text(encoding="utf-8"))
+            self.assertTrue(any(item["kind"] == "shared_m_expression" for item in manifest["exports"]))
+            self.assertFalse(any(item["kind"] == "dataflow_m_query" for item in manifest["exports"]))
+            self.assertFalse((project / "PowerQuery" / "Dataflow").exists())
+            self.assertTrue((project / "FileOnly.Notebook" / "etl_pipeline.ipynb").is_file())
+
+    def test_importer_tmdl_output_exports_model_expressions(self):
+        from powerbi_import.import_to_powerbi import PowerBIImporter
+
+        data = {"datasources": [{
+            "name": "Source",
+            "connection": {"type": "SQL Server", "server": "db.example.invalid"},
+            "tables": [{"name": "Orders", "columns": [{"name": "Id", "datatype": "integer"}]}],
+        }]}
+        with tempfile.TemporaryDirectory() as temporary, redirect_stdout(StringIO()):
+            project = Path(PowerBIImporter().generate_powerbi_project(
+                "ModelOnly", data, output_dir=temporary, output_format="tmdl"
+            ))
+            manifest = json.loads((project / "expression_export.json").read_text(encoding="utf-8"))
+            self.assertTrue(any(item["kind"] == "m_partition" for item in manifest["exports"]))
+            self.assertTrue((project / "PowerQuery" / "Orders.pq").is_file())
+            self.assertFalse((project / "ModelOnly.Report").exists())
+
+    def test_export_occurs_after_optimizer_pass(self):
+        fixture = Path(__file__).resolve().parent.parent / "examples" / "Enterprise_Sales.wid"
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            sources = root / "sources"
+            sources.mkdir()
+            (sources / "Sales.wid").write_bytes(fixture.read_bytes())
+            output = root / "output"
+            old = "CALCULATE(SUM('FACT_SALES'[Revenue]), ALL('FACT_SALES'))"
+            new = "SUM('FACT_SALES'[Revenue])"
+
+            def modify_generated_model(item_output):
+                table = (Path(item_output) / "Sales" / "Sales.SemanticModel"
+                         / "definition" / "tables" / "FACT_SALES.tmdl")
+                text = table.read_text(encoding="utf-8")
+                self.assertIn(old, text)
+                table.write_text(text.replace(old, new), encoding="utf-8")
+                return {"total_optimizations": 1}
+
+            with patch("powerbi_import.dax_optimizer.optimize_dax_project",
+                       side_effect=modify_generated_model) as optimize, redirect_stdout(StringIO()):
+                self.assertEqual(main([str(sources), "--output-dir", str(output),
+                                       "--no-compare"]), EXIT_SUCCESS)
+            optimize.assert_called_once()
+            exported = (output / "Sales.wid" / "Sales" / "DAX" / "FACT_SALES.dax").read_text(
+                encoding="utf-8"
+            )
+            self.assertIn("'Total Revenue' =\n" + new, exported)
+            self.assertNotIn("'Total Revenue' =\n" + old, exported)
+
+    def test_legacy_batch_reuse_refuses_old_expression_outputs_before_model_rewrite(self):
+        fixture = Path(__file__).resolve().parent.parent / "examples" / "Enterprise_Sales.wid"
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            sources = root / "sources"
+            sources.mkdir()
+            (sources / "Sales.wid").write_bytes(fixture.read_bytes())
+            output = root / "output"
+            args = ["--batch", str(sources), "--output-dir", str(output),
+                    "--no-compare", "--no-optimize-dax"]
+            with redirect_stdout(StringIO()):
+                self.assertEqual(main(args), EXIT_SUCCESS)
+                project = output / "Sales.wid" / "Sales"
+                table = project / "Sales.SemanticModel" / "definition" / "tables" / "FACT_SALES.tmdl"
+                query = project / "PowerQuery" / "FACT_SALES.pq"
+                table_before, query_before = table.read_bytes(), query.read_bytes()
+                self.assertEqual(main(args), EXIT_GENERAL_ERROR)
+            self.assertEqual(table.read_bytes(), table_before)
+            self.assertEqual(query.read_bytes(), query_before)
+            artifact = json.loads((output / "batch_manifest.json").read_text(
+                encoding="utf-8"
+            ))["artifacts"][0]
+            self.assertEqual(artifact["status"], "failed")
+            self.assertIn("Expression export target already exists", artifact["error"])
+
+    def test_expression_export_failure_is_reported_in_batch_manifest(self):
+        fixture = Path(__file__).resolve().parent.parent / "examples" / "Enterprise_Sales.wid"
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            sources = root / "sources"
+            sources.mkdir()
+            (sources / "Sales.wid").write_bytes(fixture.read_bytes())
+            output = root / "output"
+            with patch("powerbi_import.expression_export.export_generated_project",
+                       side_effect=ValueError("unsupported generated expression")), \
+                 redirect_stdout(StringIO()):
+                self.assertEqual(main([str(sources), "--output-dir", str(output),
+                                       "--no-compare", "--no-optimize-dax"]), EXIT_GENERAL_ERROR)
+            artifact = json.loads((output / "batch_manifest.json").read_text(
+                encoding="utf-8"
+            ))["artifacts"][0]
+            self.assertEqual(artifact["status"], "failed")
+            self.assertIn("unsupported generated expression", artifact["error"])
 
     def test_rdl_folder_routes_mixed_sources_and_optional_power_query(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -934,11 +1237,16 @@ class TestCLIParser(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as output, \
              patch("powerbi_import.fabric_project_generator.FabricProjectGenerator") as fabric, \
+             patch("powerbi_import.expression_export.export_generated_project",
+                   return_value={"exports": []}) as export, \
              patch("powerbi_import.import_to_powerbi.PowerBIProjectGenerator") as pbip:
             fabric.return_value.generate_project.return_value = {"project_path": "fabric-project"}
             result = PowerBIImporter().generate_powerbi_project("Sales", {}, output_dir=output, output_format="fabric")
             self.assertEqual(result, "fabric-project")
             fabric.return_value.generate_project.assert_called_once()
+            export.assert_called_once_with(
+                os.path.join("fabric-project", "Sales.SemanticModel"), include_dataflow=True,
+            )
             pbip.assert_not_called()
 
     def test_generation_errors_are_not_silently_successful(self):

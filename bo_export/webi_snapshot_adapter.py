@@ -60,6 +60,7 @@ def extract_webi_snapshot(snapshot, connection):
             or not isinstance(snapshot.get("reports"), list)
             or not isinstance(snapshot.get("data_providers"), list)):
         raise ValueError("snapshot must be a version 1.0 WebI document snapshot")
+    document_id = _text(snapshot.get("document_id"), "snapshot document_id")
     datasource = _declared_connection(connection)
     extracted = {name: [] for name in _COLLECTIONS}
     extracted["datasources"].append(datasource)
@@ -79,9 +80,15 @@ def extract_webi_snapshot(snapshot, connection):
         })
 
     used_names = set()
+    provider_ids = set()
     for provider in snapshot["data_providers"]:
         summary = provider.get("summary") if isinstance(provider, dict) else None
         provider_id = _record_id(summary, "provider ID")
+        if provider_id in provider_ids:
+            raise ValueError(
+                f"duplicate provider summary ID {provider_id!r}; provider IDs must be unique"
+            )
+        provider_ids.add(provider_id)
         plan = provider.get("query_plan")
         if not isinstance(plan, dict) or plan.get("single_statement") is not True:
             logger.warning(
@@ -89,7 +96,51 @@ def extract_webi_snapshot(snapshot, connection):
                 provider_id,
             )
             continue
-        sql = plan["statements"][0]["sql"]
+        for field in ("document_id", "provider_id"):
+            plan_id = plan.get(field)
+            if not isinstance(plan_id, str) or not plan_id.strip():
+                raise ValueError(
+                    f"snapshot document {document_id!r}, provider {provider_id!r}: "
+                    f"query_plan.{field} must be a non-empty string"
+                )
+        if plan["document_id"] != document_id:
+            raise ValueError(
+                f"snapshot document {document_id!r}, provider {provider_id!r}: "
+                "query_plan.document_id does not match snapshot document_id"
+            )
+        if plan["provider_id"] != provider_id:
+            raise ValueError(
+                f"snapshot document {document_id!r}, provider {provider_id!r}: "
+                "query_plan.provider_id does not match provider summary ID"
+            )
+        if plan.get("status") != "available":
+            raise ValueError(
+                f"snapshot document {document_id!r}, provider {provider_id!r}: "
+                "query_plan.status must be 'available'"
+            )
+        statements = plan.get("statements")
+        if not isinstance(statements, list) or len(statements) != 1:
+            raise ValueError(
+                f"snapshot document {document_id!r}, provider {provider_id!r}: "
+                "query_plan.statements must contain exactly one statement"
+            )
+        statement = statements[0]
+        if not isinstance(statement, dict):
+            raise ValueError(
+                f"snapshot document {document_id!r}, provider {provider_id!r}: "
+                "query_plan.statements[0] must be an object"
+            )
+        sql = statement.get("sql")
+        if not isinstance(sql, str) or not sql.strip():
+            raise ValueError(
+                f"snapshot document {document_id!r}, provider {provider_id!r}: "
+                "query_plan.statements[0].sql must be a non-empty string"
+            )
+        if statement.get("operators") != []:
+            raise ValueError(
+                f"snapshot document {document_id!r}, provider {provider_id!r}: "
+                "query_plan.statements[0].operators must be an empty list"
+            )
         name = summary.get("name")
         if not isinstance(name, str) or not name.strip():
             name = provider_id

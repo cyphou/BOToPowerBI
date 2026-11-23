@@ -7,19 +7,31 @@ from pathlib import Path
 
 from powerbi_import.bw_reconciliation import (
     BWReconciliationError,
+    compare_bex_result_vectors,
     compare_controls,
+    load_bex_result_vectors,
     load_comparison,
 )
 
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--comparison", required=True, help="Local BW reconciliation manifest JSON (1.0)")
+    inputs = parser.add_mutually_exclusive_group(required=True)
+    inputs.add_argument("--comparison", help="Local BW reconciliation manifest JSON (1.0)")
+    inputs.add_argument(
+        "--bex-result-vectors",
+        help="Local BEx result-vector manifest JSON (1.0); compares declared rows only",
+    )
     parser.add_argument("--output", required=True, help="New JSON report path; existing files are not overwritten")
     args = parser.parse_args(argv)
 
     try:
-        report = compare_controls(load_comparison(args.comparison))
+        if args.bex_result_vectors:
+            report = compare_bex_result_vectors(
+                load_bex_result_vectors(args.bex_result_vectors)
+            )
+        else:
+            report = compare_controls(load_comparison(args.comparison))
         output = Path(args.output)
         content = json.dumps(report, ensure_ascii=False, indent=2) + "\n"
         content.encode("utf-8")
@@ -36,10 +48,22 @@ def main(argv=None):
         )
         return 2
 
-    print(
-        f"Local BW controls compared: {report['comparison_status']}; "
-        "SAP extraction, Fabric execution and business approval remain not_run."
-    )
+    if args.bex_result_vectors:
+        print(
+            f"Local BEx result vectors compared: {report['comparison_status']}; "
+            "SAP execution, Fabric execution and business approval remain not_run; "
+            "semantic equivalence is not verified."
+        )
+        if report["summary"]["measures_compared"] == 0:
+            print(
+                "No measure observations were compared; "
+                "this result does not establish measure agreement."
+            )
+    else:
+        print(
+            f"Local BW controls compared: {report['comparison_status']}; "
+            "SAP extraction, Fabric execution and business approval remain not_run."
+        )
     return 0 if report["comparison_status"] == "pass" else 1
 
 

@@ -14,7 +14,6 @@ Usage:
     deployer.deploy_dataset(workspace_id, 'MyDataset', config)
 """
 
-import os
 import json
 import logging
 from pathlib import Path
@@ -392,7 +391,7 @@ class FabricDeployer:
 
         try:
             endpoint = f'/workspaces/{workspace_id}/items/{item_id}'
-            result = self.client.patch(endpoint, data=payload)
+            self.client.patch(endpoint, data=payload)
             logger.info(
                 "Endorsement '%s' applied to item %s in workspace %s",
                 endorsement, item_id, workspace_id,

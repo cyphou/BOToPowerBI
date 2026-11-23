@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "urn:bo-to-powerbi:schema:sap-bw-bex-semantics:1.0",
+  "$id": "urn:bo-to-powerbi:schema:sap-bw-bex-semantics:1.1",
   "title": "SAP BW BEx semantic capture",
-  "description": "Strict offline declaration of selected BEx query semantics; not a query parser or conversion contract.",
+  "description": "Strict offline declaration of selected BEx query semantics and direct key-figure bindings; not a parser or formula conversion contract.",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -11,7 +11,7 @@
     "consumers"
   ],
   "properties": {
-    "schema_version": { "const": "1.0" },
+    "schema_version": { "enum": ["1.0", "1.1"] },
     "query": { "$ref": "#/$defs/query" },
     "coverage": { "$ref": "#/$defs/coverage" },
     "variables": { "type": "array", "items": { "$ref": "#/$defs/variable" } },
@@ -22,8 +22,21 @@
     "authorization_contexts": {
       "type": "array", "items": { "$ref": "#/$defs/authorizationContext" }
     },
-    "consumers": { "type": "array", "items": { "$ref": "#/$defs/consumer" } }
+    "consumers": { "type": "array", "items": { "$ref": "#/$defs/consumer" } },
+    "provider_key_figure_bindings": {
+      "type": "array", "items": { "$ref": "#/$defs/providerKeyFigureBinding" }
+    }
   },
+  "allOf": [
+    {
+      "if": {
+        "properties": { "schema_version": { "const": "1.1" } },
+        "required": ["schema_version"]
+      },
+      "then": { "required": ["provider_key_figure_bindings"] },
+      "else": { "not": { "required": ["provider_key_figure_bindings"] } }
+    }
+  ],
   "$defs": {
     "text": { "type": "string", "minLength": 1 },
     "nullableText": { "type": ["string", "null"], "minLength": 1 },
@@ -157,6 +170,20 @@
         "aggregation": { "$ref": "#/$defs/nullableText" },
         "exception_aggregation": { "$ref": "#/$defs/exceptionAggregation" },
         "unit_currency": { "$ref": "#/$defs/unitCurrency" },
+        "status": { "$ref": "#/$defs/assessmentStatus" },
+        "evidence_reference": { "$ref": "#/$defs/nullableText" }
+      }
+    },
+    "providerKeyFigureBinding": {
+      "type": "object", "additionalProperties": false,
+      "required": [
+        "key_figure_id", "provider_id", "provider_measure_name",
+        "status", "evidence_reference"
+      ],
+      "properties": {
+        "key_figure_id": { "$ref": "#/$defs/text" },
+        "provider_id": { "$ref": "#/$defs/text" },
+        "provider_measure_name": { "$ref": "#/$defs/text" },
         "status": { "$ref": "#/$defs/assessmentStatus" },
         "evidence_reference": { "$ref": "#/$defs/nullableText" }
       }

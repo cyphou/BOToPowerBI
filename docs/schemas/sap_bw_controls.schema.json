@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "urn:bo-to-powerbi:schema:sap-bw-controls:1.0",
+  "$id": "urn:bo-to-powerbi:schema:sap-bw-controls:1.1",
   "title": "SAP BW security, planning, and compliance controls",
   "description": "Strict offline declaration of BW-6 controls; not runtime validation or approval.",
   "type": "object",
@@ -10,7 +10,7 @@
     "access_scenarios", "planning_processes", "obligations"
   ],
   "properties": {
-    "schema_version": { "const": "1.0" },
+    "schema_version": { "enum": ["1.0", "1.1"] },
     "scope_id": { "$ref": "#/$defs/text" },
     "coverage": { "$ref": "#/$defs/coverage" },
     "authorization_contexts": {
@@ -21,6 +21,9 @@
     },
     "planning_processes": {
       "type": "array", "items": { "$ref": "#/$defs/planningProcess" }
+    },
+    "operational_capabilities": {
+      "type": "array", "items": { "$ref": "#/$defs/operationalCapability" }
     },
     "obligations": {
       "type": "array", "items": { "$ref": "#/$defs/obligation" }
@@ -45,6 +48,7 @@
         "authorization_contexts": { "$ref": "#/$defs/coverageStatus" },
         "access_matrix": { "$ref": "#/$defs/coverageStatus" },
         "planning_writeback": { "$ref": "#/$defs/coverageStatus" },
+        "operational_capabilities": { "$ref": "#/$defs/coverageStatus" },
         "audit": { "$ref": "#/$defs/coverageStatus" },
         "retention": { "$ref": "#/$defs/coverageStatus" },
         "privacy": { "$ref": "#/$defs/coverageStatus" },
@@ -117,6 +121,32 @@
     "controlStatus": {
       "enum": ["observed", "inferred", "unknown", "not_assessed", "not_applicable"]
     },
+    "operationalCapability": {
+      "type": "object", "additionalProperties": false,
+      "required": [
+        "capability", "inventory_object_id", "disposition", "owner_reference",
+        "target_solution_reference", "evidence_reference", "execution_status"
+      ],
+      "properties": {
+        "capability": {
+          "enum": [
+            "copy_version", "upload_file", "activate_cube_data",
+            "planning_reporting", "forecast_update", "consolidation_aggregation"
+          ]
+        },
+        "inventory_object_id": { "$ref": "#/$defs/nullableText" },
+        "disposition": {
+          "enum": [
+            "replacement_selected", "manual_redesign", "external_target",
+            "not_applicable", "blocked"
+          ]
+        },
+        "owner_reference": { "$ref": "#/$defs/nullableText" },
+        "target_solution_reference": { "$ref": "#/$defs/nullableText" },
+        "evidence_reference": { "$ref": "#/$defs/nullableText" },
+        "execution_status": { "const": "not_run" }
+      }
+    },
     "obligation": {
       "type": "object", "additionalProperties": false,
       "required": [
@@ -134,5 +164,39 @@
         "evidence_reference": { "$ref": "#/$defs/nullableText" }
       }
     }
-  }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": { "schema_version": { "const": "1.0" } },
+        "required": ["schema_version"]
+      },
+      "then": {
+        "not": { "required": ["operational_capabilities"] },
+        "properties": {
+          "coverage": {
+            "not": { "required": ["operational_capabilities"] }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": { "schema_version": { "const": "1.1" } },
+        "required": ["schema_version"]
+      },
+      "then": {
+        "required": ["operational_capabilities"],
+        "properties": {
+          "coverage": {
+            "required": [
+              "authorization_contexts", "access_matrix", "planning_writeback",
+              "operational_capabilities", "audit", "retention", "privacy",
+              "legal_hold"
+            ]
+          }
+        }
+      }
+    }
+  ]
 }

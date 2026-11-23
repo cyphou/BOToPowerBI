@@ -17,10 +17,10 @@ Features:
 - Conditional formatting rules
 """
 
-import uuid
-import json
 import hashlib
+import json
 import logging
+import uuid
 
 from powerbi_import.pbip_generator import _L, _aggregation_query_refs
 
@@ -206,14 +206,7 @@ VISUAL_TYPE_MAP = {
 
     # ── PBI pass-through (already correct) ─────────────────
     "clusteredbarchart": "clusteredBarChart",
-    "stackedbarchart": "stackedBarChart",
     "clusteredcolumnchart": "clusteredColumnChart",
-    "stackedcolumnchart": "stackedColumnChart",
-    "piechart": "pieChart",
-    "areachart": "areaChart",
-    "stackedareachart": "stackedAreaChart",
-    "donutchart": "donutChart",
-    "waterfallchart": "waterfallChart",
     "linestackedcolumncombochart": "lineStackedColumnComboChart",
 
     # ── BO-native chart types (from WebI / Crystal Reports) ─
@@ -2141,7 +2134,7 @@ def generate_script_visual(visual_name, script_info, fields=None,
         )
         if adapted_code != original_code:
             # Successfully mapped args — include adapted code
-            script_content += f"# Adapted script (original _argN mapped to dataset columns):\n"
+            script_content += "# Adapted script (original _argN mapped to dataset columns):\n"
             for line in adapted_code.split('\n'):
                 script_content += f"{line}\n"
             script_content += "\nplt.show()\n"
@@ -2164,7 +2157,7 @@ def generate_script_visual(visual_name, script_info, fields=None,
             f"# Power BI provides a 'dataset' data.frame with your selected fields.\n\n"
         )
         if adapted_code != original_code:
-            script_content += f"# Adapted script (original _argN mapped to dataset columns):\n"
+            script_content += "# Adapted script (original _argN mapped to dataset columns):\n"
             for line in adapted_code.split('\n'):
                 script_content += f"{line}\n"
         else:

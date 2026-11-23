@@ -3,8 +3,10 @@
 **Status:** proposed end-to-end migration design, with an offline BW inventory
 contract, limited staged-history and normalized-transformation notebook
 generators, and local comparison/assessment helpers. No SAP or Fabric runtime
-validation, customer-estate inventory, or business-result comparison has
-been performed. The canonical delivery
+validation, customer-estate inventory, or owner-approved business-result
+reconciliation has been performed. A local BEx result-vector comparator is
+available, but evaluates only declared values and does not establish runtime
+results or equivalence. The canonical delivery
 sequence and acceptance gates are in the [development plan](DEVELOPMENT_PLAN.md).
 
 ## Outcome and boundaries
@@ -103,7 +105,8 @@ architecture.
 | ADSO, DSO, InfoCube | Delta tables and/or Warehouse facts | Grain, keys, history, activation, aggregation and reload semantics |
 | InfoObjects, master data | Conformed dimensions and reference data | Attributes, language, texts, validity dates and hierarchies |
 | Transformations, DTP, ABAP | Spark, SQL, Dataflow or controlled manual rewrite | Routine logic, dependencies, ordering, error handling and source/target tests |
-| CompositeProvider, BEx query | Gold models and semantic models | Joins/unions, variables, restrictions, calculated/restricted key figures and exception aggregation |
+| MultiProvider, CompositeProvider | Gold views and/or semantic models | Explicit provider joins/unions, grain and query behavior; no automatic equivalence |
+| BEx query, Fiori report | Power BI reports and semantic models | Variables, restrictions, calculated/restricted key figures, exception aggregation and consumer acceptance |
 | Process chains | Data pipelines and operational controls | Dependency graph, schedule, retry, restart, alerting and ownership |
 | Analysis authorizations | Entra/Fabric access plus appropriate model/data security | Identity mapping and positive/negative access tests at every consumption path |
 | BW-IP/BPC | Separate planning/writeback solution | Input, locking, workflow, security and audit requirements; no assumed equivalence |
@@ -285,6 +288,12 @@ were measured, compare rows or samples, prove complete extraction, or infer
 business equivalence. Exit codes are 0 for matching controls, 1 for a produced
 report with differences outside the declared rules, and 2 for invalid input or
 report-write failure. This is local comparison logic, not the BW-2 exit gate.
+The CLI has mutually exclusive `--comparison <manifest>` (the controls mode
+above) and `--bex-result-vectors <manifest>` inputs, each used with
+`--output <new-report.json>`. The BEx flag selects a separate row-vector
+comparison mode, not another BW-2 control comparison; existing `--comparison`
+controls behavior is unchanged. Its contract and limits are described under
+BW-5 below.
 
 ## BW-3 offline handoff evaluation
 
@@ -590,6 +599,32 @@ aggregation, units/currencies, authorization contexts and consumers. Consumer
 IDs must resolve to `consumer` objects linked to the query by inventory
 dependencies. Selection/default behavior is referenced, not copied as literal
 prompt values; role and authorization fields are references, not user lists.
+Manifest version 1.1 adds `provider_key_figure_bindings`: each captured BEx
+key figure must explicitly name one measure in a directly linked provider.
+The assessor requires an observed dependency and evidence, an observed provider
+measure, and a unique exact-name match in the provider inventory; missing,
+unlinked, ambiguous or unobserved bindings block the candidate. Version 1.0
+remains accepted for semantic capture but reports a review item because it has
+no provider-measure binding check. This declaration does not evaluate formulas
+or prove the BEx-to-provider association or business equivalence;
+calculated/restricted key figures still need a separately reviewed conversion.
+The assessment report includes one `key_figure_provider_links` row per captured
+key figure, with `resolved`, `blocked`, `missing` or `not_assessed` status.
+`resolved` means only that the local declarations cross-reference successfully.
+The inventory query definition must also be marked `observed` and carry a
+SHA-256 digest matching the manifest digest; otherwise BW-5 reports a blocker.
+This only cross-checks two local declarations and does not read or authenticate
+the referenced definition bytes or prove their SAP origin.
+The assessment also lists direct `queries` dependencies from the BEx query to
+declared InfoCubes, ADSOs, InfoProviders or CompositeProviders. A missing,
+unresolved or unobserved dependency, an unknown or out-of-scope provider, a
+blocked query or provider, or a provider feature marked unsupported or unknown
+blocks the candidate. For directly linked InfoCubes, unobserved metadata, keys,
+semantics or listed semantic items also block it. The key list must be
+non-empty, and each key must have a known role; this records declared grain
+inputs but does not prove the grain is correct. These are checks of local
+declarations only: they do not prove lineage completeness, inspect transitive
+CompositeProvider dependencies, or validate the cube's data or aggregation.
 Unsupported or unknown BEx semantics already recorded against the query remain
 blockers. An open BW-0 inventory review is also a blocker for this BW-5
 candidate assessment.
@@ -598,12 +633,327 @@ The [synthetic example](fixtures/sap_bw_bex_semantics.partial.example.json)
 intentionally leaves coverage open. The report's
 `candidate_for_owner_review` status means only that the declared BEx capture
 and local BW-0 inventory review have no reported blocker; `gate_closed`
-remains false. It is not owner approval. The tool does not parse a BW query,
-check source provenance, create a target semantic model or report, run source
-or target queries, compare result vectors, validate performance, or approve
-consumer acceptance. Query execution, source/target result comparison,
-consumer acceptance and Desktop/Service rendering remain `not_run`. This is a
-contract and gap report, not a BEx converter or BW-5 exit gate.
+remains false. It is not owner approval. The assessor does not parse a BW
+query, check source provenance, create a target semantic model or report, run
+source or target queries, validate performance, or approve consumer acceptance.
+The local vector comparator below does not change those assessment limits.
+Query execution, runtime/source-target reconciliation, consumer acceptance and
+Desktop/Service rendering remain `not_run`. This is a contract and gap report,
+not a BEx converter or BW-5 exit gate.
+
+### Offline BEx result-vector comparison
+
+The separate `migrate_bw_reconcile.py` BEx mode compares locally declared
+source and target vectors:
+
+```powershell
+python migrate_bw_reconcile.py `
+    --bex-result-vectors "docs\fixtures\sap_bw_bex_result_vectors.example.json" `
+    --output "bex_result_vector_report.json"
+```
+
+The strict [schema](schemas/sap_bw_bex_result_vectors.schema.json) declares
+query scope, role, prompt-context reference and grain on each side; those
+declarations must agree between source and target. Rows are matched by the
+exact composite key declared in `key_fields`. The report identifies missing,
+extra and duplicate keys, and measure mismatches. Each measure has an explicit
+`exact` rule or a decimal tolerance rule with absolute and relative tolerances.
+The [synthetic fixture](fixtures/sap_bw_bex_result_vectors.example.json) is
+deliberately mismatched.
+
+A `pass` means only that the supplied local vectors satisfy those declared
+rules. It does not authenticate SAP source or Fabric target values or prompt-
+context references, establish source coverage or native InfoCube identity,
+execute SAP or Fabric, prove semantic equivalence, or constitute owner/business
+approval. SAP/Fabric execution and approval are `not_run`; authenticity,
+provenance, source coverage and semantic equivalence are `not_verified`.
+When the report's `summary.measures_compared` is zero, it adds the
+`no_measure_observations_compared` limitation. After successfully writing the
+report, the CLI prints “No measure observations were compared; this result does
+not establish measure agreement.” This is a notice, not a status override:
+`comparison_status` and exit behavior are unchanged. For example, two empty
+vectors still produce `pass`/0; that does not establish measure agreement.
+The report schema remains 1.0, runtime evidence remains `not_run`, and
+verification remains `not_verified`.
+Therefore this comparator does not close BW-5, which remains open. Native
+InfoCube identity remains blocked on a sanitized, source-owner-approved sample
+and agreed field mapping. It is a static local comparator, not runtime or
+source-target reconciliation.
+
+### Explicit SAP BW Power Query selection
+
+For an explicitly prepared converted datasource, the Python
+`bo_export.compat.generate_power_query_m(connection, table)` path can generate
+an Import/coexistence Power Query using `SapBusinessWarehouse.Cubes` implementation
+2.0. Supply `connection` with `type: "sap_bw"` and non-empty text `server`,
+`system_number` and `client_id`. Leading zeroes must be kept. The `table`
+must contain a `name` and an explicit `sap_bw_navigation` object, for example:
+
+```python
+from bo_export.compat import generate_power_query_m
+
+connection = {"type": "sap_bw", "server": "synthetic-bw",
+              "system_number": "00", "client_id": "001"}
+table = {"name": "Sales", "sap_bw_navigation": {
+    "info_area": "$INFOCUBE", "cube_id": "$0D_DECU",
+    "dimensions": [{"selector": "[0CALDAY]",
+                    "attributes": ["[0CALDAY].[LEVEL01]"],
+                    "columns": ["Calendar day"]}],
+    "measures": [{"selector": "[Measures].[0D_INV_QTY]",
+                  "column": "Quantity"}],
+}}
+expression = generate_power_query_m(connection, table)
+```
+
+Identifiers and output names are explicit declarations, not extracted or
+validated against SAP. The same converted-table metadata is usable by the
+existing Import model and Dataflow generators, with matching declared columns
+and data types; the BO extractor and CLI do not populate it.
+Generic SQL/table navigation and automatic BEx variable, formula and security
+conversion are not implemented for this path. Missing connection settings or
+cube selection raise an error instead of guessing. The connector needs separately
+configured credentials, SAP prerequisites and potentially a gateway. Desktop
+and Fabric execution/refresh and BEx result parity are `not_run`.
+The [connector documentation](https://learn.microsoft.com/en-us/power-query/connectors/sap-bw/implementation-details)
+also documents differences for BEx local calculations and aggregations.
+
+To prepare a **PBIP draft** from a JSON plan, use the local CLI:
+
+```powershell
+python migrate_bw_bex_pbip.py `
+    --plan "docs\fixtures\sap_bw_bex_pbip_plan.example.json" `
+    --output-dir "artifacts\bw-bex"
+```
+
+The [plan schema](schemas/sap_bw_bex_pbip_plan.schema.json) and
+[synthetic example](fixtures/sap_bw_bex_pbip_plan.example.json) describe one
+cube and its explicitly mapped columns. Version 1.0 plans remain supported;
+version 1.1 can optionally add `bex_linkage` with a BEx `query_id`, BW
+inventory `provider_id`, the declared `cube_id`, and a `key_figure_bindings`
+entry for each selected measure (`key_figure_id`, exact M `selector`, and
+output `column`). Version 1.2 retains that linkage and requires
+`dimension_bindings` when `bex_linkage` is present; versions 1.3 through 1.6
+retain the same requirement. The list maps every selected
+navigation dimension selector exactly once to an observed InfoCube dimension
+name that occurs exactly once in the provider's dimension declarations.
+Ambiguous selected names are rejected; version 1.1 linked plans may omit this
+list for compatibility. When
+linkage is present, also pass `--inventory` and `--semantics`. The CLI runs the
+existing offline BW-5 assessment and only generates when that report is
+`candidate_for_owner_review`; the result is written to
+`bex_linkage_assessment.json` beside the PBIP. The check requires the selected
+provider to be an observed direct InfoCube dependency and each selected key
+figure to resolve to that provider's observed measure name. Exact selector
+comparisons check declarations against each other; they do not verify that a
+selector or cube ID is correct in SAP. For linked plans, the SAP client in the
+connection must exactly match the BW inventory's source client; this does not
+verify the server, system number or InfoCube ID. The dimension binding checks
+provider declarations only; they do not prove that the BEx query uses a
+dimension. Replace sample selectors, types and connection metadata only with
+independently verified values. The output is an Import model with an empty
+report shell by default; plan 1.6 can explicitly add a review table. Neither
+option converts a BEx report. The output does not create an aggregated
+Warehouse fact, MultiProvider joins, or a Fiori dashboard. The linkage evidence
+JSON sets
+`native_infocube_identity_verification` to `not_verified`: matching local
+declarations do not establish native SAP object identity.
+
+Version 1.3 optionally allows a dimension's `properties` to select explicitly
+declared member properties, for example:
+
+```json
+{
+  "selector": "[0CALDAY]",
+  "attributes": ["[0CALDAY].[LEVEL01]"],
+  "columns": ["Calendar day"],
+  "properties": [{
+    "source_column": "Calendar day",
+    "selector": "[20CALDAY]",
+    "column": "Calendar day key"
+  }]
+}
+```
+
+Declare `{"name": "Calendar day key", "datatype": "datetime"}` in the
+same table's model `columns` as well. The `source_column` must exactly match a
+column selected by that dimension; property output names must be unique across
+all selected dimensions and measures. The generated `Cube.Transform` uses
+`Table.AddColumn` and `Cube.AttributeMemberProperty`. This is a manually
+declared selector and type, not automatically discovered metadata: the plan
+does not validate the property against SAP. The documented BW connector
+requires implementation 2.0, Import mode and suitable SAP permissions for typed
+date keys. Verify the selector, type, permissions and results in the intended
+environment. Versions 1.0-1.2 cannot contain `properties`.
+For BW-only models, the generator also suppresses its automatic Calendar table,
+date relationships and Gregorian date-part hierarchies. These cannot be
+assumed to reproduce BW fiscal calendars or BEx hierarchies. The existing
+automatic date behavior for non-BW models is unchanged.
+
+A complete [synthetic 1.3 example](fixtures/sap_bw_bex_pbip_properties.example.json)
+can be supplied with `--plan` in the command above. It cannot connect to SAP
+without independently reviewed real connection and navigation declarations.
+
+Version 1.4 optionally accepts `parameters` within `sap_bw_navigation`:
+
+```json
+"parameters": [
+  {"selector": "[!SYNTHETIC_PARAMETER]", "arguments": [["synthetic-a", "synthetic-b"]]}
+]
+```
+
+Each unique, explicit `selector` and non-empty `arguments` list is emitted in
+order as `Cube.ApplyParameter` before dimension and measure selection. Arguments
+may contain non-empty text values and/or non-empty lists of text values; further
+nesting, non-text values and M expressions are rejected. The example produces
+the M argument list `{{"synthetic-a", "synthetic-b"}}`. Versions 1.0-1.3
+reject `parameters`; version 1.4 retains the 1.3 property support and 1.2
+linkage requirements.
+
+These are literal user declarations, not automatically mapped BEx variables,
+prompts, range semantics, defaults or filters. The shape and values are not
+validated against SAP: obtain the exact parameter selector and argument shape
+from an authorized source, and verify folding and results in the intended
+environment. A manually selected value may restrict the data loaded. The plan
+and generated model contain literal values in clear text, so never use secrets
+and protect both artifacts; generated model access may reveal business values.
+This option does not change the linkage report's counts of BEx semantics not
+converted. See Microsoft's
+[`Cube.ApplyParameter` reference](https://learn.microsoft.com/en-us/powerquery-m/cube-applyparameter)
+and [SAP BW query transformation guidance](https://learn.microsoft.com/en-us/power-query/connectors/sap-bw/transform-filter-sap-bw-data).
+
+Version 1.5 optionally associates one parameter declaration with a BEx variable
+using `bex_variable_id`:
+
+```json
+{
+  "selector": "[!V000001]",
+  "bex_variable_id": "declared-variable-id",
+  "arguments": [["2026"]]
+}
+```
+
+This requires `bex_linkage` plus `--inventory` and `--semantics`. The ID must
+match exactly one variable in the supplied BEx manifest, and each variable ID
+may be bound once. The output's `variable_parameter_selection` records selected
+and unselected manifest variable IDs, the declared M selector, and manifest
+name/kind/status; it deliberately omits literal argument values.
+`bex_semantics_not_converted.counts.variables` continues to count all declared
+variables: associating an ID and passing values does not translate mandatory
+prompt behavior, defaults, selection/range semantics, or prove that the BW
+parameter represents that BEx variable. Earlier plan versions reject
+`bex_variable_id`. The evidence report is additive and retains schema version
+1.0; strict consumers must allow `variable_parameter_selection` and
+`bex_semantics_not_converted.declared_coverage`.
+
+The association is a manually asserted link, not discovered or verified in SAP.
+An exact manifest ID does not verify selector identity, compatibility, value
+shape, defaults, query folding, authorization behavior or result equivalence.
+Use only reviewed, non-secret literal arguments and protect the generated model.
+
+Version 1.6 optionally adds a top-level `review_report`:
+
+```json
+"review_report": {
+  "page_name": "BW cube review",
+  "columns": ["Calendar day", "Quantity"]
+}
+```
+
+The page name must be non-empty, and the column list must be non-empty,
+unique, and match the declared model column names exactly, including case.
+Earlier plan versions reject this option. The CLI creates one `tableEx` on
+the default 1280 x 720 page, with a 20-unit margin and the declared columns in
+order. It projects physical columns only, including selected BW key figures;
+it creates no DAX measures and disables the table total. Power BI may group
+identical projected values, so this is not necessarily a row-level view.
+Review the grain, aggregation, units and results independently. The table
+does not reconstruct a BEx layout or convert its semantics.
+
+A complete [synthetic 1.6 example](fixtures/sap_bw_bex_pbip_report.example.json)
+can be supplied with `--plan`; its synthetic server cannot connect to SAP.
+Without `review_report`, the report remains empty. The CLI does not open or
+refresh Desktop, query SAP, or establish source-to-target equivalence.
+
+The linkage report's `key_figure_selection` compares the IDs in the linked plan with the BEx
+manifest's declared key figures, listing selected and unselected IDs in
+manifest order. The status is `all_declared_selected`,
+`some_declared_unselected` or `none_declared`. A partial selection remains
+allowed but produces a CLI warning with the number omitted; an empty manifest
+does not prove that the SAP query has no key figures. These results concern
+local declarations only: even `all_declared_selected` does not mean formulas,
+aggregations, units or BEx results have been converted. The report's
+`schema_version` remains `1.0`; consumers enforcing a closed set of JSON
+properties must allow the additive `key_figure_selection` field. Its
+`selected_semantics` lists each selected figure's target selector and column,
+manifest status, and declared aggregation, exception-aggregation and
+unit/currency fields. `selected_semantics_scope` is
+`local_bex_manifest_declarations_only`; the fields are copied for review, not
+interpreted or translated into DAX.
+If the BW-5 assessment contains review findings, the CLI prints a non-blocking
+warning with their count and the assessment path. This makes remaining
+owner-review work visible but does not change the generation gate or approve
+the declarations. If blockers prevent generation, the CLI reports the total
+count and up to three finding codes with their JSON paths, plus the number of
+additional blockers; it rejects the linked plan before creating PBIP output.
+The schema allows no credential fields, and the CLI rejects URL/userinfo
+syntax in the server identifier. It does not scan every text value for secrets;
+never embed credentials in any plan field.
+The linkage report's `bex_semantics_not_converted.counts` summarizes declared
+variables, filters, hierarchies, master data, key-figure semantics and
+authorization contexts. A non-zero count emits a non-blocking warning with
+the evidence path. `evidence_scope` is
+`declared_local_manifest_counts_only`; `declared_coverage` copies each
+category's coverage declaration from the local BEx manifest. Counts and
+coverage are not independently verified: zero counts or `not_applicable`
+do not prove absence in SAP, and neither field implies that any listed
+behavior was mapped.
+The CLI validates the output column declarations and PBIP structure locally;
+it cannot confirm that SAP objects exist or that the declared query returns
+those names/types. Static validation warnings are reported but do not fail the
+command. Invalid plans are rejected before output creation, and output
+directories must be new or empty. Other generation errors may leave partial
+files; inspect warnings and do not treat an unsuccessful output as a finished
+project.
+
+After successful static validation, the BW CLI exports the generated model's
+M partitions to `PowerQuery/*.pq`, shared M expressions to
+`PowerQuery/Expressions/*.pq`, and any generated measures to `DAX/*.dax`.
+`expression_export.json` maps each review file to its TMDL source. A BW draft
+currently has no generated DAX measures, so no `DAX` directory is created.
+The files copy generated expressions; they do not establish BEx conversion.
+They may contain connection details and literal parameter values: protect the
+files and never put secrets in the plan. Export failures return a nonzero
+status and may leave partial files.
+
+Without the optional linkage, the plan does not consume the BW inventory or
+BEx semantic-capture manifest. With linkage, the local assessor cross-checks
+their declarations but does not translate BEx variables, filters, formulas,
+hierarchies, exception aggregation, units/currencies or authorizations.
+The optional review table is not a converted BEx visual.
+`candidate_for_owner_review` is not approval and does not close BW-5.
+Configure credentials separately after reviewing the generated model. Protect
+generated artifacts, which contain connection metadata and local assessment
+references. Desktop opening, reload, rendering, query execution with source
+data, refresh, BEx parity and business acceptance remain `not_run` until a
+reproducible, authorized check is recorded with its artifacts and provenance.
+
+Generated project metadata also includes a versioned
+`sap_bw_capability_boundary`. It separates the illustrated Power Apps,
+Talend/SQL and planning target architecture from repository behavior and keeps
+SAP/Fabric runtime, cutover and retirement evidence at `not_run`.
+
+The generated semantic model disables implicit aggregation
+(`summarizeBy: none`) for all SAP BW source columns, including numeric
+dimensions and key figures. It does not create DAX measures: BEx aggregation
+and exception-aggregation behavior must be explicitly understood and validated
+before adding target measures. Other datasource types retain their existing
+column summarization defaults.
+
+Planning, forecast updates, version locks, write-back and BW authorization are
+separate functions and are not implemented by this read-only Import draft.
+Cube aggregation and BEx measures cannot safely be assumed additive in the
+model. Obtain query definitions, selected fields, variables, units, security
+and business validation evidence before reproducing reports or decisions.
 
 For a print-oriented consumer, `migrate.py --output-format rdl` or the separate
 `migrate_paginated.py` can create
@@ -629,7 +979,11 @@ The strict [manifest schema](schemas/sap_bw_controls.schema.json) records
 inventory-linked authorization contexts, role/data-scope and target-control
 references, explicit allow/deny test scenarios, planning/write-back dispositions
 and control coverage (locking, approvals, separation of duties, audit and
-recovery), plus audit, retention, privacy and legal-hold obligations. The
+recovery), plus audit, retention, privacy and legal-hold obligations. Version
+1.1 additionally declares dispositions for Copy Version, Upload File, cube
+activation, planning reporting, forecast update and consolidation/aggregation.
+Each capability requires an external owner, target solution and evidence when
+in scope; version 1.0 remains readable for compatibility. The
 [synthetic partial example](fixtures/sap_bw_controls.partial.example.json)
 intentionally leaves coverage incomplete. Role and owner fields are references,
 not user lists; credentials and identity payloads are not accepted.
@@ -640,7 +994,8 @@ references only. Its `candidate_for_owner_review` result is not acceptance;
 tests, verify identity/binding, exercise planning/write-back, certify audit or
 retention, validate compliance, or deploy/execute Fabric items. All such
 runtime evidence remains `not_run`; this manifest is neither a security proof
-nor an authorization to retire BW.
+nor an authorization to retire BW. Capability records do not implement Power
+Apps, Talend jobs, SQL procedures, target planning workflows or BW write-back.
 
 ## BW-7 offline wave evidence index
 

@@ -39,6 +39,8 @@ that the report opens, refreshes or matches the source.
 | Inspect an experimental Desktop Intelligence REP | `python migrate_deski_inspect.py --source report.rep --output inventory.json` |
 | Check DeskI COM registration on Windows | `python migrate_deski_inspect.py --check-sdk` |
 | Validate a generated PBIP project or Fabric bundle | `python migrate.py --validate-project "path-to-project"` |
+| Review manually declared feature coverage offline | [Coverage declaration ledger](docs/MIGRATION_REFERENCE.md#offline-feature-coverage-declaration-ledger) |
+| Export M and DAX review files from an existing generated model | `python -m powerbi_import.expression_export --semantic-model "path\Report.SemanticModel" --output-dir "new-output"` |
 
 Replace example paths with your own. The Fabric folder command uses the same
 `sources_pbi` default, which must also be new or empty; choose different output
@@ -107,16 +109,68 @@ folder draft is opt-in and does not reconstruct the source report.
 
 | Source or target | Scope |
 |---|---|
-| WebI `.wid`, Crystal `.rpt`, universes `.unx`/`.unv`, Lumira `.lumx`/`.lums` | Local extraction and generation are format-dependent and incomplete. |
+| WebI `.wid`, Crystal `.rpt`, universes `.unx`/`.unv`, Lumira `.lumx`/`.lums` | Local extraction and generation are format-dependent and incomplete; recognition does not guarantee a usable datasource or model. |
 | `.biar`/`.lcmbiar` | Directly recognized archive entries only; embedded or segmented contents are not fully decoded. |
 | Desktop Intelligence `.rep` | Partial inventory, explicitly acknowledged RDL drafts and an opt-in manually declared PBIP table draft; no automatic PBIP/Fabric conversion. |
 | Power BI Desktop | PBIP is intended for standard Desktop; open and verify the project separately. |
 | Power BI Report Server | Desktop for Report Server does not support PBIP. An optional SQL-based M query is a manual reconstruction aid; RDL is a separate paginated target. |
-| SAP BW | Separate offline assessment and bounded staged-data tools, not full BW extraction or warehouse replacement. See the [BW design](docs/SAP_BW_TO_FABRIC_DESIGN.md). |
+| SAP BW | Offline assessments, staged-data tools, a declaration-based single-cube PBIP draft with optional local BW-5 linkage checks, and a local BEx result-vector comparator; not BW extraction, BEx conversion, or warehouse replacement. See the [BW design](docs/SAP_BW_TO_FABRIC_DESIGN.md). |
 
-When no source visuals are converted, PBIP generation creates an empty report
-shell for the model; it does not reconstruct the source report. An existing
-report is not overwritten by an empty shell; use a new output directory.
+For WebI, an optional CMS snapshot can capture report elements, provider
+summaries and query plans. The adapter checks the IDs and statement shape of
+selected single-statement plans before carrying their SQL into a model, but the
+snapshot does not establish report-element-to-provider bindings. The result can
+therefore have a model and an empty report shell; it is not a converted WebI
+report. The synthetic `Enterprise_Sales` sample's generated PBIP currently
+retains unresolved visual/model field references reported by default local
+static validation; that validation can exit successfully with warnings, which
+is not proof of bindings or source parity. See the
+[WebI snapshot details and limitations](docs/MIGRATION_REFERENCE.md#read-webi-report-and-data-provider-metadata-from-the-cms).
+
+When no source visuals are converted, PBIP generation defaults to an empty
+report shell for the model; it does not reconstruct the source report. A BW
+cube plan can instead declare an optional [review table](docs/fixtures/sap_bw_bex_pbip_report.example.json)
+using selected model columns. This table is not a converted BEx report.
+An existing report is not overwritten by an empty shell; use a new output
+directory.
+
+To compare locally declared BEx source and target result vectors, use a
+versioned manifest and a new report path:
+
+```powershell
+python migrate_bw_reconcile.py `
+    --bex-result-vectors "bex_vectors.json" `
+    --output "bex_result_vector_report.json"
+```
+
+The comparator checks declared composite keys and exact or decimal-tolerance
+measure rules. A pass applies only to the supplied declarations; it does not
+run SAP or Fabric, establish provenance or coverage, prove semantic
+equivalence, or close BW-5. If the report's `measures_compared` is zero, it
+includes `no_measure_observations_compared`, and the CLI prints
+“No measure observations were compared; this result does not establish measure
+agreement.” This notice does not change `comparison_status` or the exit code;
+two empty vectors can still yield `pass`/0. Native InfoCube identity remains
+blocked pending source-owner-approved evidence and an agreed field mapping.
+See the [BEx comparison contract and limitations](docs/SAP_BW_TO_FABRIC_DESIGN.md#offline-bex-result-vector-comparison).
+
+BO folder and BIAR, shared-model, Python importer and local MCP generation
+automatically attempt [expression export](docs/MIGRATION_REFERENCE.md#export-generated-m-and-dax-expressions),
+as does the opt-in REP PBIP draft. The BW cube CLI exports after local static
+validation. Export requires a generated model and can fail. For ordinary
+folder items other than BIAR or REP, it follows the optional DAX optimization
+step and, for Fabric, the quality check; BIAR and shared-model exports precede
+their Fabric quality check.
+
+Review `.pq` files contain generated M partitions, shared/refresh expressions
+and Fabric Dataflow `.m` queries. `.dax` files list only measures, calculated
+columns/partitions, calculation items and RLS filters actually written in
+TMDL. If nothing is exportable, manifest `expression_export.json` version 1.1
+has an empty `exports` list. Existing export targets are refused; failures
+can leave partial files. SQL, connection details and values may be sensitive.
+The standalone command above can re-export an existing model; add
+`--include-dataflow` for a generated Fabric Dataflow. These snapshots are not
+static validation, BEx conversion, execution or parity evidence.
 
 ## Advanced commands and documentation
 
@@ -127,12 +181,14 @@ python migrate.py --help
 python migrate.py --help-all
 python migrate_deski_inspect.py --help
 python migrate_paginated.py --help
+python migrate_bw_bex_pbip.py --help
+python migrate_bw_reconcile.py --help
 ```
 
 | Topic | Documentation |
 |---|---|
 | RDL, SQL, REP, CMS, batch, shared models, full CLI flags and advanced examples | [Advanced migration reference](docs/MIGRATION_REFERENCE.md) |
-| BW assessment and staged historical migration | [SAP BW to Fabric design](docs/SAP_BW_TO_FABRIC_DESIGN.md) |
+| BW assessment, cube PBIP draft and staged historical migration | [SAP BW to Fabric design](docs/SAP_BW_TO_FABRIC_DESIGN.md) |
 | Known limitations and local evidence | [Gap analysis](docs/GAP_ANALYSIS.md) |
 | Local MCP and separately authorized Fabric operations | [Fabric/MCP setup](docs/FABRIC_MCP_SETUP.md) |
 | Project internals and ownership | [Architecture](docs/ARCHITECTURE.md) and [agents](docs/AGENTS.md) |
@@ -147,6 +203,24 @@ python migrate_paginated.py --help
 - CMS server mode downloads and extracts; it is not target generation.
   The standard CLI deployment flags are unsupported. Remote operations need
   separate authorization and evidence.
+- Generated refresh/schedule configurations are disabled review drafts; they
+  do not deploy. `deploy_refresh_schedule` skips `None` and disabled drafts,
+  and rejects malformed or incomplete enabled declarations before a client
+  call; it does not invent time, time zone or notification values. A
+  valid-shaped declaration is not proof of source equivalence, policy
+  compliance, Power BI time-zone acceptance or runtime behavior. See
+  [reviewed refresh schedule deployment](docs/MIGRATION_REFERENCE.md#deploying-a-reviewed-refresh-schedule).
+- `PBIWorkspaceDeployer.deploy_rolling` is blocked (`failed`/`blocked`,
+  `rolled_back: false`), makes no remote calls and leaves previously created
+  remote artifacts untouched. The separate low-level `deploy_project` path
+  can initiate a remote import and requires explicit authorization.
+  PBIP-to-PBIX packaging compatibility, deployment, refresh and Fabric
+  execution remain unverified. See [deployment limitations](docs/MIGRATION_REFERENCE.md#-deployment).
+- When generated for supplied user filters, `assign_rls_roles.ps1` is a
+  terminating manual-review reminder, not an assignment script. Previously
+  generated scripts are not retroactively replaced and should not be run.
+  Review source restrictions and identities with the security owner; assign
+  roles manually and test allowed and denied access in an authorized target.
 - Generated PBIP, RDL, M and Fabric artifacts do not establish query execution,
   rendering, refresh, security equivalence or source-to-target parity.
 

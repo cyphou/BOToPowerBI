@@ -1,0 +1,75 @@
+{
+  "schema_version": "1.0",
+  "comparison_id": "synthetic-bex-result-vector-001",
+  "scope": {
+    "query_id": "SYNTHETIC-BEX-QUERY-01",
+    "query_scope_id": "synthetic-full-period-scope-001"
+  },
+  "key_fields": ["region_key", "item_key"],
+  "source": {
+    "system_id": "SYNTHETIC-SAP-BW-01",
+    "object_id": "SYNTHETIC-QUERY-01",
+    "run_id": "synthetic-source-result-001",
+    "evidence_ref": "synthetic-source-vector-record-001",
+    "scope": {
+      "query_id": "SYNTHETIC-BEX-QUERY-01",
+      "query_scope_id": "synthetic-full-period-scope-001"
+    },
+    "role": "query_result",
+    "prompt_context_ref": "synthetic-prompt-context-reference-001",
+    "grain": "one row per region and item",
+    "rows": [
+      {
+        "key": {"region_key": "NORTH", "item_key": "A-01"},
+        "measures": {"net_sales": "100.00", "units": 10}
+      },
+      {
+        "key": {"region_key": "SOUTH", "item_key": "B-02"},
+        "measures": {"net_sales": "50.00", "units": 5}
+      },
+      {
+        "key": {"region_key": "SOUTH", "item_key": "C-03"},
+        "measures": {"net_sales": "25.00", "units": 2}
+      }
+    ]
+  },
+  "target": {
+    "system_id": "SYNTHETIC-FABRIC-01",
+    "object_id": "synthetic_lakehouse.bex_result",
+    "run_id": "synthetic-target-result-001",
+    "evidence_ref": "synthetic-target-vector-record-001",
+    "scope": {
+      "query_id": "SYNTHETIC-BEX-QUERY-01",
+      "query_scope_id": "synthetic-full-period-scope-001"
+    },
+    "role": "query_result",
+    "prompt_context_ref": "synthetic-prompt-context-reference-001",
+    "grain": "one row per region and item",
+    "rows": [
+      {
+        "key": {"region_key": "NORTH", "item_key": "A-01"},
+        "measures": {"net_sales": "100.05", "units": 10}
+      },
+      {
+        "key": {"region_key": "SOUTH", "item_key": "B-02"},
+        "measures": {"net_sales": "50.00", "units": 5}
+      },
+      {
+        "key": {"region_key": "SOUTH", "item_key": "B-02"},
+        "measures": {"net_sales": "50.00", "units": 5}
+      },
+      {
+        "key": {"region_key": "WEST", "item_key": "D-04"},
+        "measures": {"net_sales": "30.00", "units": 3}
+      }
+    ]
+  },
+  "rules": {
+    "net_sales": {
+      "mode": "tolerance",
+      "absolute_tolerance": "0.02",
+      "relative_tolerance": "0"
+    },
+    "units": {"mode": "exact"}
+  }
+}

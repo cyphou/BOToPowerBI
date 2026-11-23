@@ -1,0 +1,47 @@
+{
+  "schema_version": "1.3",
+  "project_name": "Synthetic BW Cube Properties",
+  "datasource": {
+    "name": "Synthetic BW",
+    "connection": {
+      "type": "sap_bw",
+      "server": "synthetic-bw.invalid",
+      "system_number": "00",
+      "client_id": "000"
+    },
+    "tables": [
+      {
+        "name": "Sales",
+        "columns": [
+          {"name": "Calendar day", "datatype": "string"},
+          {"name": "Calendar day key", "datatype": "datetime"},
+          {"name": "Quantity", "datatype": "decimal"}
+        ],
+        "sap_bw_navigation": {
+          "info_area": "$INFOCUBE",
+          "cube_id": "$0D_DECU",
+          "dimensions": [
+            {
+              "selector": "[0CALDAY]",
+              "attributes": ["[0CALDAY].[LEVEL01]"],
+              "columns": ["Calendar day"],
+              "properties": [
+                {
+                  "source_column": "Calendar day",
+                  "selector": "[20CALDAY]",
+                  "column": "Calendar day key"
+                }
+              ]
+            }
+          ],
+          "measures": [
+            {
+              "selector": "[Measures].[0D_INV_QTY]",
+              "column": "Quantity"
+            }
+          ]
+        }
+      }
+    ]
+  }
+}

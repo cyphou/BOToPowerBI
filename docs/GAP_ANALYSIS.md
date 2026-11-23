@@ -490,6 +490,65 @@ do not establish complete source coverage or runtime equivalence.
 | **Lumira Designer apps** | Custom SDK-based applications | Rebuild as Power BI embedded / Power Apps |
 | **OLAP universes (BW)** | SAP BW-specific OLAP queries | A direct BW connector can support coexistence; it does not migrate BW semantics or enable warehouse retirement |
 
+### SAP BW capability mapping to target architecture
+
+The following mapping is a target-architecture illustration, not a claim that
+the repository automatically migrates every listed SAP BW capability. The
+source roles must be inventoried and validated independently before a target
+is selected.
+
+#### Functional capability mapping
+
+| BW capability | Target direction | Current repository boundary |
+|---------------|------------------|-----------------------------|
+| Copy Version | Power Apps or a Talend job with a controlled SQL procedure | Not implemented. The repository has no BW copy-version executor or SAP write-back path. A target workflow must define source/target period, grain, authorization, reconciliation and rollback controls. |
+| Upload File | Power Apps | Not implemented. Any upload workflow is a separate application concern and must validate file schema, types, ownership and sensitive content before ingestion. |
+| Activate Cube Data / Data Processing | ETL using Talend and a stored SQL procedure | Not implemented as SAP activation or cube management. The local BW slice supports declared staged-data plans and bounded transformation notebooks; source scheduling and activation remain external. |
+| Planning Reporting | Power BI reports plus a separate, planning-capable application | Report drafts are partly supported; planning itself is not. Write-back, planning locks, allocations and approval workflows remain external and subject to the BW-6 controls gate. |
+| Forecast Update | Power Apps Forms combined with a governed planning data write | Not implemented. An input form must be coupled with authenticated writes, validation, audit history and rollback; report generation alone is insufficient. |
+| Consolidation / Aggregation | A materialized or refreshable semantic model in Power BI | Partly supported only as an explicit local model or declared transformation slice. The repository does not establish BW refresh, and does not convert exception aggregation, units/currency or BEx calculation semantics automatically. |
+
+#### Technical object mapping
+
+| SAP BW object | Target direction | Current repository boundary |
+|---------------|------------------|-----------------------------|
+| Master Data / InfoObjects | Governed master-data dimensions or conformed dimensions | Local declaration-based inventory and selected-dimension PBIP generation exist. These are not governed target dimensions: attributes, hierarchies, keys and types still require source-owner confirmation, and SAP object discovery is not implemented. |
+| Transactional DSO | Curated fact tables | A normalized, explicitly declared transformation can emit a bounded Fabric notebook. The repository does not parse DSO metadata, ABAP, requests or DTP history and does not infer grain. |
+| InfoCube | Aggregated fact tables and/or a semantic model | One explicitly declared SAP BW cube can produce a local Import PBIP review draft. It is not a BEx conversion and does not migrate cube semantics, partitions, security, planning or report layout automatically. |
+| Multiprovider | Materialized view or semantic-model layer over curated sources | Not implemented automatically. Union/merge grain, characteristic harmonization, calculated measures and provider precedence require an explicit design. |
+| BEx Query / Fiori dashboard | Power BI dashboard/report | BEx manifests can be assessed and linked to a manual cube plan, but query calculations, variables/prompts, exceptions, conditions and visual layout are not converted. A separate offline comparator checks locally declared result vectors by exact composite keys and declared per-measure rules; it does not run queries or establish runtime/source-target reconciliation or equivalence. The generated review report, when requested, is column-only. |
+
+These mappings converge on a target pattern of governed ingestion,
+normalization, conformed dimensions, target fact tables and a semantic/report
+layer. Power Apps or Forms are optional operational surfaces for file intake,
+controlled copy/forecast scenarios and approved write-back; Talend and SQL
+procedures are external execution components, not bundled pipeline stages.
+
+Before selecting a target path, retain the BW review gates in
+[SAP_BW_TO_FABRIC_DESIGN.md](SAP_BW_TO_FABRIC_DESIGN.md): declared scope and
+ownership, ingestion lineage, handoff continuity, transformation evidence,
+BEx semantics, security/planning controls, runtime evidence and cutover
+acceptance. A generated local artifact, passing static validation or a
+declaration marked `candidate_for_owner_review` does not establish source
+equivalence, authorize execution or close BW retirement.
+
+### Declaration-based BW cube PBIP draft
+
+`migrate_bw_bex_pbip.py` can generate and statically validate a local Import
+PBIP from a strict, manually authored plan for one InfoArea/InfoCube and its
+selected dimensions/measures. The report is empty by default; plan 1.6 can
+explicitly add a column-only review table, not a converted BEx report. Power BI
+may group identical projected values, so grain and results require review.
+This is declaration-based navigation through the existing SAP BW Power Query
+connector, not automatic BEx query or semantic conversion. If `bex_linkage` is
+provided, local BW inventory and BEx declarations are assessed as a
+generation gate; this does not verify selectors against SAP. Literal cube
+parameter arguments and optional variable-ID links do not convert BEx prompt
+behavior. The CLI does not convert formulas, exception aggregation,
+units/currency, security, planning or source report visuals, and does not
+perform SAP access, query execution, Desktop rendering, refresh or equivalence
+checks.
+
 ### Full SAP BW warehouse migration
 
 The repository has a local, versioned BW inventory snapshot contract and
@@ -497,9 +556,13 @@ validator/upgrader (`powerbi_import/bw_inventory.py`), an unbound Bronze
 notebook generator for explicitly staged Parquet, and a bounded normalized
 field-rule to PySpark converter. The latter covers transfers, typed constants
 and same-scale decimal addition/subtraction, not SAP metadata or ABAP parsing.
-These are not a BW extractor, general transformation/BEx conversion engine,
-direct-upstream ingestion pipeline, independent runtime reconciliation service,
-or retirement workflow.
+A separate offline BEx comparator checks only locally declared result vectors;
+it is not runtime or source-target reconciliation. These are not a BW extractor,
+general transformation/BEx conversion engine, direct-upstream ingestion
+pipeline, independent runtime reconciliation service, or retirement workflow.
+The BEx comparator does not close BW-5, which remains open. Native InfoCube
+identity remains blocked on a sanitized, source-owner-approved sample and
+agreed field mapping.
 See the [BW-to-Fabric design](SAP_BW_TO_FABRIC_DESIGN.md) and
 [development plan](DEVELOPMENT_PLAN.md#separate-roadmap-sap-bwbw4hana-to-fabric-and-bw-retirement)
 for remaining scope and evidence gates. SAP/Fabric runtime checks remain

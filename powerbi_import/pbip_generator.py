@@ -15,6 +15,9 @@ import uuid
 import re
 import sys
 
+from bo_export.compat import generate_power_query_m
+from bo_export.m_query_builder import SapBWQueryError
+
 logger = logging.getLogger(__name__)
 
 # Pre-compiled patterns for field name cleaning
@@ -159,6 +162,8 @@ class PowerBIProjectGenerator:
         Returns:
             str: Path to the generated project
         """
+
+        self._validate_sap_bw_sources(converted_objects)
         
         print(f"\n🔨 Generating Power BI Project: {report_name}")
         
@@ -223,6 +228,23 @@ class PowerBIProjectGenerator:
         print(f"   📂 Open in Power BI Desktop: {pbip_file}")
         
         return project_dir
+
+    @staticmethod
+    def _validate_sap_bw_sources(converted_objects):
+        """Validate explicit BW selections before creating any project files."""
+        for datasource in converted_objects.get('datasources', []):
+            connection = datasource.get('connection', {})
+            for table in datasource.get('tables', []):
+                datasource_type = table.get('type', connection.get('type', ''))
+                normalized_type = (
+                    datasource_type.lower()
+                    .replace('_', ' ')
+                    .replace('-', ' ')
+                    .strip()
+                    if isinstance(datasource_type, str) else ''
+                )
+                if normalized_type in ('sap bw', 'bw'):
+                    generate_power_query_m(connection, table)
     
     def create_pbip_file(self, project_dir, report_name):
         """Creates the main .pbip file — format identical to PBI Hero reference"""
@@ -361,6 +383,8 @@ class PowerBIProjectGenerator:
                 lineage_path = os.path.join(os.path.dirname(sm_dir), 'lineage_map.json')
                 _write_json(lineage_path, lineage)
             
+        except SapBWQueryError:
+            raise
         except Exception as e:
             print(f"  \u26a0 Error during TMDL generation: {e}")
             import traceback
@@ -1891,6 +1915,64 @@ class PowerBIProjectGenerator:
 
         print(f"  📊 {len(worksheets)} worksheet pages created (1 visual each)")
         return page_names
+
+    def add_review_table(self, project_dir, report_name, page_display_name, table_name, columns):
+        """Add a manually declared column-only table to a newly generated empty page."""
+        from powerbi_import.visual_generator import build_query_state
+
+        page_dir = os.path.join(
+            project_dir, f"{report_name}.Report", "definition", "pages", "ReportSection"
+        )
+        page_path = os.path.join(page_dir, "page.json")
+        visuals_dir = os.path.join(page_dir, "visuals")
+        if os.listdir(visuals_dir):
+            raise ValueError("A review table requires an empty generated report page")
+        with open(page_path, encoding="utf-8") as handle:
+            page = json.load(handle)
+        if page["width"] <= 40 or page["height"] <= 40:
+            raise ValueError("The generated report page is too small for a review table")
+
+        query_state = build_query_state(
+            "tableEx",
+            [{"field": column} for column in columns],
+            [],
+            {column: table_name for column in columns},
+            {},
+        )
+        if not query_state or len(query_state["Values"]["projections"]) != len(columns):
+            raise ValueError("Unable to bind every declared review column")
+
+        visual_id = uuid.uuid4().hex[:20]
+        visual_dir = os.path.join(visuals_dir, visual_id)
+        os.mkdir(visual_dir)
+        visual = {
+            "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/report/definition/visualContainer/2.5.0/schema.json",
+            "name": visual_id,
+            "position": {
+                "x": 20,
+                "y": 20,
+                "z": 0,
+                "height": page["height"] - 40,
+                "width": page["width"] - 40,
+                "tabOrder": 0,
+            },
+            "visual": {
+                "visualType": "tableEx",
+                "query": {"queryState": query_state},
+                "objects": {
+                    "columnHeaders": [{
+                        "properties": {
+                            "autoSizeColumnWidth": _L("true"),
+                            "columnAdjustment": _L("'growToFit'"),
+                        },
+                    }],
+                    "total": [{"properties": {"totals": _L("false")}}],
+                },
+            },
+        }
+        _write_json(os.path.join(visual_dir, "visual.json"), visual, ensure_ascii=False)
+        page["displayName"] = page_display_name
+        _write_json(page_path, page, ensure_ascii=False)
 
     def _create_tooltip_pages(self, pages_dir, page_names, worksheets, converted_objects):
         """Creates tooltip pages from worksheets with viz_in_tooltip data."""
@@ -4120,7 +4202,7 @@ class PowerBIProjectGenerator:
                 })
             result = generate_rls_powershell(roles, rls_path, dataset_name=report_name)
             if result:
-                print(f"  ✓ RLS PowerShell script: {rls_path}")
+                print(f"  ✓ RLS manual-review reminder: {rls_path} (automated RLS assignment is unsupported)")
 
         # Credential template — always generate if datasources have connections
         datasources = converted_objects.get('datasources', [])
@@ -4130,7 +4212,8 @@ class PowerBIProjectGenerator:
             if result:
                 print(f"  ✓ Credential template: {cred_path}")
 
-    def create_metadata(self, project_dir, report_name, converted_objects):
+    def create_metadata(self, project_dir, report_name, converted_objects, *,
+                        source="Tableau Migration"):
         """Creates migration metadata file for documentation."""
         # Count visuals and pages from the generated report
         pages_count = 0
@@ -4250,7 +4333,7 @@ class PowerBIProjectGenerator:
 
         metadata = {
             "generated_at": datetime.now().isoformat(),
-            "source": "Tableau Migration",
+            "source": source,
             "report_name": report_name,
             "objects_converted": {
                 "worksheets": len(converted_objects.get('worksheets', [])),

@@ -797,8 +797,14 @@ def generate_unbound_rdl(contract):
         ('PaddingBottom', '6pt'), ('VerticalAlign', 'Middle'),
     ])
     note = description + '\n\n' if description else ''
+    parameter_note = (
+        ' Generated parameter types default to String; source types are '
+        'unverified or unavailable and must be reviewed.'
+        if parameters else ''
+    )
     textbox('MigrationNote',
-            note + 'Not migrated: data source, query, layout and formulas.',
+            note + 'Not migrated: data source, query, layout and formulas.'
+            + parameter_note,
             '0.5in', '0.8in', [
                 ('BackgroundColor', '#F2F6FA'),
                 ('Color', '#323130'), ('FontFamily', 'Segoe UI'),

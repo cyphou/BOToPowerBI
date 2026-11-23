@@ -162,6 +162,7 @@ def _candidate_inventory():
                 item["criticality"] = "medium"
     query = next(item for item in inventory["objects"] if item["id"] == QUERY_ID)
     query["metadata_status"] = "observed"
+    query["migration_decision"]["classification"] = "not_assessed"
     query["definition"].update({
         "status": "observed",
         "reference": "synthetic://definitions/bex/ventes-mensuelles",
@@ -189,6 +190,14 @@ class TestBWBExAssessment(unittest.TestCase):
         self.assertEqual(self.manifest, original)
         self.assertEqual(report["gate_status"], "candidate_for_owner_review")
         self.assertFalse(report["gate_closed"])
+        self.assertIn(
+            "bex_key_figure_provider_mapping_not_assessed",
+            {item["code"] for item in report["findings"]},
+        )
+        self.assertEqual(
+            report["key_figure_provider_links"][0]["binding_status"],
+            "not_assessed",
+        )
         runtime = report["runtime_evidence"]
         self.assertEqual(runtime["source_target_result_comparison"], "not_run")
         self.assertEqual(runtime["consumer_acceptance"], "not_run")
@@ -203,6 +212,275 @@ class TestBWBExAssessment(unittest.TestCase):
         self.assertEqual(report["summary"]["consumers_linked"], 1)
         self.assertEqual(report["summary"]["consumers_captured"], 1)
         self.assertEqual(report["runtime_evidence"]["consumer_acceptance"], "not_run")
+
+    def test_provider_link_is_reported_and_absent_or_unverified_links_block(self):
+        inventory = _candidate_inventory()
+        report = assess_bex_semantics(inventory, self.manifest)
+        self.assertEqual(report["provider_links"], [{
+            "provider_id": "SYNTHETIC-BW-01:ADSO:VENTES-AGRÉGÉES",
+            "provider_type": "adso",
+            "resolution_status": "resolved",
+            "evidence_status": "observed",
+        }])
+        self.assertEqual(report["summary"]["provider_dependencies"], 1)
+
+        edge = next(item for item in inventory["dependencies"] if item["kind"] == "queries")
+        for mutation, code in (
+            ("missing", "provider_dependency_missing"),
+            ("unresolved", "provider_dependency_unverified"),
+            ("inferred", "provider_dependency_unverified"),
+            ("wrong_type", "provider_type_unverified"),
+            ("missing_object", "provider_type_unverified"),
+            ("excluded", "provider_not_in_scope"),
+            ("unobserved", "provider_not_observed"),
+            ("blocked", "provider_migration_blocked"),
+        ):
+            modified = copy.deepcopy(inventory)
+            modified_edge = next(item for item in modified["dependencies"] if item["kind"] == "queries")
+            provider = next(item for item in modified["objects"] if item["id"] == edge["target_id"])
+            if mutation == "missing":
+                modified["dependencies"].remove(modified_edge)
+            elif mutation == "unresolved":
+                modified_edge["resolution_status"] = "unresolved"
+            elif mutation == "inferred":
+                modified_edge["evidence_status"] = "inferred"
+            elif mutation == "wrong_type":
+                modified_edge["target_id"] = CONSUMER_ID
+            elif mutation == "missing_object":
+                modified_edge["target_id"] = "missing-provider"
+                modified_edge["resolution_status"] = "unresolved"
+            elif mutation == "excluded":
+                provider["disposition"] = "out_of_scope"
+            elif mutation == "unobserved":
+                provider["discovery_status"] = "unknown"
+            elif mutation == "blocked":
+                provider["migration_decision"]["classification"] = "blocked"
+            with self.subTest(mutation=mutation):
+                result = assess_bex_semantics(modified, self.manifest)
+                self.assertEqual(result["gate_status"], "open")
+                self.assertIn(code, {finding["code"] for finding in result["findings"]})
+
+    def test_query_definition_requires_observed_inventory_sha256(self):
+        for mutation in ("unobserved", "missing_digest"):
+            inventory = _candidate_inventory()
+            query = next(item for item in inventory["objects"] if item["id"] == QUERY_ID)
+            if mutation == "unobserved":
+                query["definition"]["status"] = "unknown"
+            else:
+                query["definition"]["hash_algorithm"] = None
+                query["definition"]["hash"] = None
+            with self.subTest(mutation=mutation):
+                result = assess_bex_semantics(inventory, self.manifest)
+                self.assertEqual(result["gate_status"], "open")
+                finding = next(
+                    item for item in result["findings"]
+                    if item["code"] == "bex_query_definition_unverified"
+                )
+                self.assertEqual(
+                    finding["path"],
+                    f"$.inventory.objects[{inventory['objects'].index(query)}].definition",
+                )
+
+    def test_multiple_direct_providers_and_blocked_query(self):
+        inventory = _candidate_inventory()
+        edge = next(item for item in inventory["dependencies"] if item["kind"] == "queries")
+        original = next(item for item in inventory["objects"] if item["id"] == edge["target_id"])
+        second = copy.deepcopy(original)
+        second["id"] = "SYNTHETIC-BW-01:INFOCUBE:SALES"
+        second["type"] = "infocube"
+        second["metadata_status"] = "observed"
+        second["keys_status"] = "observed"
+        second["keys"] = [{
+            "name": "Sales document",
+            "data_type": "STRING",
+            "nullable": False,
+            "role": "business",
+        }]
+        second["semantics"]["status"] = "observed"
+        inventory["objects"].append(second)
+        inventory["dependencies"].append({**edge, "target_id": second["id"]})
+        inventory["dependencies"].append({
+            **edge, "source_id": original["id"], "target_id": QUERY_ID,
+        })
+        result = assess_bex_semantics(inventory, self.manifest)
+        self.assertEqual(result["summary"]["provider_dependencies"], 2)
+        self.assertEqual(
+            {item["provider_id"] for item in result["provider_links"]},
+            {original["id"], second["id"]},
+        )
+        self.assertEqual(result["gate_status"], "candidate_for_owner_review")
+
+        query = next(item for item in inventory["objects"] if item["id"] == QUERY_ID)
+        query["migration_decision"]["classification"] = "blocked"
+        result = assess_bex_semantics(inventory, self.manifest)
+        self.assertEqual(result["gate_status"], "open")
+        self.assertIn(
+            "bex_query_migration_blocked",
+            {finding["code"] for finding in result["findings"]},
+        )
+
+    def test_infocube_metadata_and_unsupported_features_are_reported(self):
+        inventory = _candidate_inventory()
+        edge = next(item for item in inventory["dependencies"] if item["kind"] == "queries")
+        cube = next(item for item in inventory["objects"] if item["id"] == edge["target_id"])
+        cube["type"] = "infocube"
+        cube["metadata_status"] = "observed"
+        cube["keys_status"] = "observed"
+        cube["keys"] = [{
+            "name": "Sales document",
+            "data_type": "STRING",
+            "nullable": False,
+            "role": "business",
+        }]
+        cube["semantics"]["status"] = "observed"
+        result = assess_bex_semantics(inventory, self.manifest)
+        self.assertEqual(result["provider_links"][0]["provider_type"], "infocube")
+        self.assertEqual(result["gate_status"], "candidate_for_owner_review")
+
+        cube["metadata_status"] = "unknown"
+        cube["keys_status"] = "not_assessed"
+        cube["semantics"]["status"] = "unknown"
+        cube["semantics"]["measures"] = [{
+            "name": "Amount", "data_type": "DEC(15,2)", "status": "inferred", "details": None,
+        }]
+        inventory["unsupported_features"].append({
+            "id": "cube-feature", "object_id": cube["id"], "category": "other",
+            "name": "Unverified cube feature", "support_status": "unknown", "impact": "unknown",
+            "description": "Synthetic unknown.", "conversion_status": "not_run",
+            "evidence_reference": None,
+        })
+        result = assess_bex_semantics(inventory, self.manifest)
+        codes = {finding["code"] for finding in result["findings"]}
+        self.assertTrue({
+            "infocube_metadata_unverified", "infocube_semantics_unverified",
+            "infocube_semantic_item_unverified", "provider_feature_unresolved",
+        }.issubset(codes))
+        self.assertEqual(result["gate_status"], "open")
+        self.assertFalse(result["gate_closed"])
+
+    def test_infocube_keys_must_be_present_and_have_known_roles(self):
+        inventory = _candidate_inventory()
+        edge = next(item for item in inventory["dependencies"] if item["kind"] == "queries")
+        cube = next(item for item in inventory["objects"] if item["id"] == edge["target_id"])
+        cube["type"] = "infocube"
+        cube["metadata_status"] = "observed"
+        cube["keys_status"] = "observed"
+        cube["semantics"]["status"] = "observed"
+
+        report = assess_bex_semantics(inventory, self.manifest)
+        self.assertIn("infocube_keys_missing", {item["code"] for item in report["findings"]})
+        self.assertEqual(report["gate_status"], "open")
+
+        cube["keys"] = [{
+            "name": "Sales document",
+            "data_type": "STRING",
+            "nullable": False,
+            "role": "unknown",
+        }]
+        report = assess_bex_semantics(inventory, self.manifest)
+        self.assertIn(
+            "infocube_key_role_unverified",
+            {item["code"] for item in report["findings"]},
+        )
+        self.assertEqual(report["gate_status"], "open")
+
+        cube["keys"][0]["role"] = "business"
+        report = assess_bex_semantics(inventory, self.manifest)
+        self.assertEqual(report["gate_status"], "candidate_for_owner_review")
+
+    def test_v11_key_figures_require_explicit_unique_provider_measure_bindings(self):
+        inventory = _candidate_inventory()
+        edge = next(item for item in inventory["dependencies"] if item["kind"] == "queries")
+        provider = next(item for item in inventory["objects"] if item["id"] == edge["target_id"])
+        provider["semantics"]["status"] = "observed"
+        provider["semantics"]["measures"] = [{
+            "name": "Net sales amount",
+            "data_type": "DECIMAL(15,2)",
+            "status": "observed",
+            "details": None,
+        }]
+        manifest = copy.deepcopy(self.manifest)
+        manifest["schema_version"] = "1.1"
+        manifest["provider_key_figure_bindings"] = [{
+            "key_figure_id": "kf-net-sales",
+            "provider_id": provider["id"],
+            "provider_measure_name": "Net sales amount",
+            "status": "observed",
+            "evidence_reference": "synthetic://evidence/key-figure-binding",
+        }]
+        validate_bex_semantics(manifest)
+
+        report = assess_bex_semantics(inventory, manifest)
+        self.assertEqual(report["gate_status"], "candidate_for_owner_review")
+        self.assertEqual(report["summary"]["provider_key_figure_bindings"], 1)
+        self.assertEqual(report["key_figure_provider_links"], [{
+            "key_figure_id": "kf-net-sales",
+            "provider_id": provider["id"],
+            "provider_measure_name": "Net sales amount",
+            "binding_status": "resolved",
+        }])
+
+        for mutation, code in (
+            ("missing", "bex_key_figure_provider_mapping_missing"),
+            ("unlinked", "key_figure_provider_unlinked"),
+            ("unresolved_measure", "key_figure_provider_measure_unresolved"),
+            ("ambiguous_measure", "key_figure_provider_measure_ambiguous"),
+            ("unobserved_measure", "key_figure_provider_measure_unverified"),
+            ("unobserved_binding", "bex_key_figure_provider_mapping_unverified"),
+        ):
+            modified_inventory = copy.deepcopy(inventory)
+            modified_manifest = copy.deepcopy(manifest)
+            modified_provider = next(
+                item for item in modified_inventory["objects"]
+                if item["id"] == provider["id"]
+            )
+            binding = modified_manifest["provider_key_figure_bindings"][0]
+            if mutation == "missing":
+                modified_manifest["provider_key_figure_bindings"] = []
+            elif mutation == "unlinked":
+                binding["provider_id"] = CONSUMER_ID
+            elif mutation == "unresolved_measure":
+                binding["provider_measure_name"] = "Missing measure"
+            elif mutation == "ambiguous_measure":
+                modified_provider["semantics"]["measures"].append(
+                    copy.deepcopy(modified_provider["semantics"]["measures"][0])
+                )
+            elif mutation == "unobserved_measure":
+                modified_provider["semantics"]["measures"][0]["status"] = "inferred"
+            elif mutation == "unobserved_binding":
+                binding["status"] = "unknown"
+                binding["evidence_reference"] = None
+            with self.subTest(mutation=mutation):
+                result = assess_bex_semantics(modified_inventory, modified_manifest)
+                self.assertEqual(result["gate_status"], "open")
+                self.assertIn(code, {item["code"] for item in result["findings"]})
+                self.assertIn(
+                    result["key_figure_provider_links"][0]["binding_status"],
+                    {"blocked", "missing"},
+                )
+
+    def test_v11_bindings_are_versioned_and_unique_per_key_figure(self):
+        manifest = copy.deepcopy(self.manifest)
+        manifest["provider_key_figure_bindings"] = []
+        with self.subTest("version 1.0 rejects new field"):
+            self._assert_invalid(manifest)
+
+        manifest["schema_version"] = "1.1"
+        with self.subTest("version 1.1 requires new field"):
+            del manifest["provider_key_figure_bindings"]
+            self._assert_invalid(manifest)
+
+        manifest["provider_key_figure_bindings"] = [{
+            "key_figure_id": "kf-net-sales",
+            "provider_id": "provider-id",
+            "provider_measure_name": "Net sales amount",
+            "status": "observed",
+            "evidence_reference": "synthetic://evidence/key-figure-binding",
+        }]
+        manifest["provider_key_figure_bindings"].append(
+            copy.deepcopy(manifest["provider_key_figure_bindings"][0])
+        )
+        self._assert_invalid(manifest)
 
     def test_documented_partial_semantics_fixture_assesses_open_with_runtime_not_run(self):
         manifest_path = (

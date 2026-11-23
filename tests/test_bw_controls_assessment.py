@@ -95,6 +95,7 @@ def _manifest():
         "authorization_contexts": "complete",
         "access_matrix": "complete",
         "planning_writeback": "complete",
+        "operational_capabilities": "complete",
         "audit": "complete",
         "retention": "complete",
         "privacy": "complete",
@@ -109,7 +110,7 @@ def _manifest():
         "recovery": "observed",
     }
     return {
-        "schema_version": "1.0",
+        "schema_version": "1.1",
         "scope_id": "SYNTHETIC-BW-01",
         "coverage": coverage,
         "authorization_contexts": [{
@@ -147,6 +148,29 @@ def _manifest():
             "control_coverage": copy.deepcopy(controls),
             "evidence_reference": "synthetic://evidence/planning-design",
         }],
+        "operational_capabilities": [
+            {
+                "capability": capability,
+                "inventory_object_id": (
+                    PLANNING_ID if capability in {
+                        "planning_reporting", "forecast_update"
+                    } else None
+                ),
+                "disposition": "external_target",
+                "owner_reference": f"synthetic-owner-{capability}",
+                "target_solution_reference": f"synthetic-target-{capability}",
+                "evidence_reference": f"synthetic://evidence/{capability}",
+                "execution_status": "not_run",
+            }
+            for capability in (
+                "copy_version",
+                "upload_file",
+                "activate_cube_data",
+                "planning_reporting",
+                "forecast_update",
+                "consolidation_aggregation",
+            )
+        ],
         "obligations": [
             {
                 "id": f"obligation-{category}",
@@ -191,6 +215,53 @@ class TestBWControlsAssessment(unittest.TestCase):
         self.assertEqual(report["summary"]["blockers"], 0)
         self.assertEqual(report["runtime_evidence"]["positive_authorization_tests"], "not_run")
         self.assertEqual(report["runtime_evidence"]["planning_workflow_execution"], "not_run")
+        self.assertEqual(report["summary"]["operational_capabilities"], 6)
+        self.assertEqual(
+            {
+                item["capability"]
+                for item in report["operational_capability_dispositions"]
+            },
+            {
+                "copy_version",
+                "upload_file",
+                "activate_cube_data",
+                "planning_reporting",
+                "forecast_update",
+                "consolidation_aggregation",
+            },
+        )
+        self.assertTrue(
+            all(
+                item["execution_status"] == "not_run"
+                for item in report["operational_capability_dispositions"]
+            )
+        )
+
+    def test_version_1_0_controls_remain_compatible_without_capabilities(self):
+        manifest = copy.deepcopy(self.manifest)
+        manifest["schema_version"] = "1.0"
+        del manifest["operational_capabilities"]
+        del manifest["coverage"]["operational_capabilities"]
+
+        report = assess_bw_controls(_candidate_inventory(), manifest)
+
+        self.assertEqual(report["gate_status"], "candidate_for_owner_review")
+        self.assertEqual(report["summary"]["operational_capabilities"], 0)
+        self.assertEqual(report["operational_capability_dispositions"], [])
+
+    def test_operational_capabilities_require_owned_complete_dispositions(self):
+        manifest = copy.deepcopy(self.manifest)
+        manifest["operational_capabilities"].pop()
+        manifest["operational_capabilities"][0]["owner_reference"] = None
+        manifest["operational_capabilities"][1]["disposition"] = "blocked"
+
+        report = assess_bw_controls(_candidate_inventory(), manifest)
+
+        self.assertEqual(report["gate_status"], "open")
+        finding_codes = {finding["code"] for finding in report["findings"]}
+        self.assertIn("operational_capability_not_captured", finding_codes)
+        self.assertIn("operational_capability_owner_missing", finding_codes)
+        self.assertIn("operational_capability_blocked", finding_codes)
 
     def test_allow_and_deny_scenarios_are_both_required_per_authorization(self):
         manifest = copy.deepcopy(self.manifest)
@@ -256,6 +327,9 @@ class TestBWControlsAssessment(unittest.TestCase):
         mutations.append(bad)
         bad = copy.deepcopy(self.manifest)
         bad["access_scenarios"][0]["execution_status"] = "pass"
+        mutations.append(bad)
+        bad = copy.deepcopy(self.manifest)
+        bad["operational_capabilities"][0]["execution_status"] = "pass"
         mutations.append(bad)
         bad = copy.deepcopy(self.manifest)
         bad["authorization_contexts"][0]["role_reference"] = "password=synthetic-secret"

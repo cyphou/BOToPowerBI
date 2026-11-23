@@ -49,7 +49,18 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: Validate sample migrations
+      - name: Generate and inspect synthetic WebI sample
+        shell: bash
         run: |
-          python migrate.py --help
-          echo "CLI validation passed"
+          set -euo pipefail
+          source_dir="$RUNNER_TEMP/bo-ci-source"
+          output_dir="$RUNNER_TEMP/bo-ci-output"
+          mkdir "$source_dir"
+          cp examples/Enterprise_Sales.wid "$source_dir/"
+          python migrate.py "$source_dir" --output-dir "$output_dir"
+          project_dir="$output_dir/Enterprise_Sales.wid/Enterprise_Sales"
+          test -f "$project_dir/Enterprise_Sales.pbip"
+          test -d "$project_dir/Enterprise_Sales.SemanticModel"
+          python migrate.py --validate-project "$project_dir"
+          echo "Static validation errors fail this step; warnings require review."
+          echo "Synthetic generation does not establish source parity or runtime behavior."

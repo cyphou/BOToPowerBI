@@ -1,10 +1,7 @@
-"""Refresh schedule and subscription migration generator (Sprint 73).
+"""Generate disabled review drafts from declared BO schedules and subscriptions.
 
-Converts BO Server scheduled instances and email subscriptions
-to Power BI REST API configuration JSON.
-
-BO schedule → PBI scheduled refresh
-BO subscription → PBI subscription (alert/email)
+The drafts are not verified Power BI REST payloads and must not be used as
+evidence of source-to-target operational equivalence.
 """
 
 import logging
@@ -15,25 +12,26 @@ logger = logging.getLogger(__name__)
 # ── Frequency mapping ─────────────────────────────────────────────
 
 FREQUENCY_MAP = {
-    'Hourly': 'Daily',          # PBI minimum is daily for Pro
-    'Daily': 'Daily',
-    'Weekly': 'Weekly',
-    'Monthly': 'Monthly',
+    'daily': 'Daily',
+    'weekly': 'Weekly',
 }
 
 
 def _parse_time(time_str):
-    """Extract hour and minute from HH:MM or ISO time string.
+    """Extract hour and minute from a valid HH:MM time string.
 
     Returns:
-        tuple: (hour, minute) or (0, 0) if parse fails.
+        tuple: (hour, minute), or None if the time is not valid.
     """
-    if not time_str:
-        return (0, 0)
-    m = re.match(r'(\d{1,2}):(\d{2})', time_str)
-    if m:
-        return (int(m.group(1)), int(m.group(2)))
-    return (0, 0)
+    if not isinstance(time_str, str):
+        return None
+    m = re.fullmatch(r'(\d{1,2}):(\d{2})', time_str)
+    if not m:
+        return None
+    hour, minute = int(m.group(1)), int(m.group(2))
+    if hour > 23 or minute > 59:
+        return None
+    return hour, minute
 
 
 def _map_weekday(source_day):
@@ -49,7 +47,7 @@ def _map_weekday(source_day):
 
 
 def generate_refresh_config(extract_tasks, schedules=None):
-    """Generate PBI scheduled refresh configuration from BO scheduled instances.
+    """Generate a disabled review draft from one declared BO schedule.
 
     Args:
         extract_tasks: list[dict] — BO scheduled instances for an artifact.
@@ -57,158 +55,178 @@ def generate_refresh_config(extract_tasks, schedules=None):
         schedules: list[dict] — optional full schedule objects for enrichment.
 
     Returns:
-        dict: PBI refresh schedule config with:
-            - enabled (bool)
-            - frequency (str): Daily/Weekly/Monthly
-            - days (list[str]): for Weekly
-            - times (list[str]): UTC time slots
-            - localTimeZoneId (str)
-            - notifyOption (str)
-            - notes (list[str]): migration warnings
+        dict: Disabled candidate fields and review notes. No remote operation is
+        performed, and missing or unsupported values are not defaulted.
     """
-    if not extract_tasks:
+    if extract_tasks is None or extract_tasks == []:
         return {
             'enabled': False,
-            'notes': ['No BO scheduled instances found — refresh not configured.'],
+            'notes': [
+                'No BO scheduled instances were supplied; manual review is required '
+                'before configuring refresh.'
+            ],
         }
 
-    schedule_lookup = {}
-    if schedules:
-        for s in schedules:
-            sid = s.get('id', '')
-            if sid:
-                schedule_lookup[sid] = s
-
-    times = []
-    days = set()
-    frequency = 'Daily'
-    notes = []
-
-    for task in extract_tasks:
-        sched = task.get('schedule', {})
-        if not sched and task.get('schedule_id') and schedule_lookup:
-            sched = schedule_lookup.get(task['schedule_id'], {})
-
-        freq_details = sched.get('frequencyDetails', sched)
-        freq_type = sched.get('frequency', sched.get('type', 'Daily'))
-        mapped_freq = FREQUENCY_MAP.get(freq_type, 'Daily')
-
-        if freq_type == 'Hourly':
-            notes.append(
-                f'BO schedule "{sched.get("name", "?")}" is Hourly. '
-                'Power BI Pro supports max 8×/day. Premium supports 48×/day. '
-                'Mapped to Daily.'
-            )
-
-        frequency = mapped_freq
-
-        # Extract time
-        start_time = freq_details.get('start', freq_details.get('time', ''))
-        intervals = freq_details.get('intervals', {})
-        if isinstance(intervals, dict):
-            hours = intervals.get('hours', [])
-            weekdays = intervals.get('weekDay', [])
-        elif isinstance(intervals, list):
-            hours = []
-            weekdays = []
-            for iv in intervals:
-                if 'hours' in iv:
-                    hours.append(iv['hours'])
-                if 'weekDay' in iv:
-                    weekdays.append(iv['weekDay'])
-        else:
-            hours = []
-            weekdays = []
-
-        if start_time:
-            h, m = _parse_time(start_time)
-            times.append(f'{h:02d}:{m:02d}')
-        for h in hours:
-            try:
-                times.append(f'{int(h):02d}:00')
-            except (ValueError, TypeError):
-                pass
-
-        for wd in weekdays:
-            if isinstance(wd, str):
-                days.add(wd)
-
-    # Deduplicate and sort times
-    times = sorted(set(times)) or ['06:00']
-
-    # PBI Pro: max 8 refresh times per day
-    if len(times) > 8:
-        notes.append(
-            f'BO has {len(times)} refresh times. '
-            'PBI Pro supports max 8/day — truncated. '
-            'Use Premium for up to 48.'
-        )
-        times = times[:8]
-
     config = {
-        'enabled': True,
-        'frequency': frequency,
-        'times': times,
-        'localTimeZoneId': 'UTC',
-        'notifyOption': 'MailOnFailure',
-        'notes': notes,
+        'enabled': False,
+        'times': [],
+        'notes': [
+            'Manual review is required; this schedule draft is disabled and '
+            'does not establish source or target equivalence.'
+        ],
     }
+    if not isinstance(extract_tasks, list):
+        logger.warning("Scheduled instances are invalid: expected a list.")
+        config['notes'].append('Scheduled instances are invalid; expected a list.')
+        return config
+    if len(extract_tasks) != 1:
+        config['notes'].append(
+            'Multiple schedules cannot be combined automatically; review each separately.'
+        )
+        return config
 
-    if frequency == 'Weekly' and days:
-        config['days'] = sorted(days)
-    elif frequency == 'Weekly':
-        config['days'] = ['Monday']
+    task = extract_tasks[0]
+    if not isinstance(task, dict):
+        logger.warning("Scheduled instance is invalid: expected an object.")
+        config['notes'].append('Scheduled instance is invalid; expected an object.')
+        return config
+    sched = task.get('schedule')
+    if not sched and task.get('schedule_id'):
+        if schedules is not None and (
+            not isinstance(schedules, list)
+            or any(not isinstance(s, dict) for s in schedules)
+        ):
+            logger.warning("Schedule lookup is invalid: expected a list of objects.")
+            config['notes'].append('Schedule lookup is invalid; expected a list of objects.')
+            return config
+        matches = [s for s in (schedules if schedules is not None else [])
+                   if s.get('id') == task['schedule_id']]
+        if len(matches) != 1:
+            config['notes'].append('Schedule reference is missing or ambiguous.')
+            return config
+        sched = matches[0]
+    if sched is None:
+        sched = task
+    if not isinstance(sched, dict):
+        config['notes'].append('Schedule details are missing or invalid.')
+        return config
+
+    details = sched.get('frequencyDetails', sched)
+    if not isinstance(details, dict):
+        config['notes'].append('Frequency details are invalid and were not interpreted.')
+        details = {}
+
+    frequency = sched.get('frequency', sched.get('type'))
+    mapped = FREQUENCY_MAP.get(frequency.casefold()) if isinstance(frequency, str) else None
+    if mapped:
+        config['frequency'] = mapped
+    else:
+        config['notes'].append('Schedule frequency is missing or unsupported.')
+
+    start = details.get('start', details.get('time', sched.get('time')))
+    time = _parse_time(start)
+    if time is None:
+        config['notes'].append('Schedule time is missing or invalid; no time was selected.')
+    else:
+        config['times'] = [f'{time[0]:02d}:{time[1]:02d}']
+
+    zone = sched.get('localTimeZoneId', sched.get('timezone'))
+    if isinstance(zone, str) and zone.strip():
+        config['localTimeZoneId'] = zone
+        config['notes'].append('Verify the declared time zone against the target environment.')
+    else:
+        config['notes'].append('Schedule time zone is missing or invalid.')
+
+    intervals = details.get('intervals', {})
+    if not isinstance(intervals, dict):
+        config['notes'].append('Schedule intervals require manual review.')
+        intervals = {}
+    if any(key != 'weekDay' for key in intervals):
+        config['notes'].append('Additional schedule intervals require manual review.')
+    if mapped != 'Weekly' and (
+        intervals.get('weekDay') or details.get('weekDay') or sched.get('weekDay')
+    ):
+        config['notes'].append('Declared weekday intervals require manual review.')
+
+    if mapped == 'Weekly':
+        weekdays = intervals.get('weekDay', details.get('weekDay', sched.get('weekDay')))
+        if isinstance(weekdays, str):
+            weekdays = [weekdays]
+        valid_days = {'Sunday', 'Monday', 'Tuesday', 'Wednesday',
+                      'Thursday', 'Friday', 'Saturday'}
+        if (isinstance(weekdays, list) and weekdays
+                and all(isinstance(day, str) and day in valid_days for day in weekdays)):
+            config['days'] = list(dict.fromkeys(weekdays))
+        else:
+            if isinstance(weekdays, list):
+                known_days = [day for day in weekdays
+                              if isinstance(day, str) and day in valid_days]
+                if known_days:
+                    config['days'] = list(dict.fromkeys(known_days))
+            config['notes'].append(
+                'Weekly schedule days are missing or invalid; review the full declaration.'
+            )
 
     return config
 
 
 def generate_subscription_config(subscriptions):
-    """Generate PBI subscription configuration from BO subscriptions.
+    """Generate disabled subscription review drafts from BO declarations.
 
     Args:
         subscriptions: list[dict] — BO subscription objects.
             Each has: id, subject, user (name, email), schedule, content.
 
     Returns:
-        list[dict]: PBI-compatible subscription configs with:
-            - title (str)
-            - recipients (list[str])
-            - frequency (str)
-            - time (str)
-            - enabled (bool)
-            - notes (list[str])
+        list[dict]: Disabled subscription candidates with review notes.
     """
-    if not subscriptions:
+    if subscriptions is None or subscriptions == []:
         return []
+    if not isinstance(subscriptions, list):
+        raise ValueError("Subscriptions must be a list")
 
     results = []
     for sub in subscriptions:
-        subject = sub.get('subject', sub.get('name', 'Untitled'))
+        if not isinstance(sub, dict):
+            raise ValueError("A subscription must be an object")
+        subject = sub.get('subject') or sub.get('name')
         user = sub.get('user', {})
-        email = user.get('email', user.get('name', ''))
-        sched = sub.get('schedule', {})
-        freq = sched.get('frequency', 'Daily')
+        if not isinstance(user, dict):
+            raise ValueError("Subscription user must be an object")
+        recipients = sub.get('recipients', [])
+        if not isinstance(recipients, list) or any(
+            not isinstance(recipient, str) or not recipient.strip()
+            for recipient in recipients
+        ):
+            raise ValueError("Subscription recipients must be a list of nonempty strings")
+        email = user.get('email')
+        if email is not None:
+            if not isinstance(email, str) or not email.strip():
+                raise ValueError("Subscription email must be a nonempty string")
+            recipients = list(dict.fromkeys([*recipients, email]))
 
-        notes = []
-        if freq == 'Hourly':
-            notes.append(
-                'BO subscription was Hourly — PBI subscriptions '
-                'support Daily/Weekly/After Data Refresh.'
-            )
-
-        start_time = sched.get('frequencyDetails', {}).get(
-            'start', sched.get('time', '08:00')
-        )
-        h, m = _parse_time(start_time)
+        schedule = sub.get('schedule')
+        draft = generate_refresh_config([{'schedule': schedule if schedule is not None else sub}])
+        notes = draft['notes']
+        if not isinstance(subject, str) or not subject.strip():
+            subject = 'Untitled'
+            notes.append('Subscription title is missing; a placeholder was used.')
+        if not recipients:
+            notes.append('Subscription recipients are missing and require manual review.')
+        else:
+            notes.append('Subscription recipients are unverified and require manual review.')
 
         config = {
             'title': subject,
-            'recipients': [email] if email else [],
-            'frequency': FREQUENCY_MAP.get(freq, 'Daily'),
-            'time': f'{h:02d}:{m:02d}',
-            'enabled': True,
+            'recipients': recipients,
+            'enabled': False,
             'notes': notes,
         }
+        for key in ('frequency', 'days', 'localTimeZoneId'):
+            if key in draft:
+                config[key] = draft[key]
+        if draft['times']:
+            config['time'] = draft['times'][0]
         results.append(config)
 
     return results
@@ -226,14 +244,13 @@ def generate_refresh_json(extract_tasks, subscriptions=None, schedules=None):
         dict: Combined config with 'refresh' and 'subscriptions' keys.
     """
     refresh = generate_refresh_config(extract_tasks, schedules)
-    subs = generate_subscription_config(subscriptions or [])
+    subs = generate_subscription_config(subscriptions)
 
     return {
         'refresh': refresh,
         'subscriptions': subs,
         'migration_notes': [
-            'Power BI Pro: max 8 refreshes/day. Premium: max 48/day.',
-            'Verify gateway configuration for on-premises sources.',
-            'Email subscriptions require recipients to have PBI Pro licenses.',
+            'Schedules and subscriptions are disabled review drafts, not deployed configuration.',
+            'Review source semantics, target time zone, identities, licensing and gateway configuration.',
         ],
     }

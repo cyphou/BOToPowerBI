@@ -37,6 +37,11 @@ class TestWebiSnapshotAdapter(unittest.TestCase):
             "query_specification_xml": "<QuerySpec/>",
         }
 
+    def _snapshot_with_provider(self, provider):
+        snapshot = copy.deepcopy(self.snapshot)
+        snapshot["data_providers"] = [provider]
+        return snapshot
+
     def test_snapshot_sql_and_declared_connection_reach_the_model_without_inventing_layout(self):
         original = copy.deepcopy(self.snapshot)
         extracted = extract_webi_snapshot(self.snapshot, CONNECTION)
@@ -128,6 +133,138 @@ class TestWebiSnapshotAdapter(unittest.TestCase):
         self.assertEqual(extracted["queries"][0]["sql"], sql)
         self.assertEqual([item["name"] for item in extracted["custom_sql"]],
                          ["Sales", "sales [DP1]"])
+        self.assertEqual(len(logged.output), 2)
+
+    def test_matching_query_plan_linkage_preserves_the_sql(self):
+        sql = "SELECT [Region] FROM [dbo].[Sales]"
+        provider = self._provider("DP0", "Sales", [
+            {"index": "1", "sql": sql, "operators": []},
+        ])
+
+        extracted = extract_webi_snapshot(
+            self._snapshot_with_provider(provider), CONNECTION
+        )
+
+        self.assertEqual(extracted["queries"][0]["sql"], sql)
+        self.assertEqual(extracted["custom_sql"][0]["sql"], sql)
+
+    def test_query_plan_linkage_mismatches_fail_without_disclosing_sql(self):
+        sentinel_sql = "SELECT 'QUERY_PLAN_LINKAGE_SENTINEL' AS secret"
+        mismatch_cases = (
+            ("document_id", "another-document"),
+            ("provider_id", "another-provider"),
+        )
+        for field, value in mismatch_cases:
+            with self.subTest(field=field):
+                provider = self._provider("DP0", "Sales", [
+                    {"index": "1", "sql": sentinel_sql, "operators": []},
+                ])
+                provider["query_plan"][field] = value
+                with self.assertRaises(ValueError) as raised:
+                    extract_webi_snapshot(
+                        self._snapshot_with_provider(provider), CONNECTION
+                    )
+                self.assertNotIn(sentinel_sql, str(raised.exception))
+
+    def test_missing_query_plan_linkage_ids_fail(self):
+        for missing_id in (
+            "snapshot_document_id",
+            "plan_document_id",
+            "summary_provider_id",
+            "plan_provider_id",
+        ):
+            with self.subTest(missing_id=missing_id):
+                provider = self._provider("DP0", "Sales", [
+                    {"index": "1", "sql": "SELECT 1", "operators": []},
+                ])
+                snapshot = self._snapshot_with_provider(provider)
+                if missing_id == "snapshot_document_id":
+                    del snapshot["document_id"]
+                elif missing_id == "plan_document_id":
+                    del provider["query_plan"]["document_id"]
+                elif missing_id == "summary_provider_id":
+                    del provider["summary"]["id"]
+                else:
+                    del provider["query_plan"]["provider_id"]
+
+                with self.assertRaises(ValueError):
+                    extract_webi_snapshot(snapshot, CONNECTION)
+
+    def test_declared_single_statement_requires_a_valid_direct_sql_plan(self):
+        invalid_plans = (
+            ("malformed status", {"status": "failed"}),
+            ("missing status", {"status": None}),
+            ("zero statements", {"statements": []}),
+            ("multiple statements", {"statements": [
+                {"index": "1", "sql": "SELECT 1", "operators": []},
+                {"index": "2", "sql": "SELECT 2", "operators": []},
+            ]}),
+            ("non-list statements", {"statements": None}),
+            ("non-object statement", {"statements": ["SELECT 1"]}),
+            ("missing statement SQL", {"statements": [{"index": "1", "operators": []}]}),
+            ("empty SQL", {"statements": [
+                {"index": "1", "sql": "  ", "operators": []},
+            ]}),
+            ("statement has operators", {"statements": [
+                {"index": "1", "sql": "SELECT 1", "operators": ["JOIN"]},
+            ]}),
+        )
+        for label, changes in invalid_plans:
+            with self.subTest(plan=label):
+                provider = self._provider("DP0", "Sales", [
+                    {"index": "1", "sql": "SELECT 1", "operators": []},
+                ])
+                provider["query_plan"].update(changes)
+                with self.assertRaises(ValueError):
+                    extract_webi_snapshot(
+                        self._snapshot_with_provider(provider), CONNECTION
+                    )
+
+    def test_duplicate_normalized_provider_summary_ids_fail(self):
+        providers = [
+            self._provider(7, "Numeric provider", [
+                {"index": "1", "sql": "SELECT 1", "operators": []},
+            ]),
+            self._provider("7", "String provider", [
+                {"index": "1", "sql": "SELECT 2", "operators": []},
+            ]),
+        ]
+        snapshot = copy.deepcopy(self.snapshot)
+        snapshot["data_providers"] = providers
+
+        with self.assertRaises(ValueError):
+            extract_webi_snapshot(snapshot, CONNECTION)
+
+    def test_numeric_summary_provider_id_matches_its_string_plan_id(self):
+        provider = self._provider(7, "Numeric provider", [
+            {"index": "1", "sql": "SELECT 7", "operators": []},
+        ])
+        provider["query_plan"]["provider_id"] = "7"
+
+        extracted = extract_webi_snapshot(
+            self._snapshot_with_provider(provider), CONNECTION
+        )
+
+        self.assertEqual(extracted["queries"][0]["id"], "7")
+        self.assertEqual(extracted["queries"][0]["sql"], "SELECT 7")
+
+    def test_absent_plans_and_non_single_statement_plans_keep_skip_warning(self):
+        no_plan = {
+            "summary": {"id": "DP0", "name": "No plan"},
+            "details": {"id": "DP0"},
+        }
+        non_single = self._provider("DP1", "Multiple", [
+            {"index": "1", "sql": "SELECT 1", "operators": []},
+        ])
+        non_single["query_plan"]["single_statement"] = False
+        snapshot = copy.deepcopy(self.snapshot)
+        snapshot["data_providers"] = [no_plan, non_single]
+
+        with self.assertLogs("bo_export.webi_snapshot_adapter", level="WARNING") as logged:
+            extracted = extract_webi_snapshot(snapshot, CONNECTION)
+
+        self.assertEqual(extracted["queries"], [])
+        self.assertEqual(extracted["custom_sql"], [])
         self.assertEqual(len(logged.output), 2)
 
     def test_rejects_unsafe_connection_declarations_and_invalid_snapshots(self):

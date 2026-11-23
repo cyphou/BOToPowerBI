@@ -1,0 +1,140 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:bo-to-powerbi:schema:feature-coverage-ledger:1.0",
+  "title": "Offline cross-source feature coverage declarations",
+  "description": "All values are declarations; opaque references are never opened or authenticated. Null means unknown unless an explicit none or not_applicable status says otherwise. The Python API additionally rejects credential-like content and enforces uniqueness of artifact kind/version/document ID/feature ID/stage; JSON Schema cannot enforce these checks.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "wave_id", "entries"],
+  "properties": {
+    "schema_version": {"const": "1.0"},
+    "wave_id": {"$ref": "#/$defs/text"},
+    "entries": {"type": "array", "minItems": 1, "maxItems": 10000, "items": {"$ref": "#/$defs/entry"}}
+  },
+  "$defs": {
+    "text": {
+      "type": "string", "minLength": 1, "maxLength": 512,
+      "pattern": "^(?=.*\\S)[^\\u0000-\\u001F\\u007F]+$"
+    },
+    "nullableText": {"oneOf": [{"$ref": "#/$defs/text"}, {"type": "null"}]},
+    "reference": {"type": "string", "minLength": 1, "maxLength": 256, "pattern": "^[^\\u0000-\\u0020\\u007F]+$"},
+    "nullableReference": {"oneOf": [{"$ref": "#/$defs/reference"}, {"type": "null"}]},
+    "source": {
+      "type": "object", "additionalProperties": false,
+      "required": ["artifact_kind", "version", "document_id", "provenance", "evidence_reference"],
+      "properties": {
+        "artifact_kind": {"$ref": "#/$defs/text"},
+        "version": {"$ref": "#/$defs/nullableText"},
+        "document_id": {"$ref": "#/$defs/nullableText"},
+        "provenance": {"$ref": "#/$defs/nullableText"},
+        "evidence_reference": {"$ref": "#/$defs/nullableReference"}
+      }
+    },
+    "target": {
+      "type": "object", "additionalProperties": false,
+      "required": ["applicability", "choice", "object_binding"],
+      "properties": {
+        "applicability": {"enum": ["applicable", "not_applicable", "unknown"]},
+        "choice": {"$ref": "#/$defs/nullableText"},
+        "object_binding": {"$ref": "#/$defs/nullableText"}
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"applicability": {"enum": ["unknown", "not_applicable"]}}},
+          "then": {"properties": {"choice": {"type": "null"}, "object_binding": {"type": "null"}}}
+        }
+      ]
+    },
+    "dependency": {
+      "type": "object", "additionalProperties": false,
+      "required": ["status", "description"],
+      "properties": {
+        "status": {"enum": ["identified", "none", "unknown"]},
+        "description": {"$ref": "#/$defs/nullableText"}
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"status": {"const": "identified"}}},
+          "then": {"properties": {"description": {"$ref": "#/$defs/text"}}},
+          "else": {"properties": {"description": {"type": "null"}}}
+        }
+      ]
+    },
+    "evidence": {
+      "type": "object", "additionalProperties": false,
+      "description": "A declaration, not a check performed by this API. A reference for a not_run or unknown check may identify a plan rather than results.",
+      "required": ["status", "reference", "check", "command"],
+      "properties": {
+        "status": {"enum": ["pass", "fail", "not_run", "unknown"]},
+        "reference": {"$ref": "#/$defs/nullableReference"},
+        "check": {"$ref": "#/$defs/nullableText"},
+        "command": {"$ref": "#/$defs/nullableText"}
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"status": {"enum": ["pass", "fail"]}}},
+          "then": {"properties": {"reference": {"$ref": "#/$defs/reference"}, "check": {"$ref": "#/$defs/text"}}}
+        }
+      ]
+    },
+    "entry": {
+      "type": "object", "additionalProperties": false,
+      "required": ["source", "feature_id", "stage", "declared_status", "owner", "scope", "target", "dependency", "manual_action", "disposition", "local_evidence", "runtime_evidence"],
+      "properties": {
+        "source": {"$ref": "#/$defs/source"},
+        "feature_id": {"$ref": "#/$defs/text"},
+        "stage": {"enum": ["extraction", "conversion", "target_generation", "reporting", "remote_operations"]},
+        "declared_status": {"enum": ["implemented", "partial", "unsupported", "planned", "unverified"]},
+        "owner": {"$ref": "#/$defs/text"},
+        "scope": {"$ref": "#/$defs/nullableText"},
+        "target": {"$ref": "#/$defs/target"},
+        "dependency": {"$ref": "#/$defs/dependency"},
+        "manual_action": {"$ref": "#/$defs/nullableText"},
+        "disposition": {"enum": ["unresolved", "resolved", "accepted", "not_applicable", "unknown"]},
+        "local_evidence": {"$ref": "#/$defs/evidence"},
+        "runtime_evidence": {"$ref": "#/$defs/evidence"}
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"disposition": {"const": "not_applicable"}}},
+          "then": {"properties": {"manual_action": {"type": "null"}}}
+        },
+        {
+          "if": {"properties": {"disposition": {"enum": ["unresolved", "resolved", "accepted"]}}},
+          "then": {"properties": {"manual_action": {"$ref": "#/$defs/text"}}}
+        },
+        {
+          "if": {"properties": {"declared_status": {"const": "implemented"}}},
+          "then": {
+            "properties": {
+              "source": {"properties": {
+                "version": {"$ref": "#/$defs/text"},
+                "document_id": {"$ref": "#/$defs/text"},
+                "provenance": {"$ref": "#/$defs/text"},
+                "evidence_reference": {"$ref": "#/$defs/reference"}
+              }},
+              "scope": {"$ref": "#/$defs/text"},
+              "target": {
+                "properties": {"applicability": {"enum": ["applicable", "not_applicable"]}},
+                "allOf": [{
+                  "if": {"properties": {"applicability": {"const": "applicable"}}},
+                  "then": {"properties": {"choice": {"$ref": "#/$defs/text"}, "object_binding": {"$ref": "#/$defs/text"}}}
+                }]
+              },
+              "local_evidence": {"properties": {"status": {"const": "pass"}}},
+              "runtime_evidence": {"properties": {"status": {"enum": ["pass", "not_run", "unknown"]}}}
+            }
+          }
+        },
+        {
+          "if": {"properties": {"declared_status": {"const": "implemented"}, "stage": {"enum": ["target_generation", "remote_operations"]}}},
+          "then": {"properties": {"target": {"properties": {"applicability": {"const": "applicable"}}}}}
+        },
+        {
+          "if": {"properties": {"declared_status": {"const": "implemented"}, "stage": {"const": "remote_operations"}}},
+          "then": {"properties": {"runtime_evidence": {"properties": {"status": {"const": "pass"}}}}}
+        }
+      ]
+    }
+  }
+}

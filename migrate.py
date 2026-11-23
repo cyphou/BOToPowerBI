@@ -562,6 +562,7 @@ def _run_single_migration(args, stats):
         culture=getattr(args, "culture", None),
         model_mode=getattr(args, "model_mode", "import"),
         output_format=getattr(args, "output_format", "pbip"),
+        defer_expression_export=True,
     )
 
     logger.info("Generation pipeline: output → %s", output_dir)
@@ -614,6 +615,14 @@ def _run_single_migration(args, stats):
     quality_code = _validate_fabric_output(project_path, args.output_format, stats)
     if quality_code != EXIT_SUCCESS:
         return quality_code
+
+    if args.output_format in ('pbip', 'fabric'):
+        from powerbi_import.expression_export import export_generated_project
+        expression_manifest = export_generated_project(
+            os.path.join(project_path, f"{report_name}.SemanticModel"),
+            include_dataflow=args.output_format == 'fabric',
+        )
+        logger.info("Exported %d expression review file(s)", len(expression_manifest['exports']))
 
     # Step 4: Deployment (optional)
     if args.deploy:

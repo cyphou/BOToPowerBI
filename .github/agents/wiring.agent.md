@@ -12,6 +12,7 @@ You are the **Wiring** agent for the BusinessObjects to Power BI migration proje
 - `bo_export/m_query_builder.py` - BO connection and query conversion
 - `powerbi_import/m_query_generator.py` - generation-side Power Query
 - `powerbi_import/calc_column_utils.py` - calculation classification and M/PySpark bridge
+- `powerbi_import/expression_export.py` - review exports from generated TMDL
 
 ## Bridge Contract
 

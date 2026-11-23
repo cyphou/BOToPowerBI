@@ -32,6 +32,29 @@ class TestSharedModelMetadata(unittest.TestCase):
             self.assertTrue(metadata['validation']['valid'], metadata['validation']['errors'])
             self.assertTrue((project / 'quality_report.json').is_file())
             self.assertNotEqual(json.loads((project / 'quality_report.json').read_text(encoding='utf-8'))['status'], 'FAIL')
+            exported = json.loads((project / 'expression_export.json').read_text(encoding='utf-8'))
+            queries = [item for item in exported['exports'] if item['kind'] == 'dataflow_m_query']
+            self.assertTrue(queries)
+            for item in queries:
+                self.assertEqual(
+                    (project / item['path']).read_text(encoding='utf-8'),
+                    (project / item['source']).read_text(encoding='utf-8'),
+                )
+
+    def test_shared_pbip_exports_one_merged_model(self):
+        repository = Path(__file__).resolve().parents[1]
+        with tempfile.TemporaryDirectory() as temporary, contextlib.redirect_stdout(io.StringIO()):
+            code = main(['--shared-model', str(repository / 'examples/eFashion_Universe.unx'),
+                         str(repository / 'examples/HR_Universe.unx'), '--force-merge',
+                         '--output-dir', temporary])
+            self.assertEqual(code, EXIT_SUCCESS)
+            project = Path(temporary) / 'SharedModel'
+            manifests = list(project.rglob('expression_export.json'))
+            self.assertEqual(manifests, [project / 'expression_export.json'])
+            exported = json.loads(manifests[0].read_text(encoding='utf-8'))
+            self.assertTrue(any(item['kind'] == 'm_partition' for item in exported['exports']))
+            self.assertTrue(any(item['kind'] == 'dax_measures' for item in exported['exports']))
+            self.assertEqual(len(list(project.glob('*.Report'))), 3)
 
     def test_real_report_shared_cli_rejects_ambiguous_custom_sql_before_generation(self):
         with tempfile.TemporaryDirectory() as temporary, contextlib.redirect_stdout(io.StringIO()):

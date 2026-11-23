@@ -1379,6 +1379,16 @@ def _create_and_validate_relationships(model, datasources):
 
 def _apply_semantic_enrichments(model, extra_objects, main_table_name, column_table_map, datasources):
     """Phases 5-12: Sets, date table, hierarchies, parameters, RLS, cross-table inference, perspectives."""
+    source_types = [
+        table.get('type') or datasource.get('connection', {}).get('type', '')
+        for datasource in datasources
+        for table in datasource.get('tables', [])
+    ]
+    bw_only = bool(source_types) and all(
+        isinstance(source_type, str)
+        and source_type.lower().replace('_', ' ').replace('-', ' ').strip() in ('sap bw', 'bw')
+        for source_type in source_types
+    )
     # Phase 5: Add sets, groups, bins as calculated columns
     _process_sets_groups_bins(model, extra_objects, main_table_name, column_table_map)
 
@@ -1397,7 +1407,7 @@ def _apply_semantic_enrichments(model, extra_objects, main_table_name, column_ta
                     break
             if has_date_columns:
                 break
-    if has_date_columns and not has_existing_date_table:
+    if has_date_columns and not has_existing_date_table and not bw_only:
         if model.get('_model_mode') == 'directLake':
             model.setdefault('_deferred_features', []).append({
                 'kind': 'automatic_calendar',
@@ -1417,7 +1427,7 @@ def _apply_semantic_enrichments(model, extra_objects, main_table_name, column_ta
                 'kind': 'automatic_date_parts',
                 'reason': 'Date-part columns and automatic date hierarchies require upstream materialization',
             })
-    else:
+    elif not bw_only:
         _auto_date_hierarchies(model)
 
     # Phase 8: Parameter tables (What-If parameters)
@@ -1536,6 +1546,12 @@ def _build_table(table, connection, calculations, columns_metadata, dax_context=
 
     table_name = table.get('name', 'Table1')
     columns = table.get('columns', [])
+    datasource_type = table.get('type') or connection.get('type', '')
+    normalized_datasource_type = (
+        datasource_type.lower().replace('_', ' ').replace('-', ' ').strip()
+        if isinstance(datasource_type, str) else ''
+    )
+    is_sap_bw = normalized_datasource_type in ('sap bw', 'bw')
 
     # Generate M query: use Prep flow override if available, else generate from connection
     if m_query_override:
@@ -1615,7 +1631,8 @@ def _build_table(table, connection, calculations, columns_metadata, dax_context=
             bim_column["dataCategory"] = "DateTime"
             bim_column["formatString"] = "General Date"
         elif col.get('datatype') in ['integer', 'real']:
-            bim_column["summarizeBy"] = "sum"
+            if not is_sap_bw:
+                bim_column["summarizeBy"] = "sum"
             if col.get('datatype') == 'real':
                 bim_column["formatString"] = "#,0.00"
 

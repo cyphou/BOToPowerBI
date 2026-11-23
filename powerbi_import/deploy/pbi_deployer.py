@@ -17,8 +17,8 @@ Usage:
 
 import logging
 import os
-import time
 import tempfile
+import time
 
 logger = logging.getLogger(__name__)
 
@@ -97,42 +97,44 @@ class PBIWorkspaceDeployer:
         project_name = dataset_name or os.path.basename(project_dir)
         result = DeploymentResult(project_name=project_name)
 
-        # Step 1: Package .pbip → .pbix
+        # Keep the temporary package isolated from other deployments and files.
         try:
-            packager = PBIXPackager()
-            pbix_path = os.path.join(
-                tempfile.gettempdir(), f'{project_name}.pbix'
-            )
-            packager.package(project_dir, pbix_path)
-            logger.info(f'Packaged {project_dir} → {pbix_path}')
-        except Exception as e:
-            result.status = 'failed'
-            result.error = f'Packaging failed: {e}'
-            logger.error(result.error)
-            return result
+            with tempfile.TemporaryDirectory(prefix='bo_pbi_deploy_') as temp_dir:
+                pbix_path = os.path.join(temp_dir, 'project.pbix')
 
-        # Step 2: Upload .pbix to workspace
-        try:
-            import_resp = self.client.import_pbix(
-                workspace_id=self.workspace_id,
-                pbix_path=pbix_path,
-                dataset_name=project_name,
-                overwrite=overwrite,
-            )
-            result.import_id = import_resp.get('id')
-            result.status = 'publishing'
-            logger.info(f'Import started: id={result.import_id}')
-        except Exception as e:
+                # Step 1: Package .pbip → .pbix
+                try:
+                    packager = PBIXPackager()
+                    packager.package(project_dir, pbix_path)
+                    logger.info(f'Packaged {project_dir} → {pbix_path}')
+                except Exception as e:
+                    result.status = 'failed'
+                    result.error = f'Packaging failed: {e}'
+                    logger.error(result.error)
+                    return result
+
+                # Step 2: Upload .pbix to workspace
+                try:
+                    import_resp = self.client.import_pbix(
+                        workspace_id=self.workspace_id,
+                        pbix_path=pbix_path,
+                        dataset_name=project_name,
+                        overwrite=overwrite,
+                    )
+                    result.import_id = import_resp.get('id')
+                    result.status = 'publishing'
+                    logger.info(f'Import started: id={result.import_id}')
+                except Exception as e:
+                    result.status = 'failed'
+                    result.error = f'Upload failed: {e}'
+                    logger.error(result.error)
+                    return result
+        except OSError as e:
             result.status = 'failed'
-            result.error = f'Upload failed: {e}'
+            temp_error = f'Temporary package setup or cleanup failed: {e}'
+            result.error = f'{result.error}; {temp_error}' if result.error else temp_error
             logger.error(result.error)
             return result
-        finally:
-            # Clean up temp .pbix
-            try:
-                os.remove(pbix_path)
-            except OSError:
-                pass
 
         # Step 3: Wait for import to complete
         if result.import_id:
@@ -300,13 +302,30 @@ class PBIWorkspaceDeployer:
 
         Args:
             dataset_id: Dataset ID in the workspace.
-            refresh_config: dict from refresh_generator.generate_refresh_config()
-                with keys: enabled, frequency, times, days, localTimeZoneId, notifyOption.
+            refresh_config: Reviewed schedule declaration. Enabled schedules
+                require explicit days, times, and localTimeZoneId.
 
         Returns:
             dict: {status, dataset_id, notes}.
         """
-        if not refresh_config or not refresh_config.get('enabled'):
+        if refresh_config is None:
+            logger.info('No refresh schedule supplied — skipping.')
+            return {
+                'status': 'skipped',
+                'dataset_id': dataset_id,
+                'notes': ['No refresh schedule supplied.'],
+            }
+        if not isinstance(refresh_config, dict):
+            logger.warning('Invalid refresh schedule: expected an object.')
+            return {
+                'status': 'failed',
+                'dataset_id': dataset_id,
+                'error': 'Invalid refresh schedule: expected an object.',
+                'notes': [],
+            }
+
+        enabled = refresh_config.get('enabled')
+        if enabled is False:
             logger.info('Refresh schedule not enabled — skipping.')
             return {
                 'status': 'skipped',
@@ -314,21 +333,55 @@ class PBIWorkspaceDeployer:
                 'notes': refresh_config.get('notes', []),
             }
 
-        # Build PBI refresh schedule payload
-        schedule = {
-            'value': {
-                'enabled': True,
-                'notifyOption': refresh_config.get(
-                    'notifyOption', 'MailOnFailure'
-                ),
-                'localTimeZoneId': refresh_config.get(
-                    'localTimeZoneId', 'UTC'
-                ),
-                'times': refresh_config.get('times', ['06:00']),
+        from powerbi_import.refresh_generator import _parse_time
+
+        valid_days = {'Sunday', 'Monday', 'Tuesday', 'Wednesday',
+                      'Thursday', 'Friday', 'Saturday'}
+        days = refresh_config.get('days')
+        times = refresh_config.get('times')
+        timezone = refresh_config.get('localTimeZoneId')
+        frequency = refresh_config.get('frequency')
+        notify = refresh_config.get('notifyOption')
+        error = None
+        if enabled is not True:
+            error = 'enabled must be a boolean.'
+        elif (not isinstance(days, list) or not days
+              or any(not isinstance(day, str) or day not in valid_days for day in days)
+              or len(set(days)) != len(days)):
+            error = 'days must contain unique, valid weekday names.'
+        elif (not isinstance(times, list) or not times
+              or any(
+                  _parse_time(value) is None
+                  or len(value) != 5
+                  for value in times
+              )):
+            error = 'times must contain valid HH:MM values.'
+        elif not isinstance(timezone, str) or not timezone.strip():
+            error = 'localTimeZoneId must be supplied.'
+        elif 'frequency' in refresh_config and frequency not in ('Daily', 'Weekly'):
+            error = 'frequency must be Daily or Weekly when supplied.'
+        elif frequency == 'Daily' and set(days) != valid_days:
+            error = 'Daily frequency requires all seven weekdays.'
+        elif 'notifyOption' in refresh_config and notify not in ('NoNotification', 'MailOnFailure'):
+            error = 'notifyOption is invalid.'
+
+        if error:
+            logger.warning('Invalid refresh schedule: %s', error)
+            return {
+                'status': 'failed',
+                'dataset_id': dataset_id,
+                'error': error,
+                'notes': refresh_config.get('notes', []),
             }
-        }
-        if refresh_config.get('days'):
-            schedule['value']['days'] = refresh_config['days']
+
+        schedule = {'value': {
+            'enabled': True,
+            'days': days,
+            'times': times,
+            'localTimeZoneId': timezone,
+        }}
+        if 'notifyOption' in refresh_config:
+            schedule['value']['notifyOption'] = notify
 
         try:
             url = (
@@ -393,156 +446,28 @@ class PBIWorkspaceDeployer:
 
     def deploy_rolling(self, project_dir, dataset_name=None,
                        max_wait_seconds=300, poll_interval=5):
-        """Blue/green rolling deployment with automatic rollback.
-
-        Strategy:
-          1. Deploy the new dataset (canary) alongside the existing one.
-          2. Trigger a refresh on the new dataset.
-          3. Validate the refresh succeeded.
-          4. If validation passes → overwrite the production dataset.
-          5. If validation fails → roll back (remove canary, keep existing).
+        """Block rolling deployment until its rollback path is verified.
 
         Args:
             project_dir: Path to .pbip project directory.
             dataset_name: Target dataset name (defaults to project folder name).
-            max_wait_seconds: Max time to wait for import + refresh.
-            poll_interval: Seconds between status polls.
+            max_wait_seconds: Reserved for a future verified implementation.
+            poll_interval: Reserved for a future verified implementation.
 
         Returns:
-            dict: {status, phase, canary_id, production_id, error, validation}.
+            dict: Failed, blocked result. No remote operation is attempted.
         """
-        project_dir = os.path.abspath(project_dir)
-        name = dataset_name or os.path.basename(project_dir)
-        canary_name = f"{name}__canary"
-
-        result = {
-            'status': 'pending',
-            'phase': 'init',
+        error = (
+            'Rolling deployment is disabled: canary cleanup and rollback '
+            'are not implemented and verified.'
+        )
+        logger.error(error)
+        return {
+            'status': 'failed',
+            'phase': 'blocked',
             'canary_id': None,
             'production_id': None,
-            'error': None,
+            'error': error,
             'validation': None,
             'rolled_back': False,
         }
-
-        # Phase 1: Deploy canary (new version) without overwriting production
-        result['phase'] = 'canary_deploy'
-        logger.info("Rolling deploy phase 1: deploying canary '%s'", canary_name)
-        canary_result = self.deploy_project(
-            project_dir,
-            dataset_name=canary_name,
-            overwrite=True,
-            refresh=False,
-            max_wait_seconds=max_wait_seconds,
-            poll_interval=poll_interval,
-        )
-
-        if canary_result.status != 'succeeded':
-            result['status'] = 'failed'
-            result['error'] = f"Canary deploy failed: {canary_result.error}"
-            logger.error(result['error'])
-            return result
-
-        result['canary_id'] = canary_result.dataset_id
-
-        # Phase 2: Trigger refresh on canary
-        result['phase'] = 'canary_refresh'
-        logger.info("Rolling deploy phase 2: refreshing canary dataset %s",
-                     canary_result.dataset_id)
-        try:
-            self.client.refresh_dataset(
-                self.workspace_id, canary_result.dataset_id
-            )
-            # Wait for refresh to complete
-            refresh_ok = self._wait_for_refresh(
-                canary_result.dataset_id,
-                max_wait_seconds=max_wait_seconds,
-                poll_interval=poll_interval,
-            )
-        except Exception as e:
-            refresh_ok = False
-            logger.warning("Canary refresh error: %s", e)
-
-        # Phase 3: Validate
-        result['phase'] = 'validation'
-        validation = self.validate_deployment(canary_result.dataset_id)
-        result['validation'] = validation
-
-        if not refresh_ok or validation.get('overall') != 'passed':
-            # Rollback: remove canary
-            result['phase'] = 'rollback'
-            result['status'] = 'rolled_back'
-            result['rolled_back'] = True
-            result['error'] = "Canary validation failed — rolling back"
-            logger.warning(result['error'])
-            self._cleanup_dataset(canary_result.dataset_id, canary_name)
-            return result
-
-        # Phase 4: Promote canary → production (overwrite the real name)
-        result['phase'] = 'promote'
-        logger.info("Rolling deploy phase 4: promoting canary to '%s'", name)
-        prod_result = self.deploy_project(
-            project_dir,
-            dataset_name=name,
-            overwrite=True,
-            refresh=True,
-            max_wait_seconds=max_wait_seconds,
-            poll_interval=poll_interval,
-        )
-
-        if prod_result.status == 'succeeded':
-            result['status'] = 'succeeded'
-            result['production_id'] = prod_result.dataset_id
-            result['phase'] = 'complete'
-            # Remove canary
-            self._cleanup_dataset(canary_result.dataset_id, canary_name)
-            logger.info("Rolling deploy succeeded: production=%s",
-                        prod_result.dataset_id)
-        else:
-            result['status'] = 'failed'
-            result['error'] = f"Production deploy failed: {prod_result.error}"
-            result['phase'] = 'promote_failed'
-            logger.error(result['error'])
-
-        return result
-
-    def _wait_for_refresh(self, dataset_id, max_wait_seconds=300,
-                          poll_interval=10):
-        """Wait for the latest dataset refresh to complete.
-
-        Returns:
-            True if refresh completed successfully, False otherwise.
-        """
-        elapsed = 0
-        while elapsed < max_wait_seconds:
-            try:
-                history = self.client.get_refresh_history(
-                    self.workspace_id, dataset_id
-                )
-                if history:
-                    latest = history[0]
-                    status = latest.get('status', '')
-                    if status == 'Completed':
-                        return True
-                    elif status == 'Failed':
-                        logger.warning("Refresh failed for dataset %s",
-                                       dataset_id)
-                        return False
-            except Exception as e:
-                logger.debug("Refresh status check error: %s", e)
-            time.sleep(poll_interval)
-            elapsed += poll_interval
-
-        logger.warning("Refresh timed out after %ds for dataset %s",
-                       max_wait_seconds, dataset_id)
-        return False
-
-    def _cleanup_dataset(self, dataset_id, dataset_name):
-        """Best-effort removal of a dataset (canary cleanup)."""
-        try:
-            self.client.delete_dataset(self.workspace_id, dataset_id)
-            logger.info("Cleaned up dataset '%s' (%s)", dataset_name,
-                        dataset_id)
-        except Exception as e:
-            logger.debug("Could not remove dataset '%s': %s",
-                         dataset_name, e)

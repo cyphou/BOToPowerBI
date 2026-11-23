@@ -9,12 +9,17 @@ import re
 
 logger = logging.getLogger(__name__)
 
+
+class SapBWQueryError(ValueError):
+    """An SAP BW query declaration cannot be converted safely."""
+
+
 # Connector templates for M query generation
 CONNECTOR_TEMPLATES = {
     "sql_server": 'Sql.Database("{server}", "{database}")',
     "oracle": 'Oracle.Database("{server}")',
     "sap_hana": 'SapHana.Database("{server}")',
-    "sap_bw": 'SapBusinessWarehouse.Cubes("{server}")',
+    "sap_bw": 'SapBusinessWarehouse.Cubes("{server}", "{system_number}", "{client_id}", [Implementation="2.0"])',
     "postgresql": 'PostgreSQL.Database("{server}", "{database}")',
     "mysql": 'MySQL.Database("{server}", "{database}")',
     "db2": 'DB2.Database("{server}", "{database}")',
@@ -45,6 +50,8 @@ def build_m_query(datasource, tables=None, transforms=None, custom_sql=None):
         str: Complete M query expression.
     """
     ds_type = _normalize_datasource_type(datasource.get("type", ""))
+    if ds_type == "sap_bw":
+        return _build_sap_bw_query(datasource, tables, transforms, custom_sql)
     template = CONNECTOR_TEMPLATES.get(ds_type, CONNECTOR_TEMPLATES.get("odbc"))
 
     if template is None:
@@ -76,6 +83,164 @@ def build_m_query(datasource, tables=None, transforms=None, custom_sql=None):
                 step_name, step_expr = generator(transform, len(steps))
                 steps.append((step_name, step_expr))
 
+    return _assemble_m_query(steps)
+
+
+def _build_sap_bw_query(datasource, tables, transforms, custom_sql):
+    """Build an explicit SAP BW cube selection without guessing navigation."""
+    for field in ("server", "system_number", "client_id"):
+        value = datasource.get(field)
+        if (
+            not isinstance(value, str) or not value.strip()
+            or any(ord(char) < 32 and char not in "\r\n\t" or ord(char) == 127 for char in value)
+        ):
+            raise SapBWQueryError(f"SAP BW connection requires non-empty text {field}")
+    if custom_sql or transforms:
+        raise SapBWQueryError("SAP BW cube queries do not support generic SQL or transforms")
+    if tables and (
+        not isinstance(tables, (list, str))
+        or isinstance(tables, list) and len(tables) != 1
+    ):
+        raise SapBWQueryError("SAP BW requires exactly one selected table")
+
+    source = CONNECTOR_TEMPLATES["sap_bw"].format(
+        server=_m_escape_string(datasource["server"]),
+        system_number=_m_escape_string(datasource["system_number"]),
+        client_id=_m_escape_string(datasource["client_id"]),
+    )
+    steps = [("Source", source)]
+    navigation = datasource.get("sap_bw_navigation")
+    if navigation is None:
+        if tables:
+            raise SapBWQueryError("SAP BW table requires explicit sap_bw_navigation")
+        return _assemble_m_query(steps)
+    required_navigation = {"info_area", "cube_id", "dimensions", "measures"}
+    if (
+        not isinstance(navigation, dict)
+        or not required_navigation <= set(navigation)
+        or set(navigation) - required_navigation - {"parameters"}
+    ):
+        raise SapBWQueryError("SAP BW navigation requires info_area, cube_id, dimensions and measures")
+
+    def text(value, field):
+        if (
+            not isinstance(value, str) or not value.strip()
+            or any(ord(char) < 32 and char not in "\r\n\t" or ord(char) == 127 for char in value)
+        ):
+            raise SapBWQueryError(f"SAP BW {field} must be non-empty text")
+        return f'"{_m_escape_string(value)}"'
+
+    area = text(navigation["info_area"], "info_area")
+    cube = text(navigation["cube_id"], "cube_id")
+    dimensions = navigation["dimensions"]
+    measures = navigation["measures"]
+    if not isinstance(dimensions, list) or not isinstance(measures, list):
+        raise SapBWQueryError("SAP BW dimensions and measures must be lists")
+    if not dimensions and not measures:
+        raise SapBWQueryError("SAP BW requires at least one explicitly selected dimension or measure")
+    operations = []
+    columns = set()
+
+    parameters = navigation.get("parameters", [])
+    if not isinstance(parameters, list):
+        raise SapBWQueryError("SAP BW parameters must be a list")
+    seen_parameters = set()
+    seen_bex_variables = set()
+    for parameter in parameters:
+        if (
+            not isinstance(parameter, dict)
+            or not {"selector", "arguments"} <= set(parameter)
+            or set(parameter) - {"selector", "arguments", "bex_variable_id"}
+        ):
+            raise SapBWQueryError("SAP BW parameters require selector and arguments")
+        selector = text(parameter["selector"], "parameter selector")
+        if parameter["selector"] in seen_parameters:
+            raise SapBWQueryError("SAP BW parameter selectors must be unique")
+        seen_parameters.add(parameter["selector"])
+        if "bex_variable_id" in parameter:
+            variable_id = parameter["bex_variable_id"]
+            text(variable_id, "BEx variable id")
+            if variable_id in seen_bex_variables:
+                raise SapBWQueryError("SAP BW BEx variable ids must be unique")
+            seen_bex_variables.add(variable_id)
+        arguments = parameter["arguments"]
+        if not isinstance(arguments, list) or not arguments:
+            raise SapBWQueryError("SAP BW parameter arguments must be a non-empty list")
+        values = []
+        for argument in arguments:
+            if isinstance(argument, list):
+                if not argument:
+                    raise SapBWQueryError("SAP BW parameter argument lists must not be empty")
+                values.append("{" + ", ".join(
+                    text(value, "parameter argument") for value in argument
+                ) + "}")
+            else:
+                values.append(text(argument, "parameter argument"))
+        operations.append(f"{{Cube.ApplyParameter, {selector}, {{{', '.join(values)}}}}}")
+
+    def register_column(value):
+        quoted = text(value, "output column")
+        if value.casefold() in columns:
+            raise SapBWQueryError("SAP BW output column names must be unique")
+        columns.add(value.casefold())
+        return quoted
+
+    for dimension in dimensions:
+        required_fields = {"selector", "attributes", "columns"}
+        if (
+            not isinstance(dimension, dict)
+            or not required_fields <= set(dimension)
+            or set(dimension) - required_fields - {"properties"}
+        ):
+            raise SapBWQueryError("SAP BW dimensions require selector, attributes and columns")
+        attributes = dimension["attributes"]
+        names = dimension["columns"]
+        if (
+            not isinstance(attributes, list) or not isinstance(names, list)
+            or not attributes or len(attributes) != len(names)
+        ):
+            raise SapBWQueryError("SAP BW dimension attributes and columns must be equally sized non-empty lists")
+        selector = text(dimension["selector"], "dimension selector")
+        attribute_list = ", ".join(text(value, "dimension attribute") for value in attributes)
+        column_list = ", ".join(register_column(value) for value in names)
+        operations.append(
+            f"{{Cube.AddAndExpandDimensionColumn, {selector}, "
+            f"{{{attribute_list}}}, {{{column_list}}}}}"
+        )
+        properties = dimension.get("properties", [])
+        if not isinstance(properties, list):
+            raise SapBWQueryError("SAP BW dimension properties must be a list")
+        for item in properties:
+            if not isinstance(item, dict) or set(item) != {
+                "source_column", "selector", "column",
+            }:
+                raise SapBWQueryError(
+                    "SAP BW dimension properties require source_column, selector and column"
+                )
+            source_column = item["source_column"]
+            if not isinstance(source_column, str) or source_column not in names:
+                raise SapBWQueryError(
+                    "SAP BW property source_column must identify a column of its dimension"
+                )
+            property_column = register_column(item["column"])
+            property_selector = text(item["selector"], "property selector")
+            source_identifier = _m_escape_string(source_column)
+            operations.append(
+                f"{{Table.AddColumn, {property_column}, each "
+                f'Cube.AttributeMemberProperty([#"{source_identifier}"], {property_selector})}}'
+            )
+    for measure in measures:
+        if not isinstance(measure, dict) or set(measure) != {"selector", "column"}:
+            raise SapBWQueryError("SAP BW measures require selector and column")
+        name = register_column(measure["column"])
+        selector = text(measure["selector"], "measure selector")
+        operations.append(f"{{Cube.AddMeasureColumn, {name}, {selector}}}")
+    steps.extend([
+        ("InfoArea", f"Source{{[Name={area}]}}[Data]"),
+        ("Cube", f"InfoArea{{[Id={cube}]}}[Data]"),
+        ("Selection", "Cube.Transform(Cube, {\n        "
+         + ",\n        ".join(operations) + "\n    })"),
+    ])
     return _assemble_m_query(steps)
 
 

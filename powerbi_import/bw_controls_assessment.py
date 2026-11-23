@@ -18,10 +18,12 @@ _ROOT_FIELDS = {
     "schema_version", "scope_id", "coverage", "authorization_contexts",
     "access_scenarios", "planning_processes", "obligations",
 }
+_ROOT_FIELDS_1_1 = _ROOT_FIELDS | {"operational_capabilities"}
 _COVERAGE_FIELDS = {
     "authorization_contexts", "access_matrix", "planning_writeback",
     "audit", "retention", "privacy", "legal_hold",
 }
+_COVERAGE_FIELDS_1_1 = _COVERAGE_FIELDS | {"operational_capabilities"}
 _COVERAGE = {"complete", "partial", "not_assessed", "not_applicable"}
 _ASSESSMENT = {"observed", "inferred", "unknown", "not_assessed"}
 _CONTROL_FIELDS = {
@@ -29,6 +31,18 @@ _CONTROL_FIELDS = {
     "audit", "recovery",
 }
 _OBLIGATION_CATEGORIES = {"audit", "retention", "privacy", "legal_hold"}
+_OPERATIONAL_CAPABILITIES = {
+    "copy_version",
+    "upload_file",
+    "activate_cube_data",
+    "planning_reporting",
+    "forecast_update",
+    "consolidation_aggregation",
+}
+_CAPABILITY_DISPOSITIONS = {
+    "replacement_selected", "manual_redesign", "external_target",
+    "not_applicable", "blocked",
+}
 
 
 def _fail(path: str, reason: str) -> NoReturn:
@@ -78,9 +92,14 @@ def _unique_records(value: Any, path: str, fields: set[str], key: str) -> list[d
 
 def validate_controls_manifest(manifest: Any) -> dict:
     """Validate a strict local declaration; no control is executed or approved."""
-    root = _object(manifest, "$", _ROOT_FIELDS)
-    if root["schema_version"] != "1.0":
-        _fail("$.schema_version", "expected version 1.0")
+    if not isinstance(manifest, dict):
+        _fail("$", "must be an object")
+    version = manifest.get("schema_version")
+    if version not in {"1.0", "1.1"}:
+        _fail("$.schema_version", "expected version 1.0 or 1.1")
+    root = _object(
+        manifest, "$", _ROOT_FIELDS if version == "1.0" else _ROOT_FIELDS_1_1
+    )
     try:
         encoded = json.dumps(manifest, ensure_ascii=False, allow_nan=False)
     except (TypeError, ValueError):
@@ -89,7 +108,11 @@ def validate_controls_manifest(manifest: Any) -> dict:
         _fail("$", "credential-like content is not allowed")
 
     _text(root["scope_id"], "$.scope_id")
-    coverage = _object(root["coverage"], "$.coverage", _COVERAGE_FIELDS)
+    coverage = _object(
+        root["coverage"],
+        "$.coverage",
+        _COVERAGE_FIELDS if version == "1.0" else _COVERAGE_FIELDS_1_1,
+    )
     for field, value in coverage.items():
         if not isinstance(value, str) or value not in _COVERAGE:
             _fail(f"$.coverage.{field}", "has an unsupported coverage status")
@@ -163,6 +186,49 @@ def validate_controls_manifest(manifest: Any) -> dict:
             if not isinstance(value, str) or value not in (_ASSESSMENT | {"not_applicable"}):
                 _fail(f"{path}.control_coverage.{field}", "has an unsupported assessment status")
 
+    operational_capabilities = []
+    if version == "1.1":
+        operational_capabilities = _unique_records(
+            root["operational_capabilities"],
+            "$.operational_capabilities",
+            {
+                "capability", "inventory_object_id", "disposition",
+                "owner_reference", "target_solution_reference",
+                "evidence_reference", "execution_status",
+            },
+            "capability",
+        )
+        for index, item in enumerate(operational_capabilities):
+            path = f"$.operational_capabilities[{index}]"
+            if item["capability"] not in _OPERATIONAL_CAPABILITIES:
+                _fail(f"{path}.capability", "has an unsupported operational capability")
+            if item["disposition"] not in _CAPABILITY_DISPOSITIONS:
+                _fail(f"{path}.disposition", "has an unsupported capability disposition")
+            _text(
+                item["inventory_object_id"],
+                f"{path}.inventory_object_id",
+                nullable=True,
+            )
+            for field in (
+                "owner_reference", "target_solution_reference",
+                "evidence_reference",
+            ):
+                _text(item[field], f"{path}.{field}", nullable=True)
+            if item["execution_status"] != "not_run":
+                _fail(
+                    f"{path}.execution_status",
+                    "must remain not_run in this offline contract",
+                )
+            if item["disposition"] == "not_applicable":
+                if (
+                    item["inventory_object_id"] is not None
+                    or item["target_solution_reference"] is not None
+                ):
+                    _fail(
+                        path,
+                        "not_applicable capabilities cannot declare inventory or target references",
+                    )
+
     obligations = _unique_records(
         root["obligations"],
         "$.obligations",
@@ -189,6 +255,8 @@ def validate_controls_manifest(manifest: Any) -> dict:
         "access_matrix": scenarios,
         "planning_writeback": planning,
     }
+    if version == "1.1":
+        sections["operational_capabilities"] = operational_capabilities
     for field, records in sections.items():
         state = coverage[field]
         if state == "complete" and not records:
@@ -255,6 +323,14 @@ def assess_bw_controls(inventory: Any, manifest: Any) -> dict:
     captured_planning = {
         item["inventory_object_id"] for item in controls["planning_processes"]
     }
+    operational_capabilities = controls.get("operational_capabilities", [])
+    for index, item in enumerate(operational_capabilities):
+        object_id = item["inventory_object_id"]
+        if object_id is not None and object_id not in objects:
+            _fail(
+                f"$.operational_capabilities[{index}].inventory_object_id",
+                "must reference an inventory object",
+            )
     for section, declared_ids, expected_ids, expected_type in (
         ("authorization_contexts", captured_auth, auth_objects, "authorization"),
         ("planning_processes", captured_planning, planning_objects, "planning_process"),
@@ -319,6 +395,39 @@ def assess_bw_controls(inventory: Any, manifest: Any) -> dict:
             if status not in {"observed", "not_applicable"}:
                 add("planning_control_unassessed", "blocker", f"{path}.control_coverage.{control}")
 
+    if controls["schema_version"] == "1.1":
+        declared_capabilities = {
+            item["capability"] for item in operational_capabilities
+        }
+        if controls["coverage"]["operational_capabilities"] == "complete":
+            for capability in sorted(_OPERATIONAL_CAPABILITIES - declared_capabilities):
+                add(
+                    "operational_capability_not_captured",
+                    "blocker",
+                    f"$.operational_capabilities.{capability}",
+                )
+        for index, item in enumerate(operational_capabilities):
+            path = f"$.operational_capabilities[{index}]"
+            if item["disposition"] == "blocked":
+                add("operational_capability_blocked", "blocker", f"{path}.disposition")
+                continue
+            if item["disposition"] == "not_applicable":
+                continue
+            if item["owner_reference"] is None:
+                add("operational_capability_owner_missing", "blocker", f"{path}.owner_reference")
+            if item["target_solution_reference"] is None:
+                add(
+                    "operational_capability_target_undecided",
+                    "blocker",
+                    f"{path}.target_solution_reference",
+                )
+            if item["evidence_reference"] is None:
+                add(
+                    "operational_capability_evidence_missing",
+                    "blocker",
+                    f"{path}.evidence_reference",
+                )
+
     for index, item in enumerate(controls["obligations"]):
         object_id = item["inventory_object_id"]
         if object_id is not None and object_id not in objects:
@@ -371,9 +480,22 @@ def assess_bw_controls(inventory: Any, manifest: Any) -> dict:
             "authorization_contexts": len(controls["authorization_contexts"]),
             "access_scenarios": len(controls["access_scenarios"]),
             "planning_processes": len(controls["planning_processes"]),
+            "operational_capabilities": len(operational_capabilities),
             "compliance_obligations": len(controls["obligations"]),
             "blockers": blockers,
             "review_items": reviews,
         },
+        "operational_capability_dispositions": [
+            {
+                "capability": item["capability"],
+                "disposition": item["disposition"],
+                "inventory_object_id": item["inventory_object_id"],
+                "owner_reference": item["owner_reference"],
+                "target_solution_reference": item["target_solution_reference"],
+                "evidence_reference": item["evidence_reference"],
+                "execution_status": item["execution_status"],
+            }
+            for item in operational_capabilities
+        ],
         "findings": findings,
     }

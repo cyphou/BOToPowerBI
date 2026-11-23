@@ -128,6 +128,8 @@ def generate_power_query_m(datasource_or_connection: dict, table: dict = None, *
         for k in ("server", "database", "schema", "type"):
             if k in table and k not in ds:
                 ds[k] = table[k]
+        if "sap_bw_navigation" in table:
+            ds["sap_bw_navigation"] = table["sap_bw_navigation"]
         ds = _with_table_schema(ds, table)
     else:
         table_names = ds.get("tables") or ds.get("table")

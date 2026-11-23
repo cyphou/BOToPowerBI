@@ -27,7 +27,8 @@ class PowerBIImporter:
     def import_all(self, generate_pbip=True, report_name=None, output_dir=None,
                    calendar_start=None, calendar_end=None, culture=None,
                    model_mode='import', output_format='pbip', languages=None,
-                   composite_threshold=None, agg_tables='none'):
+                   composite_threshold=None, agg_tables='none',
+                   defer_expression_export=False):
         """
         Import all extracted objects and generate Power BI project.
         """
@@ -63,7 +64,8 @@ class PowerBIImporter:
                                           calendar_start=calendar_start, calendar_end=calendar_end,
                                           culture=culture, model_mode=model_mode,
                                           output_format=output_format, languages=languages,
-                                          composite_threshold=composite_threshold, agg_tables=agg_tables)
+                                          composite_threshold=composite_threshold, agg_tables=agg_tables,
+                                          defer_expression_export=defer_expression_export)
 
         print()
         print("=" * 80)
@@ -153,7 +155,8 @@ class PowerBIImporter:
     def generate_powerbi_project(self, report_name, converted_objects, output_dir=None,
                                  calendar_start=None, calendar_end=None, culture=None,
                                  model_mode='import', output_format='pbip', paginated=False,
-                                 languages=None, composite_threshold=None, agg_tables='none'):
+                                 languages=None, composite_threshold=None, agg_tables='none',
+                                 defer_expression_export=False):
         """Generate a Power BI Project (.pbip)
 
         Args:
@@ -174,7 +177,13 @@ class PowerBIImporter:
             else:
                 artifacts_dir = os.path.abspath('artifacts')
                 projects_dir = os.path.join(artifacts_dir, 'powerbi_projects', 'migrated')
-            
+
+            if output_format in ('pbip', 'tmdl', 'fabric'):
+                from powerbi_import.expression_export import validate_expression_export_targets
+                validate_expression_export_targets(
+                    os.path.join(projects_dir, report_name), allow_missing=True,
+                )
+
             artifacts_dir = os.path.abspath('artifacts')
             if output_format == 'fabric':
                 from powerbi_import.fabric_project_generator import FabricProjectGenerator
@@ -183,22 +192,28 @@ class PowerBIImporter:
                     calendar_start=calendar_start, calendar_end=calendar_end,
                     culture=culture, languages=languages,
                 )
-                return result['project_path']
-
-            generator = PowerBIProjectGenerator(
-                output_dir=projects_dir
-            )
-            
-            project_path = generator.generate_project(report_name, converted_objects,
-                                                       calendar_start=calendar_start,
-                                                       calendar_end=calendar_end,
-                                                       culture=culture,
-                                                       model_mode=model_mode,
-                                                       output_format=output_format,
-                                                       paginated=paginated,
-                                                       languages=languages,
-                                                       composite_threshold=composite_threshold,
-                                                       agg_tables=agg_tables)
+                project_path = result['project_path']
+            else:
+                generator = PowerBIProjectGenerator(
+                    output_dir=projects_dir
+                )
+                project_path = generator.generate_project(report_name, converted_objects,
+                                                           calendar_start=calendar_start,
+                                                           calendar_end=calendar_end,
+                                                           culture=culture,
+                                                           model_mode=model_mode,
+                                                           output_format=output_format,
+                                                           paginated=paginated,
+                                                           languages=languages,
+                                                           composite_threshold=composite_threshold,
+                                                           agg_tables=agg_tables)
+            if output_format in ('pbip', 'tmdl', 'fabric') and not defer_expression_export:
+                from powerbi_import.expression_export import export_generated_project
+                manifest = export_generated_project(
+                    os.path.join(project_path, f'{report_name}.SemanticModel'),
+                    include_dataflow=output_format == 'fabric',
+                )
+                print(f"  [OK] Expression review files: {len(manifest['exports'])}")
             print(f"  [OK] Power BI Project created: {project_path}")
             return project_path
             
@@ -350,6 +365,11 @@ class PowerBIImporter:
             projects_dir = os.path.abspath(
                 os.path.join('artifacts', default_subdir, 'shared')
             )
+
+        from powerbi_import.expression_export import validate_expression_export_targets
+        validate_expression_export_targets(
+            os.path.join(projects_dir, model_name), allow_missing=True,
+        )
         os.makedirs(projects_dir, exist_ok=True)
 
         # Create the project directory
@@ -461,6 +481,12 @@ class PowerBIImporter:
         )
         manifest_path = manifest.save(project_dir)
         print(f"  [OK] Merge manifest: {manifest_path}")
+
+        from powerbi_import.expression_export import export_generated_project
+        expression_manifest = export_generated_project(
+            sm_dir, include_dataflow=output_format == 'fabric',
+        )
+        print(f"  [OK] Expression review files: {len(expression_manifest['exports'])}")
 
         print(f"\n  Shared Semantic Model migration complete!")
         print(f"  Output: {project_dir}")

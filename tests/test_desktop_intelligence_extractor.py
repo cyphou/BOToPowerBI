@@ -389,6 +389,9 @@ class TestDesktopIntelligenceInventory(unittest.TestCase):
         table_text = table.read_text(encoding="utf-8")
         self.assertIn("Name", table_text)
         self.assertIn("Amount", table_text)
+        exported_query = (project / "PowerQuery" / "ReviewedQuery.pq").read_text(encoding="utf-8")
+        self.assertIn(sql[1], exported_query)
+        self.assertTrue((project / "expression_export.json").is_file())
         visuals = list(project.rglob("visual.json"))
         self.assertEqual(len(visuals), 1)
 

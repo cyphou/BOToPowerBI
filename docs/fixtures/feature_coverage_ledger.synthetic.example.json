@@ -1,0 +1,46 @@
+{
+  "schema_version": "1.0",
+  "wave_id": "SYNTHETIC-wave",
+  "entries": [
+    {
+      "source": {
+        "artifact_kind": "synthetic WebI snapshot",
+        "version": "synthetic-v1",
+        "document_id": "synthetic-document-1",
+        "provenance": "Fictional, locally invented source declaration",
+        "evidence_reference": "synthetic-source-ref"
+      },
+      "feature_id": "synthetic-provider",
+      "stage": "extraction",
+      "declared_status": "partial",
+      "owner": "synthetic-extraction-owner",
+      "scope": "A fictional provider summary; no source completeness is asserted.",
+      "target": {"applicability": "not_applicable", "choice": null, "object_binding": null},
+      "dependency": {"status": "identified", "description": "Obtain source-owner-reviewed binding evidence."},
+      "manual_action": "Review the provider and report binding.",
+      "disposition": "unresolved",
+      "local_evidence": {"status": "pass", "reference": "synthetic-local-check-ref", "check": "Fictional local shape check", "command": null},
+      "runtime_evidence": {"status": "not_run", "reference": null, "check": null, "command": null}
+    },
+    {
+      "source": {
+        "artifact_kind": "synthetic BW query",
+        "version": null,
+        "document_id": null,
+        "provenance": null,
+        "evidence_reference": null
+      },
+      "feature_id": "synthetic-calculation",
+      "stage": "conversion",
+      "declared_status": "unverified",
+      "owner": "synthetic-conversion-owner",
+      "scope": null,
+      "target": {"applicability": "unknown", "choice": null, "object_binding": null},
+      "dependency": {"status": "unknown", "description": null},
+      "manual_action": null,
+      "disposition": "unknown",
+      "local_evidence": {"status": "unknown", "reference": null, "check": null, "command": null},
+      "runtime_evidence": {"status": "not_run", "reference": "synthetic-planned-runtime-check", "check": null, "command": null}
+    }
+  ]
+}

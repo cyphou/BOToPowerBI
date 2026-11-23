@@ -1,10 +1,775 @@
 # Development Plan — BO to Power BI Migration
 
-> **Last reviewed**: 2026-11-18
+> **Last reviewed**: 2026-11-22
 > The March 2026 version 3.0 plan is retained below as historical planning evidence,
 > not a current release or a certification that every phase exit criterion passed.
 
-## Current Evidence - 2026-11-18
+## Current Evidence - 2026-11-22
+
+- The SAP BW capability mapping now distinguishes repository behavior from
+  the target architecture. `migrate_bw_bex_pbip.py` writes a versioned
+  `sap_bw_capability_boundary` into each generated project's
+  `migration_metadata.json`, recording functional and technical object status
+  plus fixed `not_run` runtime evidence. This is disclosure and scope control,
+  not implementation of Power Apps, Talend, write-back, planning, Fiori or
+  Multiprovider conversion.
+- BW-6 controls 1.1 now declares dispositions for external operational
+  capabilities while preserving fixed `not_run` execution evidence. Additive
+  key-figure conversion depends on sufficient identity and linkage evidence.
+  A bounded local BEx result-vector comparator is now delivered as a separate
+  BW-5 evidence slice; it compares declared rows only. SAP/Fabric runtime and
+  approval remain `not_run`; authenticity, provenance, source coverage and
+  semantic equivalence remain `not_verified`. Native InfoCube identity remains
+  the next BW P1 and is blocked on a sanitized, source-owner-approved identity
+  sample and agreed field mapping. WebI snapshot query-plan linkage validation
+  and the offline declaration-only coverage ledger are bounded local slices,
+  as recorded below.
+- `migrate_bw_reconcile.py --bex-result-vectors <manifest> --output
+  <new-report.json>` compares declared source/target row vectors using
+  composite keys and exact or decimal-tolerance measure rules, reporting key
+  and measure discrepancies. A pass means only that the declarations satisfy
+  the configured comparison; it does not authenticate the vectors or prove
+  coverage or equivalence.
+- Earlier local validation for the WebI and BW slices:
+  `python -m pytest tests/test_bw_reconciliation.py --tb=short -q` =>
+  **16 passed**; `python -m pytest tests/test_webi_snapshot_adapter.py
+  tests/test_businessobjects_server_client.py --tb=short -q` =>
+  **27 passed**; required full suite `python -m pytest tests/ --tb=short -q`
+  completed with exit 0 after the WebI changes (the captured runner output
+  contained no summary line, so totals are not recorded); `git diff --check`
+  passed. This is local code/test evidence only. No SAP or Fabric execution,
+  approval, Desktop rendering, refresh, or external acceptance was performed.
+- The next WebI source-coverage P1 remains blocked: the repository has no
+  sanitized, source-owner-approved CMS response or verified API contract that
+  maps a report element to a provider. The snapshot's report and provider
+  records, query-plan ID checks, and synthetic fixture do not establish that
+  relationship. Obtain the approved example/contract before changing the
+  snapshot schema or implementing bindings; do not infer a mapping from
+  generic field names.
+- Local one-file folder migration of synthetic
+  `examples/Enterprise_Sales.wid` produced one PBIP/model and exited 0.
+  Two local smoke replays and independent reproduction by `WebI Migration`
+  observed static validation exit 0 with warnings, not clean bindings.
+  The specialist reported 23 warning occurrences, including 11 unknown
+  `Entity "Table"` visual references; the separately parsed CI-equivalent
+  report contained 13 distinct warning findings, including four unknown-Table
+  findings. These observations do not prove source-to-target equivalence.
+- The locally changed CI sample job now generates that synthetic PBIP,
+  checks the PBIP and model exist, and runs default static validation;
+  warnings are displayed but do not fail it. The local equivalent passed.
+  GitHub-hosted CI is `not_run`; the validation job depends
+  on lint and tests, and repository-wide lint/type findings remain open below.
+- Earlier recorded local tests: after the import-order fix, ledger, operations
+  and agent-contract focused tests passed **86 tests and 548 subtests**. The
+  subsequent full `python -m pytest -o 'addopts=' tests\ --tb=short -q` rerun
+  passed **920 tests and 1232 subtests**, with **1 skipped**, in 204.42s.
+  These are local test results, not hosted CI or target runtime evidence.
+- **P1 WebI regression delivered / fresh local baseline — 2026-11-22:** before
+  the regression, `Tester` ran the CI-equivalent checks against the already
+  dirty worktree: critical Flake8 passed (exit 0, with an invalid-escape
+  `SyntaxWarning`); Ruff 0.15.7 failed with 421 errors; Pyright 1.1.414 failed
+  with 74 errors and 2 warnings; coverage failed at 55.57% against the
+  unchanged 80% threshold. Environment mismatch: `python` is Python 3.13.15
+  with pytest 9.1.1 / pytest-cov 7.1.0, while the `pytest` executable is
+  Python 3.14.2 with pytest 9.0.2 / pytest-cov 7.0.0. This is a local,
+  dirty-worktree baseline—not hosted CI or fully environment-equivalent proof;
+  it does not establish zero additions or a CI pass.
+- `Tester` added the focused synthetic WebI regression in
+  `tests/test_cli.py:405`. It compares actual visual references with model
+  columns/measures and retains unresolved `Entity "Table"` findings even when
+  default static validation exits 0. The focused regression and required
+  `python -m pytest tests/ --tb=short -q` passed. Hosted CI and runtime checks
+  remain `not_run`; this does not prove source linkage or feature parity.
+
+### Historical local CI baseline and deployment packaging — 2026-11-22
+
+- **Historical CI evidence / gate:** before the rolling guard below, the
+  comparison used the same local Windows Python 3.13.15, Ruff 0.16.7 and
+  Pyright 1.1.414 for committed HEAD `df1542c`, extracted by `git archive`
+  in the session workspace, and the then-worktree. Ruff reported **428**
+  baseline and **421** worktree diagnostics; Pyright reported **77** findings
+  in each (worktree: **75 errors, 2 warnings**). A multiset comparison
+  normalized by filename, rule and diagnostic message found Ruff **0 added,
+  7 removed** and Pyright **0 added, 0 removed**. These counts have since
+  changed and are historical, not current; they do not prove individual
+  historical provenance.
+- The same local CI coverage command,
+  `python -m pytest -o 'addopts=' tests\ --tb=short -q --cov=bo_export --cov=powerbi_import --cov-report=term --cov-fail-under=80`,
+  reported baseline **52.38%, 788 passed, 1 skipped, 859 subtests** and
+  then-worktree **55.33%, 929 passed, 1 skipped, 1232 subtests**; both failed
+  the **80%** gate at that time. These are historical pre-guard measurements,
+  not current results. The required full suite passes locally without a
+  coverage threshold. Hosted CI is `not_run`; do not lower gates or infer
+  feature parity from these counts. `Tester` coordinates remaining lint, type
+  and coverage work with the relevant module owners; exit requires the
+  unchanged CI checks and coverage gate to pass and hosted CI to be run.
+- **Local packaging outcome / first change delivered:** `Deployer` isolated
+  `PBIWorkspaceDeployer.deploy_project`'s temporary PBIX from the shared
+  temp root in a unique directory with fixed name `project.pbix`; when
+  packaging or upload and cleanup both fail, the original error is retained
+  alongside the cleanup error. `Tester`'s nine focused mocked tests passed
+  without network access (`tests/test_phase5_advanced.py::TestDeployerTemporaryPackage`).
+  The local hypothesis is that collisions or dataset names cannot redirect
+  the package outside its owned directory and simultaneous cleanup failures
+  cannot erase the original error; a contrary regression falsifies it.
+  This is local packaging for a remote-operation path, not source extraction,
+  conversion, target generation or deployment proof.
+- **Dependencies / exit and non-goals:** rerun the focused class and required
+  `python -m pytest tests/ --tb=short -q` for local changes. PBIX compatibility
+  is `not_verified`; target deployment and refresh are `not_run` and require
+  separate authorization. No source evidence or runtime gate is changed by
+  this local packaging fix.
+
+### Delivered local P1 — refresh schedule deployment guard — 2026-11-22
+
+- **Outcome / first change:** `Deployer` updated
+  `PBIWorkspaceDeployer.deploy_refresh_schedule` to skip `None` with a note
+  and skip disabled dictionaries; malformed configurations and missing or
+  non-boolean `enabled` fail before client calls. Enabled schedules require
+  an explicit nonempty list of unique valid weekdays, nonempty valid `HH:MM`
+  times and a nonempty time-zone string. Optional notification must be valid;
+  optional frequency must be `Daily` or `Weekly`, and `Daily` requires all
+  seven weekdays.
+- **Hypothesis / cohesive scope:** invalid enabled input must not reach the
+  client, and a valid request must contain only supplied target fields, never
+  guessed `UTC`, `06:00` or `MailOnFailure`; frequency metadata is omitted
+  from the request. A mock call for invalid input or an invented payload field
+  falsifies this local remote-operation guard. `Deployer` owns the deployer;
+  `Tester` owns regressions. Source extraction, conversion, target generation
+  and reporting are outside this slice.
+- **Local validation:** reported mock request and error cases in
+  `tests/test_phase5_advanced.py` passed **83 tests and 265 subtests**;
+  `python -m pytest -o 'addopts=' tests\ --tb=short -q` passed **941 tests,
+  1 skipped and 1329 subtests**. Focused Pyright and Ruff passed. These checks
+  establish neither target acceptance nor time-zone validity.
+- **Next priority / dependencies / exit:** `Deployer` should obtain reviewed
+  schedule and target requirements and explicit separate authorization before
+  any target validation or service call. Then validate an approved schedule,
+  read back the target configuration and observe refresh timing; rejection,
+  differing readback or incorrect timing falsifies the target hypothesis.
+  `Tester` maintains mock regressions and the required full suite. Target
+  validation, service call and refresh are `not_run`; owner review and target
+  time-zone validity are `not_verified`. Target validation, service calls,
+  refresh and owner review require separate authorization. No real deployment,
+  source schedule parity or operational equivalence is claimed.
+
+### Rolling deployment guard and future design — 2026-11-22
+
+- **Outcome / evidence:** `Deployer` changed `deploy_rolling` to fail closed
+  before any remote call, returning `status: failed`, `phase: blocked` and
+  `rolled_back: false`. The former flow could overwrite an existing canary and
+  falsely report rollback; it also relied on nonexistent
+  `PBIServiceClient.delete_dataset` for cleanup. The guard leaves previous
+  remote artifacts untouched; no remote operation was performed.
+- **Local validation:** two mocked rolling guard regressions and nine mocked
+  packaging tests passed (`tests/test_phase5_advanced.py::TestDeployerRollingBlocked`
+  and `tests/test_phase5_advanced.py::TestDeployerTemporaryPackage`). The
+  required full `python -m pytest tests\ --tb=short -q` passed; focused-file
+  Ruff and Pyright passed. These checks do not establish remote behavior.
+- **Next increment / hypothesis / scope:** rolling deployment, cleanup and
+  rollback remain unimplemented and unverified. `Deployer` owns a future
+  bounded design and implementation; `Tester` owns mocked regressions. First
+  obtain an approved design with explicit destructive-operation authorization,
+  safe canary identity, failure/status propagation and verified refresh. The
+  hypothesis is that such a design can protect existing artifacts and report
+  failures accurately; a collision, unconfirmed cleanup or false status in a
+  regression falsifies it. Do not remove the guard before these controls are
+  designed and tested.
+- **Validation / exit / risks:** require mocked success, collision, refresh,
+  cleanup and failure-propagation tests plus the full
+  `python -m pytest tests\ --tb=short -q` suite. A separately authorized
+  runtime rollback rehearsal is required for operational exit and is
+  `not_run`; deployment and refresh are also `not_run`. The guard does not
+  clean up or restore earlier artifacts. Source extraction, conversion, target
+  generation and quality metrics are outside this remote-operation slice.
+
+## Next actionable roadmap — 2026-11-22
+
+This sequence is **planned**, not authorization to implement or release. It
+extends the cross-source and BW plans below without replacing their historical
+evidence or feature gates. P1 orders the next risk-reducing slices; P2 extends
+them; runtime and retirement are separate approval gates, not dates. Work can
+proceed locally while source owners prepare the blocked evidence.
+
+The previously recorded full local run was **941 passed, 1 skipped and 1329
+subtests**, following the schedule guard. The subsequent synthetic WebI
+regression and required full suite passed locally, with no total recorded. The historical CI-equivalent
+coverage was **55.33% against the unchanged 80% threshold**; the recorded
+Ruff/Pyright baseline is also failing and is not a current measurement. Hosted
+CI remains `not_run`. Counts and a passing local suite do not establish feature
+coverage or migration equivalence.
+
+### P1 delivered — expose a comparison with no measure observations
+
+- **Outcome / evidence:** the original synthetic-fixture probe remains the
+  historical baseline: with both `rows` lists empty, the comparison returned
+  `comparison_status: pass`, `measures_compared: 0`, and zero source and target
+  rows. This matched the supplied empty declarations, not evidence of query
+  execution or measure agreement. The implementation now adds the report
+  limitation `no_measure_observations_compared` iff summary
+  `measures_compared == 0`. After a successful report write, the CLI emits:
+  `No measure observations were compared; this result does not establish
+  measure agreement.`
+- **First change / cohesive scope:** `Evidence` updated
+  `powerbi_import/bw_reconciliation.py` for the report limitation;
+  `Orchestrator` updated `migrate_bw_reconcile.py` for the CLI notice; and
+  `Tester` added regression coverage in `tests/test_bw_reconciliation.py`.
+  This completed the local comparison/reporting slice only; extraction,
+  conversion, target generation and remote operations were not changed.
+- **Dependencies / compatibility:** version 1.0 schema is unchanged.
+  Mathematical `comparison_status`, the empty/empty pass, and exit code 0
+  remain unchanged. Runtime evidence remains `not_run` and verification
+  remains `not_verified`.
+- **Validation / exit:** focused tests passed: 18 tests / 30 subtests. The
+  full `python -m pytest tests\ --tb=short -q` exited 0; its output did not
+  include total counts. `py_compile` and `git diff --check` passed. Tests cover
+  both-empty, one-empty, disjoint-key, duplicate-only and matching nonempty
+  cases, plus CLI notice/no-overwrite behavior and preserved statuses.
+- **Risks / non-goals:** the limitation and notice identify that no measure
+  observations were compared; they do not establish source provenance,
+  completeness, query execution or source-to-target parity. No runtime
+  operation or release approval is implied.
+
+### P1 parallel — CI recovery and behavior-based coverage
+
+- **Outcome / evidence:** recover the existing CI gates and add discriminating
+  tests for real risk, not merely lines. The historical local run failed the
+  80% coverage gate and had lint/type findings; `.github/workflows/ci.yml`
+  runs lint before the OS/Python test matrix and synthetic validation. The
+  later 941-pass run was not a hosted CI or coverage-gate pass.
+- **Bounded local change — Visual:** `Visual` removed seven duplicate literal
+  keys from the PBI pass-through section of
+  `powerbi_import/visual_generator.py`. Each retained earlier mapping has the
+  identical value, so this is intended behavior-preserving lint cleanup.
+  The required `python -m pytest tests/ --tb=short -q` exited 0 (runner output
+  had no totals); `ruff check bo_export/ powerbi_import/ --select F601`,
+  `python -m py_compile powerbi_import/visual_generator.py`, and scoped
+  `git diff --check` passed.
+- **Latest bounded local cleanup — Visual:** `Visual` fixed the remaining
+  import-order I001 and two needless-f-prefix F541 findings in
+  `powerbi_import/visual_generator.py`. The latest
+  `ruff check powerbi_import/visual_generator.py`,
+  `ruff check bo_export/ powerbi_import/ --select F601`,
+  `python -m py_compile powerbi_import/visual_generator.py`, scoped
+  `git diff --check`, and required `python -m pytest tests/ --tb=short -q`
+  passed; the full-suite runner output had no totals. These are bounded local
+  results, not evidence that repository-wide Ruff or Pyright, the unchanged
+  80% coverage gate, hosted CI, or overall CI passed.
+- **Latest bounded local cleanup — Deployer:** `Deployer` removed redundant
+  f prefixes from two literal report headings in
+  `powerbi_import/deploy/utils.py`, preserving the emitted text. After the
+  change, `python -m pytest tests/ --tb=short -q` exited 0 (runner output had
+  no totals); `ruff check powerbi_import/deploy/utils.py --select F541`,
+  `ruff check powerbi_import/visual_generator.py`,
+  `python -m py_compile powerbi_import/deploy/utils.py`, and scoped
+  `git diff --check` passed. That focused cleanup alone did not establish a
+  repository-wide Ruff count or overall CI recovery.
+- **Bounded local cleanup and fresh CI-scope evidence — Deployer:** on the
+  dirty worktree, Python 3.13.15 / Ruff 0.16.7
+  `python -m ruff check bo_export\ powerbi_import\ --statistics` found **409**
+  issues before this cleanup: 183 W293, 71 F401, 63 I001, 45 F541, 26 F841,
+  6 W291, 4 W292, 3 E402, 3 E712, 2 E741, 2 W605 and 1 E713. `Deployer`
+  removed two unused `os` imports, sorted affected imports and dropped only
+  the unused local assignment around `client.patch`, retaining the call and
+  behavior, in `powerbi_import/deploy/deployer.py` and `utils.py`. Scoped
+  Ruff passed. Afterward the same CI-scope command still failed with **404**
+  findings: 183 W293, 69 F401, 61 I001, 45 F541, 25 F841, 6 W291, 4 W292,
+  3 E402, 3 E712, 2 E741, 2 W605 and 1 E713.
+- **Local validation and limits:** `python -m pytest tests\ --tb=short -q`
+  exited 0 after the cleanup; the runner gave no totals. A fake-client smoke
+  checked endorsement success, failure, endpoint and payload, plus report
+  headings/output; no network calls were made. `py_compile` and scoped
+  `git diff --check` passed. Before cleanup,
+  `python -m pyright powerbi_import\deploy\` reported **15 errors, 0
+  warnings**, including missing optional imports, `None`-inferred
+  `BundleDeploymentResult` attributes and one inferred heterogeneous-dict
+  error; no Pyright fixes are claimed. The coverage gate and hosted CI were
+  not rerun and remain unproven; deployment and target runtime are `not_run`.
+- **Earlier measured CI-gate baseline — dirty worktree, before the Deployer
+  cleanup:** a consistent-interpreter run used Python 3.13.15, pytest 9.1.1,
+  pytest-cov 7.1.0, Ruff 0.15.7,
+  Pyright 1.1.414, and Flake8 7.4.1. The critical Flake8 command exited 0 with
+  one `SyntaxWarning` for an invalid escape sequence. Full
+  `ruff check bo_export/ powerbi_import/ --statistics` exited 1 with 411
+  findings: 183 W293, 71 F401, 63 I001, 47 F541, 26 F841, 6 W291, 4 W292,
+  3 E402, 3 E712, 2 E741, 2 W605, 1 E713. Pyright's JSON summary reported
+  113 files, 74 errors and 2 warnings (exit 1). The coverage command
+  `python -m pytest -o 'addopts=' tests/ --tb=short -q --cov=bo_export --cov=powerbi_import --cov-report=term-missing --cov-fail-under=80`
+  used Python 3.13.15 and reported 944 passed, 1 skipped, 1333 subtests,
+  and 55.71% coverage; it exited 1 against the unchanged 80% gate. This is
+  an earlier local dirty-worktree baseline, not a clean-tree or overall CI
+  pass. The 411/47 findings remain tied to this earlier Ruff 0.15.7 baseline,
+  not the current CI-scope count; they are not a like-for-like comparison
+  with Ruff 0.16.7. Earlier measurements above remain historical; hosted CI
+  is `not_run`.
+- **Hypothesis / first change:** this consistent-interpreter run confirms
+  unresolved local Ruff, Pyright and coverage gates on the dirty worktree.
+  `Tester` coordinates bounded lint/type fixes with the primary owners in
+  `.github/agents/ownership.json`, without lowering thresholds. For behavior
+  coverage, start with the
+  zero-observation comparison above and its failure cases, not a bulk
+  line-coverage exercise. No code change is authorized by this roadmap.
+- **Dependencies / scope:** `Tester` coordinates; affected code owners fix
+  their own files, and `Orchestrator` coordinates CI workflow changes only if
+  genuinely required. Avoid broad refactors, exclusions, weaker assertions or
+  changes to the required 80% gate. Report coverage and behavior as separate
+  results. Protect the current rolling block and disabled schedule drafts.
+- **Validation / exit:** run the unchanged flake8, Ruff and Pyright commands
+  from CI, focused owner tests, and
+  `python -m pytest tests/ --tb=short -q`; also run CI's
+  `--cov=bo_export --cov=powerbi_import --cov-report=term-missing
+  --cov-fail-under=80` coverage command. Local exit requires all unchanged
+  checks to pass, with meaningful negative tests. Hosted exit additionally
+  requires the actual configured OS/Python matrix and dependent validation
+  job to pass when hosted CI is separately available; until then it is
+  `not_run`. A local baseline failure is a finding, not a reason to weaken CI.
+- **Risks / non-goals:** clean lint and a coverage percentage do not establish
+  correct source semantics; a single-platform local run is not the hosted
+  matrix. No release approval follows automatically.
+
+### P1 delivered — preserve the synthetic WebI binding finding
+
+- **Outcome / evidence:** `Tester` added the focused regression in
+  `tests/test_cli.py:405`, making the existing synthetic sample's unresolved
+  visual/model binding visible independently of whether default static
+  validation returns zero. It checks actual generated visual references
+  against model columns/measures and retains unknown `Entity "Table"`
+  findings. The sample's chart/provider and physical-column relationship is
+  not established.
+- **Hypothesis / first change:** a focused synthetic regression that checks the
+  actual generated visual references against model columns and asserts the
+  unresolved finding can detect a silently lost warning without pretending
+  to resolve the binding. A missing warning or a claimed resolved binding
+  without a real model column falsifies this test hypothesis.
+- **Owner / dependencies / scope:** `WebI Migration` coordinates; `Tester`
+  owns the regression, `Visual` owns PBIR generation and `Assessor` owns
+  static validation. Use the existing synthetic sample and local artifacts
+  in temporary directories. If investigation identifies a generation defect,
+  return it to `Visual`; do not change the validator, warning severity or a
+  metric merely to make the sample green. This is target/static-reporting
+  evidence, not proof of source extraction or provider linkage.
+- **Validation / exit:** the focused regression and required
+  `python -m pytest tests/ --tb=short -q` passed. The regression preserves the
+  unresolved finding despite default static-validation exit 0. A clean feature
+  gate additionally requires the source-backed binding slice below, not
+  warning suppression.
+- **Risks / non-goals:** sample shape and validator wording may evolve, so
+  assert structured facts where available rather than historical warning
+  counts. Synthetic data does not establish source identity, rendering or
+  visual equivalence; Desktop and service execution remain `not_run`.
+
+### P1 blocked — source-backed feature linkage
+
+- **Outcome / evidence:** trace one real source feature to the correct
+  generated binding. The WebI snapshot validates document/provider IDs for a
+  selected query plan, but no approved report-element/provider linkage is
+  available. BW native InfoCube identity is likewise `not_verified` pending a
+  sanitized source-owner-approved sample and agreed field mapping. These are
+  independent blockers; neither synthetic fixture proves either relation.
+- **Hypothesis / first change:** for each source, an approved, versioned,
+  sanitized example or verified source contract plus a reviewed field mapping
+  can support a unique binding. Ask the respective source owner for that
+  evidence before contract or generator changes; missing or ambiguous identity
+  must stay unresolved. No CMS/SAP access is authorized by this plan.
+- **Owners / dependencies / scope:** `WebI Migration` coordinates
+  `BusinessObjects` for the CMS contract, `Extractor` for local metadata,
+  `Wiring` for query mapping, `Semantic` for model columns and `Visual` for
+  PBIR; `Assessor` validates generated artifacts. For BW, `Assessor` owns the
+  local inventory/identity assessment and `Evidence` comparisons; assign
+  any new live SAP connector owner explicitly before implementation. Apply
+  analogous family-specific evidence gates to Crystal, universes, BIAR, Lumira
+  and DeskI rather than assuming WebI evidence generalizes.
+- **Validation / exit:** after approval, test matching, missing, mismatched
+  and ambiguous identities and preserve source IDs across each applicable
+  stage. Verify a generated binding points to an actual model column, retain
+  unresolved findings, and run focused tests plus
+  `python -m pytest tests/ --tb=short -q`. Source-owner review of provenance
+  and completeness is a separate gate; local tests alone cannot close it.
+- **Risks / non-goals:** do not infer relationships from generic names,
+  decrypt protected content, claim archive completeness, or implement an
+  additive BW key figure before its separate identity and semantics gates.
+  Local generation does not establish data or visual equivalence.
+
+### P2 — independently reviewed, feature-scoped comparison
+
+- **Outcome / evidence:** progress from declaration-only reports to a
+  reviewable, bounded source-to-target evidence chain. The feature ledger
+  does not dereference or authenticate evidence; the BEx comparator compares
+  declared rows and validates declared context, not source origin or
+  completeness.
+- **Hypothesis / first change:** after an approved source/target pair exists,
+  `Evidence` can record one explicit feature identity, target object, query
+  context, comparison results and unresolved findings for independent review.
+  First prepare a synthetic local positive and negative review case using the
+  existing ledger and comparator; treat references as declarations, not
+  authenticated links. Do not invent a real wave or automatically convert a
+  comparator pass into an `implemented` ledger status.
+- **Owners / dependencies / scope:** `Evidence` owns comparison and ledger
+  behavior; `Orchestrator` owns their CLIs; `Tester` owns tests; `Reviewer`
+  reviews fidelity. Real feature linkage depends on the relevant approved
+  source and target artifacts, common role, filters, prompts, grain and
+  agreed tolerances. Extraction, conversion, generation, reporting and
+  operations stay separately identified in the ledger.
+- **Validation / exit:** local tests must preserve failed/missing evidence,
+  mismatched context, zero-observation limitations and unverified references,
+  then run the relevant focused suites and
+  `python -m pytest tests/ --tb=short -q`. Real-case exit additionally
+  requires independently captured source and target results, discrepancy
+  disposition and source/business owner review. Synthetic success alone
+  never closes a feature or wave.
+- **Risks / non-goals:** row agreement at a declared grain is not proof of
+  visual, security, operational or fleet-wide parity. No automatic evidence
+  authentication, deployment or business sign-off is planned in this slice.
+
+### Separately authorized runtime and cutover gates
+
+- **Outcome / evidence:** validate a reviewed feature in its actual target
+  only after local and source-evidence gates. Schedule deployment now rejects
+  incomplete enabled declarations, generated schedules remain disabled
+  drafts, and rolling deployment is blocked; none proves runtime behavior.
+- **Hypothesis / first change:** a specifically authorized target check can
+  reproduce the reviewed source result and required access/operation behavior;
+  discrepancies or missing authorization keep the feature open. First obtain
+  named source, business, security and target owners, approved scope,
+  credentials handling, non-destructive test plan and explicit permission for
+  each read or write. Do not remove the rolling guard as a prerequisite.
+- **Owners / dependencies / scope:** `Deployer` owns separately authorized
+  deployment, readback, refresh and access checks; `Evidence` owns result
+  reconciliation, `Reviewer` the acceptance review, and `Visual`/`Fabric` or
+  `Semantic` own any resulting local fixes. A BW wave additionally requires
+  its BW-0–BW-8 dependencies and independent upstream handoff before retirement.
+- **Validation / exit:** for the agreed case, capture source and target query
+  context and results, authorized Desktop/Report Builder rendering where
+  applicable, allow/deny security checks, approved schedule readback and
+  observed refresh, with discrepancy and owner sign-off. Cutover additionally
+  requires approved rollback rehearsal, operational readiness and business
+  acceptance. All such runtime checks, deployment and cutover are `not_run`
+  here; no cloud writes, Desktop launch or release approval are authorized.
+- **Risks / non-goals:** target validation is not blanket source-family
+  parity. Publications, planning/write-back and unsupported source features
+  require separately owned dispositions rather than silent replacement.
+
+## Current cross-source roadmap — 2026-11-22
+
+**Goal:** work toward comprehensive, equivalent migration of each inventoried
+source feature to an appropriate Power BI, Fabric or paginated RDL target.
+This is a feature-by-feature program, not a universal parity claim. The
+[gap analysis](GAP_ANALYSIS.md) and the dated evidence above describe current
+behavior; historical phase labels and aggregate counts do not close these
+gates. The separate BW program and its identity blocker remain in force below.
+
+**Coverage ledger for each migration wave:** the offline declaration API and
+standalone CLI are implemented for the bounded contract below; collecting and
+independently reviewing real wave evidence remains open. Record each source
+version, document and feature instance, declared source evidence and
+provenance, target choice and object/binding, owner, dependency, status,
+manual action and disposition, and local and runtime evidence references.
+The validator checks the required declarations for `implemented`; it does not
+verify that the declared scope or tests are true. Use `partial` for narrower
+coverage and `unverified` when identity, completeness or target behavior
+lacks evidence. Track extraction, conversion, target generation, reporting and
+remote operations separately. Do not treat a placeholder, successful artifact
+generation, declared mapping or count as parity. The following baseline is a
+planning summary, not a populated wave ledger.
+
+| Source feature / domain | Current bounded status and target direction | Dependency / primary owner |
+|---|---|---|
+| WebI providers, prompts and report bindings | Partial: WID structure and `PARAMSERVER` are not SQL, prompt semantics or bindings; snapshot-to-model can leave an empty report. PBIP/RDL/Fabric are target options, not verified equivalents. | Authorized source evidence or verified export; `Extractor`, `BusinessObjects`; `WebI Migration` coordinates. |
+| Crystal fields, formulas, sections, groups, subreports and prompts | Partial recognized metadata/mappings; real `.rpt` streams in the dated replay were opaque. PBIP or RDL requires trustworthy exports and feature review. | Versioned source export/SDK evidence; `Extractor`, then `Dax`, `Visual`. |
+| UNX/UNV objects, tables, joins, contexts, derived SQL, LOV and security | Partial and format-dependent; sampled protected UNX components were unreadable and sampled UNV exposed names only. Model/M/Fabric mappings require verified metadata. | Authorized readable exports, query and connection lineage; `Extractor`, `Wiring`, `Semantic`. |
+| BIAR/LCMBIAR contents and CMS lineage | Partial: direct entries and readable manifest are not a complete archive; manifest-derived RDLs are unbound skeletons. | Inventory/provenance and source coverage review; `Extractor`, `Orchestrator`, `Visual`. |
+| Lumira data bindings, charts, interactions and apps | Partial format-dependent extraction; Designer app conversion is unsupported. PBIP/Fabric/RDL suitability is feature-specific; custom interactions may require a separate rebuild. | Representative authorized exports and target design; `Extractor`, `Visual`, `Fabric`. |
+| DeskI REP providers, formulas, prompts and layout | Experimental partial candidates; explicitly acknowledged RDL and manually declared PBIP drafts are not automatic conversion. Fabric conversion is unsupported. | Reviewed SQL, bindings, fields and source design; `Extractor`, `Visual`, `Wiring`. |
+| BW/BW/4HANA inventory, transformations, BEx, security and retirement | Separate partial offline declarations, assessments and bounded generators; no automatic SAP extraction or general BEx conversion. BW identity is `not_verified`. | BW-0–BW-8 evidence and native identity gate below; `Assessor`, `Fabric`, `Evidence`. |
+| Queries, formulas, relationships, grain, filters and prompts across sources | Partial metadata-dependent M/DAX/model candidates, not proven semantic equivalence. | Verified source expressions, bindings, types and query context; `Wiring`, `Dax`, `Semantic`. |
+| Visuals, pagination, interaction and accessibility | Partial PBIP/RDL mappings or manual declarations; native report layouts are not generally reconstructed. | Source element bindings and target-specific design; `Visual`. |
+| Security, schedules, publications, monitoring and deployment | Partial: newly generated RLS assignment scripts block for manual review; refresh and subscription drafts are disabled. Automatic RLS assignment and direct conversion of full BO scheduling/publications are unsupported. CLI deployment is guarded; target runtime is unverified. | Source policy and operational inventory, explicit separate deployment authorization and owner decisions; `Deployer`, `Assessor`. |
+| Comparison, reconciliation and cutover | Partial local static and declared-vector evidence; no blanket source-to-target or retirement proof. | Trusted source/target results and approved scope, roles and tolerances; `Evidence`, `Reviewer`, `Deployer`. |
+
+### Delivered local P1 — offline feature coverage declarations (2026-11-22)
+
+- **Outcome / evidence:** `powerbi_import/coverage_ledger.py` validates a
+  version 1.0 manifest and produces a deterministic, detached report with
+  declared rows, status/stage counts and review findings. The
+  [schema](schemas/feature_coverage_ledger.schema.json) and
+  [synthetic fixture](fixtures/feature_coverage_ledger.synthetic.example.json)
+  describe the contract; the fixture is fictional, not source evidence.
+  `migrate_coverage_ledger.py --manifest <local.json> --output <new.json>`
+  reads a local manifest and writes a new report without overwriting an
+  existing file. Invalid JSON, duplicate JSON keys and invalid declarations
+  are rejected.
+- **Hypothesis / cohesive scope:** inconsistent or duplicate
+  source-kind/version/document/feature/stage declarations must be rejected,
+  while missing evidence and non-implemented statuses remain visible as
+  findings. A rejected input producing a report or a declaration changing a
+  verification status would falsify this local contract. This is reporting
+  over supplied declarations, not extraction, conversion, target generation
+  or remote operations. `Evidence` owns the API, schema and fixture;
+  `Orchestrator` owns the CLI; `Tester` owns regressions.
+- **Dependencies / first change delivered:** callers supply the manifest and
+  a new local output path. The validator preserves unknowns, checks
+  case-sensitive composite uniqueness and enforces conditional fields. An
+  `implemented` row requires declared source identity/provenance, scope and
+  passing local check; applicable targets require a choice and binding, and
+  implemented remote operations require a declared runtime pass. These are
+  declarations, including any pass or approval, not independent evidence.
+- **Validation / exit gate:** `tests/test_coverage_ledger.py` exercises
+  contract failures, duplicate identities and JSON keys, deterministic output,
+  non-execution of references and commands, and CLI output boundaries. Run
+  `python -m pytest tests/test_coverage_ledger.py --tb=short -q` and the
+  required `python -m pytest tests/ --tb=short -q`; local tests establish only
+  the bounded contract. Per-wave exit additionally requires independently
+  reviewed source identity, coverage, target behavior and business evidence.
+- **Risks / non-goals:** the ledger never authenticates or dereferences
+  references or executes declared checks or commands. Credential-like content
+  is screened, but credential detection and sanitization are not guaranteed;
+  manifests and reports may contain sensitive metadata. Counts cover only
+  supplied rows and neither completeness nor semantic equivalence. Evidence
+  authenticity, freshness, source coverage, feature coverage, equivalence and
+  approvals remain `not_verified`; declared-check execution, Desktop rendering,
+  refresh and remote execution remain `not_run` by the ledger. It cannot
+  authorize deployment or establish source-to-target parity.
+
+### Bounded local P1 — block misleading RLS assignment script (2026-11-22)
+
+- **Outcome / evidence:** the previous generated `assign_rls_roles.ps1`
+  targeted dataset-user permissions without specifying an RLS role, despite
+  claiming role assignment. For newly generated scripts when roles exist,
+  `powerbi_import/permission_mapper.py::generate_rls_powershell` now emits a
+  deliberate terminating throw and guidance to review restrictions and
+  identities, configure role membership manually with authorized administration
+  tools, and verify allowed and denied access in an authorized target.
+  Automatic RLS assignment is unsupported.
+- **Hypothesis / cohesive scope:** a script containing only a literal
+  terminating throw and review comments cannot itself assign membership or
+  grant dataset permissions; executable commands or interpolated input would
+  falsify this local safety property. This is target-side guidance generation,
+  not source extraction, role conversion, reporting or remote operations.
+  `Deployer` owns the generator; `Tester` owns regressions. The existing
+  `dataset_name` argument remains compatible and no roles produce no file.
+- **Dependencies / validation:** manual membership depends on reviewed source
+  restrictions, owner-approved identities and target design. Reported final
+  local validation: `python -m pytest tests/test_phase5_advanced.py --tb=short
+  -q -o addopts=''` yielded **35 passed, 6 subtests passed**; the required
+  `python -m pytest tests/ --tb=short -q -o addopts=''` yielded **876 passed,
+  1 skipped, 998 subtests passed**. Local PowerShell execution confirmed the
+  reminder exits nonzero. The local exit gate is inert guidance, terminating
+  behavior and no generated file for absent roles; actual access verification
+  requires separate target authorization.
+- **Risks / non-goals:** old generated artifacts remain unchanged and must not
+  be run without review. This does not assign roles, verify security or prove
+  source-to-target parity. Target membership and allow/deny checks are
+  `not_run`; the broader P1 security and operations gate remains **open**.
+
+### Bounded local P1 — reject unsafe security profile mappings (2026-11-22)
+
+- **Outcome / evidence:** the standalone
+  `powerbi_import/permission_mapper.py::map_bo_security_profiles` now rejects
+  unresolved or ambiguous case-insensitive column matches, missing
+  restrictions or operator, unsupported operators, and invalid string-list
+  values or operator arity. It escapes candidate DAX identifiers and literals
+  and surfaces `ValueError` rather than guessing or silently dropping a
+  restriction. Previously, resolution could fall back to `Table`, an operator
+  could default to equality, or an unrepresentable restriction could be lost.
+- **Hypothesis / cohesive scope:** invalid or ambiguous declarations must not
+  produce a candidate role; a returned role for such input would falsify this
+  bounded conversion safeguard. `Deployer` owns the mapper and `Tester` owns
+  regressions. This is standalone candidate metadata conversion, not source
+  extraction, target generation, reporting or remote operations; the normal
+  BO adapter does not wire this mapper into end-to-end migration.
+- **Dependencies / validation:** callers must provide reviewed restrictions and
+  table/column metadata. Reported final local validation:
+  `python -m pytest tests/test_phase5_advanced.py --tb=short -q -o addopts=''`
+  yielded **41 passed, 68 subtests passed**; the required
+  `python -m pytest tests/ --tb=short -q -o addopts=''` yielded **882 passed,
+  1 skipped, 1060 subtests passed**. The local exit gate is rejection of
+  invalid or ambiguous input and correct escaping for supported candidate
+  expressions, without silently omitting restrictions.
+- **Risks / non-goals:** these checks do not verify data types, source policy,
+  interactions between multiple roles, deployment or actual access, and do not
+  prove RLS equivalence. Deployment and authorized allow/deny checks remain
+  `not_run`; the broader P1 security and operations gate remains **open**.
+
+### Bounded local P1 — disabled schedule review drafts (2026-11-22)
+
+- **Outcome / evidence:** `powerbi_import/refresh_generator.py` now emits
+  disabled local review drafts for a single declared schedule and for
+  subscriptions. Missing or unsupported frequency, invalid or missing time,
+  missing or invalid time-zone values and missing or invalid weekly days are
+  not replaced with invented defaults. For mixed valid and invalid days, the
+  known subset may be retained as a partial candidate with a review warning.
+  Nonempty time-zone declarations are preserved but not verified against the
+  target. Multiple schedules are never merged into one schedule. Referenced
+  schedule lookups with malformed collections or items produce a disabled
+  draft with an explicit invalid-lookup note. Subscription input must be a
+  list or `None`; non-list inputs, including falsy malformed values, are
+  rejected rather than treated as empty.
+- **Hypothesis / cohesive scope:** a draft enabled by default, an invented
+  missing schedule field, a silently partial day list or merged multiple
+  schedules would falsify this local safeguard. `Deployer` owns draft
+  generation and `Tester` owns regressions. This is local operations guidance,
+  not source extraction, verified conversion, deployment or execution.
+- **Dependencies / validation:** review depends on source schedule and
+  subscription declarations, identities, target semantics, time zone,
+  licensing and gateway decisions. The draft flags extra interval dictionary
+  keys and nonempty weekday intervals for non-weekly frequencies for review.
+  Earlier reported local validation, before the lookup/subscription follow-up:
+  `python -m pytest tests/test_phase5_advanced.py --tb=short -q -o addopts=''`
+  yielded **55 passed, 125 subtests passed**; the required
+  `python -m pytest tests/ --tb=short -q -o addopts=''` yielded **896 passed,
+  1 skipped, 1117 subtests passed**. The local exit gate covers disabled
+  drafts, missing and malformed fields, warned partial days, unverified
+  recipients, non-merging multiple schedules, malformed referenced lookups
+  and non-list subscriptions. Focused follow-up coverage is in
+  `tests/test_phase5_advanced.py`; run it and the required full suite for the
+  current revision.
+- **Risks / non-goals:** previously generated files remain unchanged and need
+  review. These drafts do not establish source authenticity, identity or
+  target semantics, automatic schedule conversion or operational equivalence.
+  Deployment and schedule execution remain `not_run`; the broader P1 security
+  and operations gate remains **open**.
+
+### Delivered local P1 — validate WebI snapshot query-plan linkage (2026-11-22)
+
+- **Outcome:** prevent inconsistent saved query-plan declarations from being
+  attributed to a different document or provider during the local,
+  Python-only snapshot-to-model handoff.
+- **Current evidence:** the version 1.0
+  [snapshot contract](schemas/webi_document_snapshot.schema.json) carries a
+  document ID, provider summary ID and query-plan document/provider IDs.
+  Previously, `bo_export/webi_snapshot_adapter.py::extract_webi_snapshot`
+  consumed declared SQL without validating those linkages or the statement
+  shape. The local adapter now validates the snapshot document ID. For plans
+  declared single, it requires matching plan document/provider IDs, available
+  status, exactly one statement object, nonempty SQL and empty operators.
+  Duplicate normalized provider summary IDs fail. Missing and non-single plans
+  retain warning/skip behavior.
+- **First change / cohesive scope delivered:** `Extractor` updated
+  `bo_export/webi_snapshot_adapter.py`; `Tester` added regressions in
+  `tests/test_webi_snapshot_adapter.py` for matching and mismatched IDs, missing
+  IDs, malformed plans, duplicates, numeric-ID normalization, skip behavior
+  and errors that do not disclose SQL. `docs/MIGRATION_REFERENCE.md` documents
+  the check.
+- **Dependencies:** existing version 1.0 snapshot contract and fixture; no
+  live CMS, new schema, new dependency or target runtime. `BusinessObjects`
+  owns the snapshot contract/client; no contract change is implied.
+- **Validation / exit:** focused command
+  `python -m pytest tests/test_webi_snapshot_adapter.py
+  tests/test_businessobjects_server_client.py --tb=short -q` passed **27
+  tests**. Required suite `python -m pytest tests/ --tb=short -q` completed
+  with exit code 0; totals are not recorded here. These are local test results,
+  not runtime validation.
+- **Risk / non-goals:** this checks local consistency of declarations only.
+  Matching IDs do not authenticate provenance, prove source completeness or
+  connection validity, establish report-to-provider linkage, execute SQL,
+  recover layout or prove equivalence. CMS access, Desktop rendering, refresh
+  and acceptance remain `not_run`; runtime validation was not performed. The
+  BW native InfoCube identity blocker remains unchanged.
+
+### Open local P1 — source-backed WebI visual bindings (2026-11-22)
+
+- **Outcome / evidence:** `WebI Migration` reports that the sample contains
+  four charts and 12 provider result objects, but no physical column bindings.
+  Its SQL projects six expressions and the generated `Sales_Query` table has
+  no columns. The agent traced the visual fallback to absent explicit
+  report/provider and physical output-column bindings; no code was changed.
+  Unknown `Entity "Table"` warnings remain unresolved, and static-validation
+  exit 0 does not mean warnings are clean.
+- **Hypothesis / first change:** source-owner-approved, document-scoped
+  chart/provider links and typed query-output mappings could support a
+  deterministic visual-to-model binding; missing or ambiguous mappings must
+  remain unresolved. Obtain that source evidence before designing the
+  smallest extraction, query/model and visual slice. Names or this synthetic
+  example alone cannot establish the mappings.
+- **Owners / dependencies:** `WebI Migration` coordinates; `BusinessObjects`
+  owns the CMS contract, `Extractor` local metadata, `Wiring` query mapping,
+  `Visual` visual generation and `Assessor` static validation. Reviewed source
+  evidence is required before contract or generator changes. Keep extraction,
+  conversion, target generation and reporting distinct.
+- **Validation / exit:** after the evidence gate, add focused positive,
+  missing, ambiguous and mismatched binding regressions, and run them plus
+  `python -m pytest tests/ --tb=short -q`. Compare generated visual references
+  with actual model columns and retain warnings for unresolved cases. The
+  locally updated CI sample job exercises generation and default static
+  validation but permits warnings; hosted execution and a clean, meaningful
+  sample-quality gate remain open. Do not suppress warnings or weaken metrics
+  to conceal a generator bug.
+- **Risks / non-goals:** static checks and synthetic examples do not prove
+  source bindings, Desktop rendering or semantic/visual equivalence. Desktop
+  and runtime execution remain `not_run`; deployment requires separate
+  authorization.
+
+### Delivered local P2 disclosure follow-up (2026-11-22)
+
+- **Outcome / first change:** `Visual` updated
+  `powerbi_import/paginated_generator.py::generate_unbound_rdl` to add a visible
+  `MigrationNote` sentence only when parameters exist. It says generated types
+  default to `String`, source types are unverified/unavailable, and must be
+  reviewed.
+- **Evidence / validation:** `tests/test_lcm_manifest.py` covers both
+  with-parameter and no-parameter cases and preserves the existing
+  String/prompt/flags/no-data behavior. `docs/MIGRATION_REFERENCE.md` documents
+  the disclosure. Focused
+  `python -m pytest tests/test_lcm_manifest.py tests/test_paginated_rdl.py --tb=short -q`
+  and required full `python -m pytest tests/ --tb=short -q` both completed
+  exit 0; totals are not recorded.
+- **Scope / limits:** visible disclosure only; no type recovery/inference, RDL
+  equivalence or rendering evidence. Report Builder rendering/execution remain
+  `not_run`.
+
+### Prioritized delivery sequence and feature gates
+
+Each increment is planned, not a promise of implementation. `Tester` owns
+regressions; `Documentation Guardian` reviews capability documentation after
+implementation. The required suite for each is `pytest tests/ --tb=short -q`
+in addition to the owner-selected focused tests. Source-owner approval and
+runtime checks are separate from local automation.
+
+| Priority / outcome and first change | Evidence, dependencies and exact owners | Focused validation and exit gate | Risk / non-goal |
+|---|---|---|---|
+| P1 — **Source coverage:** obtain a sanitized, source-owner-approved WebI report-element/provider binding response or verified API contract before designing the binding slice. | WID replay lacked datasource and links; BIAR manifest is incomplete. `BusinessObjects` for CMS contract/client, `Extractor` for local adapters, `WebI Migration` coordinates; independently apply to Crystal, universes, BIAR, Lumira and DeskI only with family-specific evidence. | After the evidence gate, test positive, missing, ambiguous and malformed bindings; preserve unknowns and source IDs through extraction. Local pass is not source completeness; source owner must review actual exports. | Blocked without approved evidence; synthetic examples test behavior but are not source evidence. No inferred links, decryption, archive completeness or universal parser. |
+| P1 — **Query and model semantics:** carry one verified provider query, typed fields, filters and relationship grain to M and TMDL; then address formulas and prompt behavior by feature. | Depends on trusted source binding/connection metadata above. `Wiring` owns M, `Dax` formulas, `Semantic` model, `Extractor` source metadata. | Golden source expression → M/DAX/TMDL mapping plus ambiguity, unsupported syntax, null/type and identifier tests; compare scoped source and target results under identical filters, grain, roles and parameters. | Reject or disclose unknowns; do not infer credentials, aggregation or equivalence from valid syntax. |
+| P1 — **Reports:** preserve one evidence-backed WebI table binding into PBIP, then separately scope Crystal sections/groups to RDL and Lumira interactions to suitable targets. | Requires verified query/model and report-element bindings; existing native structures and RDL labels do not establish layout. `Visual`; `Extractor` supplies source evidence. | Synthetic source element → target binding/layout assertions and unsupported-element tests; authorized Desktop/Report Builder rendering, data and owner review are separate gates. | Do not fabricate visuals or claim pixel/interaction parity; manual rebuild where no native equivalent exists. |
+| P1 — **Security and operations:** inventory one source authorization and schedule/publication rule with an explicit target disposition; review the target schedule contract before separately authorized validation. | `Assessor` assesses source declarations; `Deployer` owns permissions, gateway, refresh and deployment; `Semantic` owns model RLS. The local refresh deployment guard is implemented; target acceptance and owner review remain open. Depends on owner-approved identity and target design. | Deny-by-default, missing identity and conflicting-role tests; compare allowed and denied access and operational behavior in authorized environments. Schedule readback and refresh require separate authorization. | Publications, complex schedules and write-back may need external/manual solutions; never assume one-to-one mapping or grant access from incomplete metadata. |
+| P2 — **Fabric and shared models:** map one verified source table/query to a governed ingestion and semantic path, then address shared-source identity. | Requires physical schema, source lineage and approved grain. `Fabric` owns Fabric generation, `Merger` shared identity, `Wiring` queries, `Semantic` models. | Local artifact, binding and ambiguity tests; separately reconcile authorized Fabric data/refresh and model results against source. | No force-merge of ambiguous queries; local bundle is not execution or deployment evidence. |
+| P2 — **Evidence and remediation:** use the implemented declaration-only ledger to record per-feature unsupported and manual dispositions; separately start one evidence-backed source-to-target case joining extracted evidence to a generated object and comparison finding. | Depends on stable feature identity and independently reviewed source/target artifacts. `Evidence` owns the ledger and comparisons, `Orchestrator` its CLI; `Assessor` owns static checks and `Reviewer` reviews fidelity. No automatic artifact linkage is implied. | Test missing evidence, mismatches and negative findings; compare rows, aggregates, filters, visuals and security at declared grain/context. Never weaken a metric to conceal a generator bug. | Ledger references and passes are unverified declarations. A passing sample is not fleet-wide parity; missing evidence remains open. |
+| P3 — **Deployment and cutover:** prepare one approved wave with rollback and reconciliation, then stage, publish and retire only under separate authorization. | Prior feature, security and operations gates plus named business and platform owners. `Deployer` owns remote operations, `Evidence` reconciliation, `Reviewer` acceptance review. | Dry-run and failure-propagation tests locally; authorized target publication, refresh, access, parallel run, business sign-off and rollback rehearsal required before cutover. | Local success is not deployment; no implicit cloud writes or automatic release approval. |
+
+**Release and disposition rule:** for each source version and scoped feature,
+retain source artifact/export provenance, extracted value and binding, mapping
+decision, generated target object and local test, and independently captured
+source/target results with query context, tolerances and discrepancies.
+Explicitly record unsupported and non-native behavior, manual remediation,
+owner, due decision and acceptance rather than counting it as automated.
+Feature readiness requires source-owner confirmation, relevant data/semantic,
+visual, security and operational comparisons, approved runtime evidence and
+business acceptance. A wave additionally needs deployment, refresh, rollback
+and cutover approval; BW retirement has its own gates below. Until performed
+against explicitly authorized systems, CMS/SAP queries, Desktop and Report
+Builder rendering, Fabric execution, refresh, deployment and cutover are
+`not_run`; authenticity and equivalence without supporting evidence are
+`not_verified`.
+
+## Previous Evidence - 2026-11-20
+
+- Current focused BW PBIP validation at that date:
+  `python -m pytest tests/test_migrate_bw_bex_pbip.py --tb=short -q
+  -o addopts=''` => **30 passed, 55 subtests passed**.
+- Full local suite on Windows at that date:
+  `python -m pytest tests/ --tb=short -q -o addopts=''` =>
+  **858 passed, 1 skipped, 959 subtests passed**. This is local test evidence;
+  SAP/Fabric execution, Desktop rendering, refresh, equivalence and business
+  acceptance remained `not_run`.
+
+## Previous Evidence - 2026-11-19
+
+- Final full local suite on Windows:
+        `python -m pytest tests/ --tb=short -q -o addopts=''` =>
+        **825 passed, 1 skipped, 924 subtests passed**. This is local test
+        evidence; SAP metadata discovery, SAP query execution, Desktop opening,
+        refresh and source-to-target equivalence remain `not_run`.
+
+## Previous Evidence - 2026-11-18
 
 - Full local suite on Windows: `python -m pytest tests --tb=short -q -o addopts=''`:
         **755 passed, 1 skipped, 791 subtests passed** after the generated REP
@@ -111,7 +876,8 @@
 | P1 | Delivered — bounded rejection | Main CLI rejects `--deploy`, `--deploy-refresh`, and `--deploy-bundle` before migration in batch, shared, and single-file contexts. Standard CLI deployment is not reliably wired; deployment and remote publication remain unsupported/unverified. The separate `--multi-tenant` path was not changed or verified. | Orchestrator |
 | P1 | Open | If standard CLI deployment is reintroduced, wire remote failure propagation and prove publication outcomes rather than equating local exit 0 with publication. | Orchestrator / Deployer |
 | P2 | Open | Explicit source-qualified mapping for ambiguous shared queries; never bypass identity checks with force-merge. | Merger |
-| P2 | Open | Prove sample generation and any planned staging/production gates in CI; current final job checks only help. | Tester / Deployer |
+| P2 | Open | The locally updated final CI job generates a synthetic sample, checks PBIP/model presence and runs default static validation; warnings do not fail. Hosted CI is `not_run`; sample quality and any planned staging/production gates remain open. | Tester / Deployer |
+| P2 | Open | Local baseline comparison and the unchanged 80% coverage gate are recorded above. Targeted Ruff/Flake8 and Pyright passed for `coverage_ledger.py`, `refresh_generator.py`, `permission_mapper.py` and the ledger CLI; repository-wide critical-selection Flake8 passed with one `SyntaxWarning`. The hosted sample job depends on lint and tests. | Tester |
 | P2 | Not run | Validate clean-environment developer installation, Desktop rendering, refresh, security semantics, and deployed workload execution in approved environments. | Tester / Semantic / Visual / Deployer |
 
 See [current gaps](GAP_ANALYSIS.md), [workflow boundaries](ENTERPRISE_GUIDE.md),
@@ -482,7 +1248,89 @@ planned.
 This is a distinct source migration and retirement program, not an extension of
 the BO extraction contract or a claim that the BO pipeline migrates BW. The
 historical SAP BW plugin entry below is a limited idea, not this program or
-evidence of delivery. The existing BO backlog and gates remain unchanged.
+evidence of delivery. The cross-source sequence above complements rather
+than replaces the existing BO and BW gates.
+
+### Capability-map increments — 2026-11-20
+
+- **Delivered disclosure increment:** the new
+  [SAP BW capability mapping](GAP_ANALYSIS.md#sap-bw-capability-mapping-to-target-architecture)
+  is reflected in generated BW PBIP metadata. Functional capabilities and
+  technical objects are classified as `partial`, `assessment_and_review_only`,
+  or `not_implemented`; every runtime and retirement check is fixed to
+  `not_run`. The record is repository evidence, not a target-service
+  implementation.
+- **Delivered P1 — operational capability disposition:** BW-6 controls 1.1
+  declares Copy Version, Upload File, Forecast Update, cube activation,
+  planning reporting and consolidation/aggregation with an external owner,
+  target solution, evidence, disposition and fixed `not_run` execution status.
+  Complete coverage requires all six capability dispositions; missing,
+  blocked or unowned targets keep the gate open. Version 1.0 remains
+  compatible. This does not build Power Apps, Talend jobs or SQL procedures.
+- **Next BW P1 — native InfoCube identity:** require one sanitized,
+  source-owner-approved native identity sample before adding a local identity
+  check. Matching, missing, mismatching and ambiguous evidence must produce
+  distinct outcomes. Without that sample, linked cube identity remains
+  `not_verified`.
+- **Next BW P1/P2 — one additive key figure:** only after identity and linkage
+  evidence are sufficient, consider one opt-in key figure whose declared
+  aggregation is additive, exception aggregation is not applicable, and
+  unit/currency handling is owner-approved. Unsupported or ambiguous semantics
+  remain fail-closed. No general BEx formula converter is implied.
+- **Delivered bounded local BW-5 slice — BEx result-vector comparison
+  (2026-11-22):** `migrate_bw_reconcile.py --bex-result-vectors <manifest>
+  --output <new-report.json>` compares declared source/target row vectors by
+  composite key, using exact or decimal-tolerance measure rules, and reports
+  key and measure discrepancies. A pass establishes only that the supplied
+  declarations satisfy the configured comparison. It does not execute SAP or
+  Fabric, authenticate vectors or references, prove source coverage or
+  semantic equivalence, or constitute approval. SAP/Fabric runtime and
+  approval remain `not_run`; authenticity, provenance, coverage and
+  equivalence remain `not_verified`. This does not close BW-5.
+- **Deferred:** automatic SAP/BW discovery, DSO/ABAP/DTP conversion,
+  Multiprovider inference, full variables/hierarchies/exceptions/layout
+  conversion, Power Apps or Talend implementation, planning write-back,
+  deployment, cutover and retirement.
+
+- **Local increment — BW-5 offline BEx result-vector comparator
+  (2026-11-22; bounded, does not close BW-5):**
+  - **Outcome:** the `migrate_bw_reconcile.py --bex-result-vectors <manifest>
+    --output <new-report.json>` path locally compares declared source and
+    target rows. It matches declared composite keys, applies exact or decimal
+    tolerance rules to measures, and reports missing, extra or duplicate keys
+    and measure mismatches. Passing means only that these declarations meet
+    the configured comparison.
+  - **Current evidence / falsifiable hypothesis:** the version 1.0 contract is
+    defined in `docs/schemas/sap_bw_bex_result_vectors.schema.json` with a
+    synthetic fixture and focused CLI/comparison regressions in
+    `tests/test_bw_reconciliation.py`. Local validation is **16 passed** for
+    `pytest tests/test_bw_reconciliation.py --tb=short -q`, and
+    **865 passed, 1 skipped (866 collected)** for `pytest tests/ --tb=short
+    -q`; `git diff --check` passed. This is local code/test evidence only.
+    Hypothesis: the comparator reports key/measure differences and returns
+    pass only when declared vectors satisfy the declared rules; local tests
+    cover both discrepancy and passing declarations.
+  - **First change / cohesive scope:** the offline manifest loader, vector
+    comparison/report, CLI option, versioned schema and synthetic fixture,
+    plus focused regressions. No source extraction, target generation,
+    external execution or remote operation is included.
+  - **Owner:** `Evidence` owns the comparison logic, schema and fixture;
+    `Orchestrator` owns the CLI; `Tester` owns regression coverage.
+  - **Dependencies:** a locally supplied version 1.0 manifest with source and
+    target row declarations, matching query scope/role/prompt-context/grain,
+    composite key fields and one rule per measure; a new report path is
+    required and existing reports are not overwritten. No SAP or Fabric
+    access is needed for local comparison.
+  - **Validation / exit gate:** the validations above establish local code and
+    test behavior only. SAP/Fabric runtime and business approval are
+    `not_run`; vector/reference authenticity, provenance, source coverage and
+    semantic equivalence are `not_verified`. Native InfoCube identity remains
+    blocked pending sanitized, source-owner-approved evidence. BW-5 remains
+    open.
+  - **Risks / non-goals:** a pass does not execute SAP/Fabric, authenticate
+    vectors or evidence references, establish source coverage, prove semantic
+    equivalence, demonstrate consumer acceptance or authorize retirement.
+    This comparator does not resolve native InfoCube identity or BW-5.
 
 ### Evidence, boundary and decision rules
 
@@ -912,11 +1760,520 @@ evidence of delivery. The existing BO backlog and gates remain unchanged.
   authorization contexts and inventory-linked consumers. The local report
   flags incomplete or unknown semantics, unresolved query-to-consumer coverage
   and BW inventory BEx blockers; an open BW-0 inventory review also blocks
-  the BW-5 candidate. It does not parse a BW query, generate a target
-  model/report, execute source or target queries, compare result vectors,
-  measure performance, or establish consumer acceptance; those checks remain
-  `not_run`. The sample is synthetic, and this slice does not close BW-5 or
-  authorize retirement.
+  the BW-5 candidate. That initial semantic-capture slice did not itself parse
+  a BW query, generate a target model/report, execute source or target queries,
+  compare result vectors, measure performance, or establish consumer
+  acceptance. A separate local comparator is now delivered as described above;
+  it compares declared vectors only and does not establish runtime or parity.
+  The sample is synthetic, and neither slice closes BW-5 or authorizes
+  retirement.
+- **Provider linkage (2026-11-19):** BW-5 now lists direct BEx `queries`
+  edges and blocks missing or unverified links, blocked queries and providers,
+  invalid providers,
+  unresolved provider features, and unobserved InfoCube metadata, keys or
+  semantics. This is a local declaration review, not native discovery,
+  transitive lineage, cube conversion, or source-to-target validation.
+- **Definition linkage (2026-11-19):** the BEx query definition in the BW
+  inventory must be observed and carry a SHA-256 digest matching the semantic
+  manifest. Missing/unobserved digests block owner review. This compares local
+  declarations only; it does not verify definition bytes or SAP origin.
+- **InfoCube keys (2026-11-19):** directly linked InfoCubes must declare a
+  non-empty key list with no unknown key roles. This checks declaration
+  completeness for grain design, not that the declared grain is correct.
+- **BEx key-figure bindings (2026-11-19):** manifest 1.1 can explicitly map
+  each BEx key figure to one measure on a directly linked provider. The
+  assessor verifies declared linkage, evidence and a unique observed
+  provider-measure name; unresolved mappings block owner review. The report
+  carries per-key-figure mapping status. This does not evaluate
+  calculated/restricted key figures or generate DAX/model objects.
+- **Explicit BW Power Query selection (2026-11-19):** the Python M builder
+  accepts a manually declared InfoArea, cube ID and dimension/measure selectors
+  with application-server parameters. It emits connector implementation 2.0,
+  but does not extract selectors or convert BEx variables, formulas or security.
+  SAP connection, refresh and result reconciliation remain `not_run`.
+- **Local increment — declaration-based BW cube PBIP (2026-11-19; bounded,
+  does not close BW-5):**
+  - **Outcome:** `migrate_bw_bex_pbip.py` generates an Import PBIP and empty
+    report shell from a strict version 1.0 local plan that manually maps
+    exactly one SAP BW cube. This is a local target-generation slice, not
+    automatic BEx or semantic conversion.
+  - **Current evidence:** the plan schema and runtime reject credential
+    fields, server values using `@` or `://` syntax, unsafe Windows project
+    names, and output-column mismatches. Generation requires a new, empty
+    output directory and runs the static `ArtifactValidator`; static warnings
+    do not fail the generation. The final full local suite is recorded above.
+  - **Falsifiable hypothesis:** a valid, manually mapped one-cube plan can
+    produce a statically checked local Import PBIP while invalid plan fields
+    and output-column mismatches are rejected; successful generation does
+    not establish that the declarations match SAP.
+  - **First change / cohesive scope:** the bounded `migrate_bw_bex_pbip.py`
+    local generation path, strict plan contract and corresponding regression
+    coverage. No source extraction, BEx conversion, or remote operation is
+    part of this slice.
+  - **Owner:** `Orchestrator` owns the CLI and plan/fixture contract;
+    `Assessor` owns static validation; `Tester` owns regression coverage.
+  - **Dependencies:** a manually authored version 1.0 plan, the existing
+    Import PBIP generation path and static `ArtifactValidator`, plus a new,
+    empty local output directory. No SAP or cloud access is required for
+    local generation.
+  - **Validation / exit gate:** final full-suite validation:
+    `python -m pytest tests/ --tb=short -q -o addopts=''` =>
+    **811 passed, 1 skipped, 909 subtests passed**. This verifies local tests
+    only; it does not close the BW-5 semantic or consumer-replacement gate.
+  - **Risks / non-goals:** the plan's declarations do not establish that the
+    selected cube, selectors, metadata or output columns match SAP. This does
+    not extract or verify SAP metadata, execute SAP queries, convert BEx
+    semantics, or establish Desktop opening/rendering, refresh, result
+    reconciliation, equivalence or consumer acceptance; those checks remain
+    `not_run`. BW-5 remains open.
+
+- **Local increment — optional BW-5 linkage for cube PBIP (2026-11-19; bounded,
+    does not close BW-5):**
+    - **Outcome:** plan version 1.1 optionally declares the BEx query, its BW
+      inventory provider, selected cube ID and selected key-figure mappings.
+      With the paired local inventory and BEx manifest, PBIP generation runs
+      the existing BW-5 assessment and requires `candidate_for_owner_review`,
+      an observed direct InfoCube dependency and observed key-figure/provider
+      measure links matching the declared selectors.
+    - **Evidence:** successful local generation writes
+      `bex_linkage_assessment.json` with the plan linkage and offline assessment.
+      Tests cover the candidate path, open semantic coverage, wrong provider,
+      selector mismatch, and missing paired inputs. Version 1.0 generation
+      without linkage remains supported.
+    - **Owners:** `Orchestrator` owns the plan/CLI; `Assessor` owns the reused
+      offline assessment; `Tester` owns regression coverage.
+    - **Dependencies:** local BW inventory and BEx semantic-capture declarations,
+      the existing BW-5 assessment, and an explicitly authored v1.1 plan.
+      No SAP or cloud access is used.
+    - **Validation / exit:** focused
+      `tests/test_migrate_bw_bex_pbip.py`: **11 passed, 25 subtests passed**.
+      Final full local suite: `python -m pytest tests\ --tb=short -q -o addopts=''`
+      => **813 passed, 1 skipped, 913 subtests passed**. Ruff and
+      `git diff --check` passed after the final formatting correction. These
+      verify local declaration consistency only; `candidate_for_owner_review`
+      does not close BW-5.
+    - **Risks / non-goals:** the declared cube ID is not verified against SAP or
+      the inventory object's native metadata. The CLI does not extract a BEx
+      definition, convert variables/formulas/security, execute queries, validate
+      Desktop rendering, or establish source-to-target parity. Those checks
+      remain `not_run`.
+
+- **Local increment — suppress implicit BW aggregation (2026-11-19; bounded,
+  does not add BEx measures):**
+  - **Outcome:** TMDL generation sets `summarizeBy: none` for every SAP BW
+    source column, including numeric dimensions and key figures. SQL and other
+    non-BW sources retain the prior numeric `sum` default.
+  - **Reason:** this Import draft has no generated explicit DAX measures, and
+    a numeric BW field must not be re-aggregated by Power BI before its BEx
+    aggregation or exception-aggregation semantics are reviewed.
+  - **Owners:** `Semantic` owns `powerbi_import/tmdl_generator.py`;
+    `Tester` owns the focused BW TMDL regression; documentation was updated
+    locally.
+  - **Dependencies:** the existing explicit SAP BW connection/type and the
+    table's Import model columns. No new source metadata or runtime access is
+    required.
+  - **Validation / exit:** focused `tests/test_sap_bw_m_query.py`: **8 passed,
+    8 subtests passed**. Final full local suite:
+    `python -m pytest tests\ --tb=short -q -o addopts=''` =>
+    **814 passed, 1 skipped, 913 subtests passed**. A focused Ruff rule set
+    still reports five pre-existing diagnostics elsewhere in
+    `tmdl_generator.py`; none is on the changed lines. This tests static
+    model metadata only, not query execution, Desktop behavior or BEx
+    equivalence.
+  - **Risks / non-goals:** disabling implicit aggregation does not reproduce
+    BEx calculations or provide replacement measures. It intentionally
+    prevents guessed totals until explicit semantics and suitable DAX are
+    approved.
+
+- **Local increment — match linked PBIP to BW source client (2026-11-19;
+  bounded, does not close BW-5):**
+  - **Outcome:** a plan using optional BEx linkage is rejected before output
+    creation when its SAP `client_id` differs from the client declared by the
+    linked BW inventory. Standalone plans remain unchanged.
+  - **Reason:** a BEx assessment for one SAP client must not be presented as
+    linkage evidence for a PBIP draft targeting another client.
+  - **Owners:** `Orchestrator` owns `migrate_bw_bex_pbip.py`; `Tester` owns the
+    CLI regression; the BW design and changelog were updated.
+  - **Dependencies:** the existing BW inventory source-client declaration and
+    the PBIP plan connection. This does not add inventory fields or infer
+    server, system-number or native InfoCube identity.
+  - **Validation / exit:** focused
+    `tests/test_migrate_bw_bex_pbip.py`: **11 passed, 26 subtests passed**.
+    Full local suite: `python -m pytest tests/ --tb=short -q -o addopts=''`
+    => **814 passed, 1 skipped, 914 subtests passed**. `git diff --check`
+    passed. These checks cover local declarations only.
+  - **Risks / non-goals:** client equality does not authenticate either
+    declaration, verify the host/system number or cube ID, connect to SAP,
+    execute a query, establish BEx parity, or close BW-5. Runtime checks remain
+    `not_run`.
+
+- **Local increment — link selected dimensions to InfoCube declarations
+  (2026-11-19; bounded, does not close BW-5):**
+  - **Outcome:** optional `bex_linkage.dimension_bindings` maps each selected
+    Power Query dimension selector exactly once to an observed dimension name
+    in the selected InfoCube's inventory semantics. Mismatched, duplicate or
+    unobserved bindings fail before PBIP output creation. Existing linked 1.1
+    plans may omit this optional check.
+  - **Owners:** `Orchestrator` owns the plan schema and CLI; `Tester` owns the
+    positive, negative and compatibility regressions.
+  - **Dependencies:** selected BW navigation dimensions, the linked InfoCube's
+    declared semantic dimensions and the existing BW-5 assessment. No SAP or
+    cloud access is used.
+  - **Validation / exit:** focused
+    `tests/test_migrate_bw_bex_pbip.py`: **11 passed, 29 subtests passed**.
+    Full local suite: `python -m pytest tests/ --tb=short -q -o addopts=''`
+    => **814 passed, 1 skipped, 917 subtests passed**. Ruff, `py_compile` and
+    `git diff --check` passed.
+  - **Risks / non-goals:** this binds plan declarations to provider inventory
+    declarations only; it does not prove that the BEx query uses a selected
+    dimension or that its selector is valid in SAP. It does not convert query
+    filters, hierarchies or master data, establish equivalence, or close BW-5.
+    Runtime checks remain `not_run`.
+
+- **Local increment — require dimension bindings in BEx plan 1.2
+  (2026-11-19; bounded, does not close BW-5):**
+  - **Outcome:** plan version 1.2 requires `dimension_bindings` whenever
+    `bex_linkage` is declared, and the CLI verifies complete selector coverage.
+    Version 1.1 remains compatible with its prior optional linkage shape.
+  - **Owners:** `Orchestrator` owns the plan schema and CLI; `Tester` owns
+    version and compatibility regressions.
+  - **Dependencies:** the existing provider-dimension declaration check and
+    explicit selected navigation dimensions. No SAP or cloud access is used.
+  - **Validation / exit:** focused
+    `tests/test_migrate_bw_bex_pbip.py`: **11 passed, 30 subtests passed**.
+    Full local suite: `python -m pytest tests/ --tb=short -q -o addopts=''`
+    => **814 passed, 1 skipped, 918 subtests passed**.
+  - **Risks / non-goals:** required plan declarations do not establish BEx
+    query membership or selector correctness in SAP. Query filters, hierarchies
+    and master data remain unmapped; BW-5 and runtime checks remain `not_run`.
+
+- **Delivered local increment — disclose unverified native InfoCube identity
+  (2026-11-19; bounded, does not close BW-5):**
+  - **Outcome:** linked PBIP generation records the root field
+    `native_infocube_identity_verification: "not_verified"` in
+    `bex_linkage_assessment.json`. The positive linked v1.2 regression checks
+    this status. It makes the limit of local linkage evidence explicit; it is
+    not native identity verification or the P1 identity control.
+  - **Current evidence / hypothesis:** local query, provider, cube, client and
+    dimension declarations can cross-check without proving that the declared
+    InfoCube is the native SAP object. The BW design document and changelog
+    explain this limitation. Hypothesis: an explicit fixed status in the
+    generated assessment prevents a local cross-check from being mistaken for
+    native verification without changing the plan contract or source data.
+  - **First change / cohesive scope:** add the constant status to the root of
+    the existing linkage assessment JSON and assert it on the successful
+    linked v1.2 path. No plan/schema change, source-data addition or inferred
+    identity mapping is part of this transparency slice.
+  - **Owners:** `Orchestrator` owns the CLI evidence output; `Tester` owns the
+    positive linked v1.2 assertion; the design document and changelog record
+    the limitation. `Roadmap Planner` records this increment here.
+  - **Dependencies:** the existing linked v1.2 plan and local linkage
+    assessment. No sanitized identity sample is available or required for
+    this status-only increment.
+  - **Validation / exit:** the focused positive linked v1.2 regression asserts
+    the root status. The current recorded full local suite is
+    `python -m pytest tests/ --tb=short -q -o addopts=''` =>
+    **814 passed, 1 skipped, 918 subtests passed**. These are local checks only;
+    no runtime or source-to-target evidence is implied.
+  - **Risks / non-goals:** this is a transparency measure, not the native
+    InfoCube identity check. The plan and contract remain unchanged; no source
+    data is invented and no SAP access, query execution, or equivalence check
+    is performed. Native identity evidence, SAP/runtime checks and
+    source-to-target equivalence remain `not_run`; BW-5 remains open.
+
+- **Local increment — disclose selected BEx key figures and ambiguous dimensions
+  (2026-11-19; bounded, does not close BW-5):**
+  - **Outcome:** linked PBIP evidence lists the selected and unselected
+    key-figure IDs from the local manifest. A partial selection warns without
+    blocking the draft; an empty manifest is reported separately. A supplied
+    InfoCube dimension binding must resolve to one observed local declaration.
+  - **Dependencies / compatibility:** the existing linked plan, BW inventory
+    and BEx semantic manifest; no plan schema change or inferred SAP mapping.
+    Version 1.1 plans without dimension bindings remain supported. The added
+    report field may require closed-schema consumers to accept it.
+  - **Validation:** focused BEx/PBIP/M tests passed with **39 passed, 70
+    subtests passed**; the required full test suite also passed. These checks
+    exercise synthetic declarations, not SAP or Power BI runtime behavior.
+  - **Risks / non-goals:** selected IDs and unique names do not prove SAP
+    identity, query membership, business grain, formula conversion or BEx
+    parity. Runtime and business acceptance remain `not_run`.
+
+- **Next proposed increment — establish native InfoCube identity evidence
+  (P1; planned, not implemented; blocked on sanitized, source-owner-approved
+  identity evidence):**
+  - **Outcome:** determine whether the InfoCube named by a linked PBIP plan is
+    the same native source object as its declared BW inventory provider, and
+    prevent a local declaration match from being described as native identity
+    verification. Keep the PBIP an Import draft; this increment does not close
+    BW-5.
+  - **Current evidence / hypothesis:** plan v1.2 cross-checks local query,
+    provider, cube, client, dimension and key-figure declarations. The current
+    design explicitly says these checks do not verify the native InfoCube ID.
+    The inventory has generic object `id`, `name` and optional
+    `source_reference` fields, but the available contract does not define any
+    of them as the SAP-native identity corresponding to `cube_id`. Hypothesis:
+    one source-owner-approved identity evidence sample and an explicitly
+    reviewed field mapping can support a deterministic local mismatch check;
+    without that evidence, no identity-verification behavior can be claimed.
+  - **First change / cohesive scope:** obtain one sanitized, non-sensitive,
+    source-owner-approved InfoCube identity evidence sample and provenance;
+    document which observed field, if any, maps to the existing inventory and
+    plan declarations. Do not infer this mapping from field names or introduce
+    a SAP extraction/API contract. If the evidence does not fit the existing
+    contract, stop and return the smallest proposed contract change for review
+    before implementation. Once approved, implement only the local identity
+    cross-check and its assessment evidence; do not broaden semantic mapping or
+    target generation.
+  - **Owners:** `Assessor` owns offline inventory/BEx identity assessment;
+    `Orchestrator` owns linked PBIP gating and any approved plan contract
+    changes; `Tester` owns positive, mismatch, missing-evidence and
+    compatibility regressions.
+  - **Dependencies:** currently blocked pending sanitized, source-owner-approved
+    identity evidence and confirmation of its meaning; then the current BW
+    inventory, BEx semantic manifest and linked v1.2 plan. No SAP connection
+    or remote target is required for the local check.
+  - **Validation / exit gate:** first show that the agreed mapping distinguishes
+    a matching object from a mismatched, absent or ambiguous identity in local
+    fixtures, and that mismatch/insufficient evidence cannot produce a linked
+    PBIP. Preserve v1.0/v1.1 behavior and existing v1.2 declaration checks.
+    Run the focused BEx assessment and
+    `tests/test_migrate_bw_bex_pbip.py`, then the required full suite
+    `python -m pytest tests/ --tb=short -q`. Exit only when the mapping is
+    traceable to approved evidence, regressions pass, and reports still
+    distinguish local cross-checks from SAP verification. Live SAP identity
+    confirmation, query execution, Desktop rendering, refresh and equivalence
+    stay `not_run` unless separately authorized and performed.
+  - **Risks / non-goals:** a hash, matching client, inventory dependency,
+    matching plan strings or synthetic fixture alone cannot prove SAP object
+    identity. Do not invent the missing source contract or claim source
+    provenance from local declarations. Filters, variables, hierarchies, master
+    data, authorizations, formulas and exception aggregation remain
+    unconverted; semantic conversion and consumer parity are later work.
+
+- **Local increment — expose selected BEx key-figure declarations
+  (2026-11-19; bounded, does not close BW-5):**
+  - **Outcome:** linked PBIP evidence includes each selected key figure's
+    target selector/column, manifest status, declared aggregation,
+    exception-aggregation and unit/currency fields. The scope is explicitly
+    `local_bex_manifest_declarations_only`; no DAX measure or interpreted
+    semantics is generated.
+  - **Reason:** the prior evidence listed selected/unselected IDs but did not
+    put the selected figures' declared numeric semantics alongside their
+    target mapping for owner review. Native InfoCube identity remains blocked
+    pending source-owner-approved evidence; this local report enhancement does
+    not resolve that dependency.
+  - **Owners:** `Orchestrator` owns `migrate_bw_bex_pbip.py`; `Tester` owns the
+    positive, partial-selection and empty-selection regressions. The BW design
+    and changelog record the additive report detail.
+  - **Dependencies:** the existing linked plan and validated local BEx
+    manifest. No source contract, SAP access, or runtime input is added.
+  - **Validation / exit:** the focused
+    `tests/test_migrate_bw_bex_pbip.py` passes. Full local suite:
+    `python -m pytest tests/ --tb=short -q -o addopts=''` =>
+    **817 passed, 1 skipped, 920 subtests passed**. Ruff, `py_compile` and
+    `git diff --check` pass. These validate declaration reporting only.
+  - **Risks / non-goals:** manifest values may be incomplete or unverified
+    relative to SAP. This report does not determine aggregation safety, convert
+    exception aggregation/units, create DAX measures, run source/target queries
+    or close BW-5; those checks remain `not_run`.
+
+- **Local increment — surface BW-5 review findings during PBIP generation
+  (2026-11-19; bounded, does not close BW-5):**
+  - **Outcome:** when a linked PBIP passes the BW-5 blocker gate but the
+    assessment retains review findings, the CLI prints their count and the
+    `bex_linkage_assessment.json` path. Generation remains successful and the
+    report remains the source of finding details.
+  - **Reason:** `candidate_for_owner_review` can coexist with unresolved
+    review-level evidence. A success-only status line did not surface that
+    remaining work at the point of generation.
+  - **Owners:** `Orchestrator` owns the CLI warning; `Tester` owns the positive
+    regression that asserts both the finding count and report path.
+  - **Dependencies:** the existing BW-5 report summary and the linked PBIP
+    evidence file. The warning is absent when the report has zero review items.
+  - **Validation / exit:** the focused
+    `tests/test_migrate_bw_bex_pbip.py` passes. Full local suite:
+    `python -m pytest tests/ --tb=short -q -o addopts=''` =>
+    **817 passed, 1 skipped, 920 subtests passed**. Ruff, `py_compile` and
+    `git diff --check` pass.
+  - **Risks / non-goals:** the warning is informational; it does not prevent
+    generation, resolve the findings, close BW-5, verify SAP declarations or
+    establish runtime/equivalence evidence.
+
+- **Local increment — report BW-5 blockers when linked PBIP is refused
+  (2026-11-19; bounded, does not close BW-5):**
+  - **Outcome:** failed linked-plan gating reports the total blocker count, up
+    to three finding codes and JSON paths, and an additional-blocker count
+    when applicable. It still rejects before creating PBIP output.
+  - **Reason:** the prior error exposed blocker codes without their manifest
+    paths or count, making it harder to locate incomplete BW-5 declarations.
+  - **Owners:** `Orchestrator` owns the CLI error; `Tester` owns regressions for
+    a single blocker and for bounded diagnostics with multiple blockers.
+  - **Dependencies:** the existing BW-5 finding records. No schema, source
+    evidence or runtime behavior changes.
+  - **Validation / exit:** focused
+    `tests/test_migrate_bw_bex_pbip.py` passes. Full local suite:
+    `python -m pytest tests/ --tb=short -q -o addopts=''` =>
+    **819 passed, 1 skipped, 920 subtests passed**. Ruff, `py_compile` and
+    `git diff --check` pass.
+  - **Risks / non-goals:** diagnostics expose only local finding codes and
+    declaration paths. They do not resolve blockers, verify SAP metadata,
+    generate a report on refusal, or close BW-5.
+
+- **Local increment — disclose declared BEx semantics not reproduced
+  (2026-11-19; bounded, does not close BW-5):**
+  - **Outcome:** linked evidence counts manifest declarations for variables,
+    filters, hierarchies, master data, key-figure semantics and authorization
+    contexts. Any positive count emits a non-blocking warning pointing to the
+    evidence file; the output marks the scope as
+    `declared_local_manifest_counts_only`.
+  - **Reason:** a statically valid PBIP draft can still omit declared BEx
+    behavior. A summary warning and persisted counts make this limitation
+    visible without pretending that an unsupported translation exists.
+  - **Owners:** `Orchestrator` owns the PBIP evidence and CLI warning;
+    `Tester` owns regressions for populated and empty manifest sections.
+  - **Dependencies:** the existing BW-5 manifest contract. No source fields,
+    SAP access, schema changes or runtime checks are added.
+  - **Validation / exit:** focused
+    `tests/test_migrate_bw_bex_pbip.py` passes. Full local suite:
+    `python -m pytest tests/ --tb=short -q -o addopts=''` =>
+    **820 passed, 1 skipped, 920 subtests passed**. Ruff, `py_compile` and
+    `git diff --check` pass.
+  - **Risks / non-goals:** counts cover only local declarations; zero does not
+    prove the SAP query lacks those semantics. No variables, filters,
+    hierarchies, master data, key-figure calculations/aggregation or
+    authorizations are reproduced, and BW-5 remains open.
+
+- **Local increment — explicitly selected BW dimension member properties
+  (2026-11-19; bounded, does not close BW-5):**
+  - **Outcome:** plan 1.3 optionally maps declared dimension member-property
+    selectors to Import-model columns. The M generator emits
+    `Cube.AttributeMemberProperty` after expanding the corresponding dimension.
+    Version 1.3 retains the 1.2 linked-plan dimension-binding requirement;
+    versions 1.0-1.2 keep their previous shapes. BW-only models no longer
+    generate automatic Calendar tables, date relationships or date-part
+    hierarchies from these declared dates; non-BW behavior remains unchanged.
+  - **Evidence:** synthetic regressions exercise standalone and linked PBIP,
+    Unicode/quoting, source-column matching, duplicate names, invalid
+    selectors, older-version rejection, date-enrichment safeguards and empty
+    report preservation.
+  - **Validation:** focused BW M and PBIP tests and full suite
+    **825 passed, 1 skipped, 924 subtests**. Local validation does
+    not execute Power Query or verify SAP metadata.
+  - **Boundaries:** member keys and data types are manually declared, not
+    discovered or validated. A typed date requires connector prerequisites
+    and authorized SAP testing. No report visual, BEx variable, formula,
+    aggregation or security logic is inferred; runtime and parity remain
+    `not_run`.
+
+- **Local increment — explicit BW cube parameter arguments
+  (bounded, does not close BW-5):**
+  - **Outcome:** plan 1.4 optionally emits manually declared parameter
+    selectors and literal text argument lists with `Cube.ApplyParameter`,
+    before dimensions and measures. Earlier plan shapes are preserved.
+  - **Validation / exit:** focused tests cover quoting, list shapes, invalid
+    declarations, standalone/linked PBIP and retained linkage requirements.
+    Local checks do not execute Power Query.
+  - **Boundaries:** no BEx prompt mapping, automatic parameter discovery,
+    range interpretation or runtime equivalence. SAP compatibility, query
+    folding, refresh and parity remain `not_run`. Literal values are present
+    in the plan and generated model and require protection.
+
+- **Local increment — BEx variable ID to cube-parameter declaration
+  (plan 1.5; bounded, does not close BW-5):**
+  - **Outcome:** a parameter can explicitly cite one variable ID from the
+    linked BEx manifest. The linkage report shows mapped/unmapped variable
+    declarations and selector metadata but excludes literal values.
+  - **Validation / exit:** local checks require one-to-one IDs, an exact
+    manifest reference and the existing BW-5 linkage inputs; generated M
+    retains the declared `Cube.ApplyParameter` call.
+  - **Boundaries:** this is a manually asserted association, not SAP discovery
+    or evidence that defaults, prompt behavior, range logic, authorization,
+    folding or results match. Variables remain in the unconverted count;
+    runtime and parity remain `not_run`.
+
+- **Local increment — expose declared BEx coverage in PBIP evidence
+  (bounded, does not close BW-5):**
+  - **Outcome:** `bex_linkage_assessment.json` carries the validated local
+    manifest's category coverage declarations beside the counts of semantic
+    items not reproduced. Empty sections explicitly marked `not_applicable`
+    are distinguishable from counts alone.
+  - **Reason:** a zero item count does not explain whether a category was
+    declared not applicable or merely has no listed items. The report now
+    preserves the local manifest's separate coverage claim.
+  - **Owners:** `Orchestrator` owns the linked PBIP evidence payload;
+    `Tester` owns the regression checking the additive coverage field.
+  - **Dependencies:** the existing validated BW-5 manifest and linked PBIP
+    flow. No schema, SAP access, or runtime behavior changes.
+  - **Validation / exit:** focused
+    `tests/test_migrate_bw_bex_pbip.py` => **25 passed, 43 subtests**.
+    Full suite `python -m pytest tests/ --tb=short -q -o addopts=''` =>
+    **832 passed, 1 skipped, 941 subtests**. No SAP, Desktop, Fabric
+    execution or parity evidence is inferred.
+  - **Boundaries:** coverage values are copied local declarations, not
+    independently verified SAP facts. `not_applicable` and zero counts do
+    not establish that SAP lacks the corresponding semantics; BW-5 remains
+    open.
+
+- **Local increment — generated-model M and DAX review files
+  (bounded, does not close BW-5):**
+  - **Outcome / first change (delivered):** `powerbi_import.expression_export`
+    creates review copies from expressions already written in generated TMDL
+    and Dataflow files, without translating source objects again. Export is
+    integrated into model generation, not a manual prerequisite.
+  - **Evidence / hypothesis:** the exporter tests compare copies with generated
+    expressions and check missing expressions and conflicts. The non-archive
+    BO folder regression changes a generated measure during optional
+    optimization and checks that the later copy reflects that change. A copy
+    without a corresponding generated expression, or one retaining the
+    earlier expression, would falsify this behavior.
+  - **Routes:** automatic export covers generated PBIP/Fabric models from BO
+    folders and supported BIAR entries; the merged shared model, once rather
+    than per thin report; the Python importer for PBIP, TMDL or Fabric unless
+    explicitly deferred; and the confirmed local MCP migration and shared-model
+    routes. A declared REP PBIP draft uses its per-source mapping and accepted
+    SQL candidate, then exports automatically. `migrate_bw_bex_pbip.py`
+    exports the generated BW cube model. For non-archive BO folder items,
+    export follows optional DAX optimization; the separate exporter command
+    remains available for an existing model.
+  - **Copies / provenance:** M partitions and shared expressions or parameters
+    become `.pq` files. Actual DAX measures, calculated columns, calculated
+    tables' partitions, calculation-group items and role filters become `.dax`
+    review listings when present. Fabric also copies each generated Dataflow
+    query from `.m` to `PowerQuery/Dataflow/*.pq`, as well as any exportable
+    TMDL expressions. `expression_export.json` version `1.1` records each
+    output path, source and kind: TMDL sources are relative to the model
+    definition, while Dataflow sources are project-relative and marked
+    `"source_scope": "project"`.
+  - **Boundaries:** no DAX is invented when a generated model has none; the BW
+    cube fixture contains M but no DAX, and cube selectors do not imply DAX
+    measures. A project with no exportable model or Dataflow expressions has
+    an empty `exports` list. RDL alone has no model expression export, although
+    it can have a separate optional `.m`; extraction or assessment without a
+    model likewise has no such export. BW Bronze and transformation notebook-only
+    paths (`migrate_bw.py`, `migrate_bw_convert.py`) produce notebooks rather
+    than a model expression export.
+  - **Owners:** `Wiring` owns the exporter; `Orchestrator` owns CLI, importer
+    and cube integration; `Fabric` owns Dataflow generation; `AgentTools` owns
+    the MCP surface; `Tester` owns regression coverage.
+  - **Dependencies / conflicts:** a generated model in this project's TMDL
+    form, plus generated Dataflow queries where applicable. Name collisions,
+    including case-insensitive collisions, and existing `PowerQuery`, `DAX`
+    or `expression_export.json` targets are refused rather than overwritten.
+    The standalone command requires a new or empty directory separate from
+    the model.
+  - **Validation / exit:** check the exporter, folder/BIAR, shared-model, MCP,
+    declared REP and BW cube regressions, including
+    `tests/test_expression_export.py`, `tests/test_cli.py`,
+    `tests/test_shared_model.py`, `tests/test_mcp_server.py` and
+    `tests/test_migrate_bw_bex_pbip.py`; then require
+    `python -m pytest tests/ --tb=short -q`. Copies must reflect the written
+    expressions, retain versioned provenance, omit absent DAX and reject
+    conflicts without replacing existing output.
+  - **Risks / non-goals:** these are snapshots, not changes to extraction,
+    conversion or the generated model. The exporter is not a general TMDL
+    parser, and other I/O failures can leave partial output. Copies can contain
+    sensitive SQL, connection or parameter values; protect them and use a new
+    directory after model edits.
 
 ### Increment BW-6 — security, planning and compliance (P1, then P2)
 
@@ -931,13 +2288,21 @@ evidence of delivery. The existing BO backlog and gates remain unchanged.
   privacy and legal-hold obligations. The versioned [controls schema](schemas/sap_bw_controls.schema.json)
   and synthetic partial [example](fixtures/sap_bw_controls.partial.example.json)
   define the offline declaration contract.
+- Controls 1.1 adds declared dispositions for Copy Version, Upload File,
+  cube activation, planning reporting, Forecast Update and
+  consolidation/aggregation. Complete coverage requires all six; in-scope
+  entries need an external owner, target and evidence. Version 1.0 remains
+  compatible, and all execution remains `not_run`.
 - Validation is limited to local declarations and source-inventory references.
   It does not execute target access tests, verify runtime identity/binding, run
   planning/write-back, certify compliance, close a gate or authorize retirement.
   `candidate_for_owner_review` is not acceptance; `gate_closed` remains `false`.
   All unperformed runtime evidence, including SAP BW and Fabric runtime checks,
   remains `not_run`.
-- **Focused validation (2026-11-11):**
+- **Focused validation (2026-11-20):**
+  `python -m pytest tests/test_bw_controls_assessment.py --tb=short -q
+  -o addopts=''` passed 12 tests and 7 subtests.
+- **Historical focused validation (2026-11-11):**
   `pytest tests/test_bw_controls_assessment.py --tb=short -q -o addopts=''`
   passed 10 tests and 6 subtests. This is focused validation, not the full suite.
 

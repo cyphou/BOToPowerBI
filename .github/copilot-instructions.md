@@ -52,6 +52,7 @@ BusinessObjects source → [bo_export] → Extraction → [migration_output, pow
   - ... and 64 more
 - **Orchestration**:
   - `migrate.py`
+  - `migrate_bw_bex_pbip.py` (explicit local BW cube plan to PBIP)
 
 ## Hard Constraints
 

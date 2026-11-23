@@ -1,0 +1,128 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:bo-to-powerbi:schema:sap-bw-bex-result-vectors:1.0",
+  "title": "SAP BW BEx result-vector local comparison",
+  "description": "Strict declarations for bounded local row-vector comparison. This schema does not attest to SAP/Fabric execution, authenticity, provenance, source coverage, or semantic equivalence.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "comparison_id", "scope", "key_fields", "source", "target", "rules"],
+  "properties": {
+    "schema_version": {"const": "1.0"},
+    "comparison_id": {"$ref": "#/$defs/text"},
+    "scope": {"$ref": "#/$defs/scope"},
+    "key_fields": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {"$ref": "#/$defs/text"}
+    },
+    "source": {"$ref": "#/$defs/side"},
+    "target": {"$ref": "#/$defs/side"},
+    "rules": {
+      "type": "object",
+      "minProperties": 1,
+      "propertyNames": {"$ref": "#/$defs/text"},
+      "additionalProperties": {
+        "oneOf": [
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["mode"],
+            "properties": {"mode": {"const": "exact"}}
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["mode", "absolute_tolerance", "relative_tolerance"],
+            "properties": {
+              "mode": {"const": "tolerance"},
+              "absolute_tolerance": {"$ref": "#/$defs/nonNegativeDecimal"},
+              "relative_tolerance": {"$ref": "#/$defs/nonNegativeDecimal"}
+            }
+          }
+        ]
+      }
+    }
+  },
+  "$defs": {
+    "text": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+    },
+    "keyString": {
+      "type": "string",
+      "pattern": "^[^\\u0000-\\u001f\\u007f]*$"
+    },
+    "nonNegativeDecimal": {
+      "oneOf": [
+        {"type": "number", "minimum": 0},
+        {"type": "string", "pattern": "^(?:0|[1-9][0-9]*)(?:\\.[0-9]+)?$"}
+      ]
+    },
+    "scope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["query_id", "query_scope_id"],
+      "properties": {
+        "query_id": {"$ref": "#/$defs/text"},
+        "query_scope_id": {"$ref": "#/$defs/text"}
+      }
+    },
+    "keyValue": {
+      "oneOf": [
+        {"$ref": "#/$defs/keyString"},
+        {"type": "integer"},
+        {"type": "boolean"},
+        {"type": "null"}
+      ]
+    },
+    "row": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["key", "measures"],
+      "properties": {
+        "key": {
+          "type": "object",
+          "minProperties": 1,
+          "propertyNames": {"$ref": "#/$defs/text"},
+          "additionalProperties": {"$ref": "#/$defs/keyValue"}
+        },
+        "measures": {
+          "type": "object",
+          "minProperties": 1,
+          "propertyNames": {"$ref": "#/$defs/text"},
+          "additionalProperties": {"$ref": "#/$defs/decimalValue"}
+        }
+      }
+    },
+    "decimalValue": {
+      "oneOf": [
+        {"type": "number"},
+        {"type": "string", "pattern": "^-?(?:0|[1-9][0-9]*)(?:\\.[0-9]+)?$"}
+      ]
+    },
+    "side": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "system_id", "object_id", "run_id", "evidence_ref", "scope",
+        "role", "prompt_context_ref", "grain", "rows"
+      ],
+      "properties": {
+        "system_id": {"$ref": "#/$defs/text"},
+        "object_id": {"$ref": "#/$defs/text"},
+        "run_id": {"$ref": "#/$defs/text"},
+        "evidence_ref": {"$ref": "#/$defs/text"},
+        "scope": {"$ref": "#/$defs/scope"},
+        "role": {"$ref": "#/$defs/text"},
+        "prompt_context_ref": {"$ref": "#/$defs/text"},
+        "grain": {"$ref": "#/$defs/text"},
+        "rows": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/row"}
+        }
+      }
+    }
+  }
+}

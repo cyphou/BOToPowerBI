@@ -3,6 +3,204 @@
 ## [Unreleased]
 
 ### In progress
+- The offline BEx result-vector comparator now adds
+  `no_measure_observations_compared` when `summary.measures_compared` is zero.
+  After a successful report write, the CLI prints
+  “No measure observations were compared; this result does not establish
+  measure agreement.” This notice does not alter `comparison_status` or exit
+  behavior (two empty vectors remain `pass`/0); schema 1.0, runtime evidence
+  `not_run` and verification `not_verified` are unchanged.
+- `PBIWorkspaceDeployer.deploy_rolling` is intentionally disabled and returns
+  `status: failed`, `phase: blocked` and `rolled_back: false` without remote
+  operations. The previous implementation could overwrite canaries and falsely
+  claim rollback while calling the nonexistent `PBIServiceClient.delete_dataset`.
+  This change implements neither deployment nor rollback and leaves previously
+  created remote artifacts untouched. Mocked tests verify the local guard; the
+  ordinary `deploy_project` path remains separate, requires explicit
+  authorization and is unverified.
+- `PBIWorkspaceDeployer.deploy_refresh_schedule` now skips `None` with a note
+  and disabled drafts, and rejects non-dictionaries, missing or non-boolean
+  `enabled`, and invalid enabled declarations before the client call. Enabled
+  schedules require explicit unique valid weekdays, nonempty valid `HH:MM`
+  times and a nonempty time zone. Optional `frequency` is `Daily` or `Weekly`;
+  `Daily` requires all seven days. Optional `notifyOption` is
+  `NoNotification` or `MailOnFailure`. The request forwards only schedule
+  fields and a supplied notification, not frequency metadata. Previously,
+  incomplete enabled configurations could send invented `UTC`, `06:00` and
+  `MailOnFailure` values, and `None` raised `AttributeError`.
+  Local format validation and mocked requests do not establish owner review,
+  policy or permissions, service or time-zone acceptance, refreshed data, or
+  source/target equivalence. A remote operation requires separate
+  authorization; Desktop rendering, deployment, refresh and Fabric execution
+  remain `not_run` without separate evidence.
+- The CI validation job now migrates a synthetic `Enterprise_Sales.wid`
+  folder, checks PBIP and semantic-model existence, and runs local static
+  validation. Errors fail the job; warnings are displayed but permitted. A
+  local equivalent on 2026-11-22 passed with 13 warnings, including four
+  unknown visual Entity `"Table"` references. On that date the configured
+  repository-wide Ruff and Pyright checks on the dirty worktree failed with
+  422 errors and 75 errors/two warnings respectively. A later baseline
+  comparison is recorded in the development plan. Targeted
+  ledger/refresh/permission checks passed. GitHub-hosted CI
+  for this change, Desktop rendering, refresh and Fabric execution remain
+  `not_run`; this does not establish visual binding or parity.
+- Added a standalone offline feature-coverage declaration ledger. It validates
+  supplied declarations and reports counts and review findings; exit `0`
+  means only declaration validation ran, and output must be new. It does not
+  open references, execute declared checks, extract sources, compare runtime
+  results or integrate with cloud or `quality_report`. Declared statuses are not
+  observations; source identity and completeness, provenance, evidence
+  authenticity, equivalence and approvals remain unverified. Runtime remains
+  `not_run`. Manifests and reports can contain sensitive metadata.
+- Schedule and subscription generation now produces disabled review drafts,
+  not verified Power BI payloads. Missing times, days, time zones and
+  frequencies are not defaulted; invalid times or days and unsupported
+  frequencies are not guessed. Declared time zones are not target-validated;
+  multiple schedules are not combined.
+  Non-list scheduled-instance inputs other than `None`, and a single non-object
+  task, log a warning and return a disabled draft with an invalid-input note
+  instead of raising into the CLI's debug-only catch.
+  Malformed referenced schedule collections or items likewise produce a
+  disabled draft with an invalid-lookup note. Non-list subscription inputs
+  other than `None`, including falsy malformed values, raise `ValueError` in
+  both subscription and combined refresh generation.
+  In the selected schedule details, non-dictionary `intervals` and additional
+  keys in that dictionary are noted for review; so are nonempty weekday
+  declarations for non-Weekly frequencies. Recipients, identities and Power BI
+  equivalence require manual review. `deploy_refresh_schedule` skips disabled
+  drafts. Previously generated files are not retroactively updated; reusing
+  the output directory can overwrite `refresh_config.json`. No live execution
+  or deployment is established.
+- The standalone security profile mapper now requires nonempty restrictions,
+  a unique case-insensitive match to a declared column, and an explicit
+  supported operator with a nonempty list of strings of the required arity. It
+  escapes names and literals in candidate DAX. Empty restrictions, missing
+  or ambiguous columns, unsupported operators, and invalid value lists or
+  arities raise `ValueError` instead of being guessed or dropped. The returned
+  shape and legacy operator mappings for accepted inputs remain; this is not
+  proven semantic conversion, target RLS assignment or end-to-end migration.
+- The RLS PowerShell generator now writes a terminating manual-review reminder,
+  not an assignment script. The previous script called the dataset users
+  endpoint without a role and did not assign RLS membership. Previously
+  generated scripts are not retroactively replaced and should not be run.
+  Review source restrictions, identities and target roles with the security
+  owner; assign membership manually and test allowed and denied access in an
+  authorized environment. Generated metadata does not prove security
+  equivalence.
+- BW-6 controls 1.1 can declare owned target dispositions for Copy Version,
+  Upload File, cube activation, planning reporting, Forecast Update and
+  consolidation/aggregation. Complete 1.1 coverage requires all six entries;
+  in-scope records need owner, target and evidence, and execution remains
+  `not_run`. Controls 1.0 manifests remain compatible, and no Power Apps,
+  Talend, SQL or planning workflow is generated.
+- BW cube plan 1.6 optionally creates one manually declared PBIR review table
+  from exact model columns, in the specified order and within the page. The
+  default remains an empty report; earlier plans reject the option. The table
+  projects columns without new DAX measures or totals, and Power BI may group
+  identical values. It is not a BEx report conversion or parity evidence.
+  BW `migration_metadata.json` now identifies the declared cube plan as its
+  source rather than Tableau and records a versioned
+  `sap_bw_capability_boundary` that distinguishes local partial support from
+  external Power Apps, Talend/SQL, planning and runtime/equivalence work.
+- BO generation now automatically attempts expression review exports for
+  folder/BIAR, shared-model, Python importer, local MCP and opt-in REP PBIP
+  workflows. The BW cube PBIP CLI does so after static validation. M
+  partitions, shared/refresh expressions and Fabric Dataflow `.m` queries
+  are copied to `.pq`; only TMDL measures, calculated columns/partitions,
+  calculation items and RLS filters actually written are listed in `.dax`.
+  Manifest 1.1 has an empty `exports` list when nothing is exportable.
+  Ordinary folder items other than BIAR or REP export after the optional DAX
+  optimizer and, for Fabric, the quality check; BIAR/shared exports precede
+  their Fabric quality check. A blocked bundle is not deployment-ready.
+  `python -m powerbi_import.expression_export` remains available for an
+  existing generated model, with optional `--include-dataflow`. Existing
+  targets, collisions and unsupported recognized syntax fail; errors can
+  leave partial files. SQL and parameter values can be sensitive. The export
+  does not invent BEx calculations or prove static validation, execution or
+  parity.
+- The BW-5 BEx assessment now reports direct query-to-provider dependencies
+  and blocks missing or unverified links, blocked queries and providers,
+  unsupported provider features,
+  and unobserved InfoCube metadata, keys or semantics. It does not discover
+  SAP lineage, convert BEx/InfoCubes, or establish source-to-target parity.
+- The BW-5 BEx assessment now requires an observed inventory definition with a
+  matching SHA-256 digest; this checks local declarations, not SAP authenticity.
+- The BW-5 BEx assessment now blocks directly linked InfoCubes with no
+  declared keys or keys whose roles remain unknown; this does not validate
+  business grain.
+- BEx manifest 1.1 adds explicit key-figure-to-provider-measure bindings;
+  unresolved or unobserved links block the assessment. Formula conversion is
+  still unsupported. Legacy v1.0 manifests remain accepted and report that
+  their provider-measure bindings were not assessed. The report now exposes
+  per-key-figure binding resolution status.
+- The SAP BW Power Query builder now uses all required connection arguments
+  and supports explicitly declared InfoArea, cube, dimension and measure
+  navigation. A synthetic end-to-end PBIP test covers the Import model and
+  empty report shell; invalid BW query declarations now propagate as errors
+  rather than being reported as successful generation. It does not discover
+  SAP metadata or convert BEx semantics.
+- BW cube plan 1.4 optionally emits explicitly declared text arguments as
+  `Cube.ApplyParameter` operations before cube selection. It preserves argument
+  order and list shape, but does not map BEx variables or verify SAP semantics,
+  parameter compatibility, folding or results. Literal arguments are present
+  in the plan and generated model; protect them and never include secrets.
+- BW cube plan 1.5 can associate an explicitly declared cube parameter with a
+  BEx variable ID from the linked local manifest. The linkage report records
+  selected/unselected variable declarations but omits values. It does not
+  translate prompt defaults or selection behavior, verify SAP selectors, or
+  establish parameter equivalence; BEx counts remain reported as unconverted.
+- BW cube plan version 1.3 optionally selects explicitly declared dimension
+  member properties, including manually specified key properties, via
+  `Cube.AttributeMemberProperty`. Each property is mapped to a declared
+  Import-model column; selectors, types and results are not verified in SAP.
+  Versions 1.0-1.2 retain their previous plan shapes. BW-only models no longer
+  receive inferred automatic Calendar tables, date relationships or Gregorian
+  date-part hierarchies; non-BW models retain existing date enrichments.
+- `migrate_bw_bex_pbip.py` generates a statically validated Import PBIP draft
+  from a strict plan for one manually declared BW cube. The plan rejects
+  unknown/credential fields, server URLs/userinfo, unsafe project names and
+  mismatched output columns; validation warnings remain non-blocking. The
+  synthetic example is not SAP extraction, BEx conversion or runtime evidence.
+- Plan version 1.1 can optionally link that PBIP draft to a local BW inventory
+  and BEx semantic manifest. Generation then requires a BW-5
+  `candidate_for_owner_review`, an observed direct InfoCube dependency and
+  matching declared key-figure/provider-measure selectors; an optional
+  dimension binding can also tie selected navigation selectors to observed
+  InfoCube dimensions. Plan version 1.2 requires these bindings whenever BEx
+  linkage is supplied; version 1.1 remains compatible when they are omitted.
+  Generation writes the offline assessment to `bex_linkage_assessment.json`.
+  The declared SAP client must also match the inventory source client. Version
+  1.0 remains supported without linkage. These checks do not verify SAP
+  metadata or close BW-5. The linkage evidence explicitly reports native
+  InfoCube identity verification as `not_verified`.
+- Linked cube PBIP evidence now lists selected and unselected declared BEx
+  key-figure IDs and copies each selected figure's declared aggregation,
+  exception-aggregation and unit/currency fields alongside its target selector
+  and column. Omitted figures produce a non-blocking warning. This is a
+  manifest-only review aid; it does not interpret semantics or generate DAX.
+  When dimension bindings are supplied, a bound InfoCube dimension name must
+  resolve uniquely in the local inventory. These checks do not verify SAP
+  metadata or convert BEx semantics.
+- Linked PBIP generation now prints a non-blocking warning with the number of
+  BW-5 review findings and the assessment report path when the assessment is
+  `candidate_for_owner_review` but still contains review items. The findings
+  remain owner-review work; the warning does not close BW-5 or authorize a
+  source/runtime check.
+- When BW-5 blockers prevent linked PBIP generation, the CLI error now includes
+  the blocker count and up to three finding codes with JSON paths, plus a count
+  of any remaining blockers. Refusal still occurs before PBIP output creation.
+- Linked PBIP evidence now counts declared variables, filters, hierarchies,
+  master-data items, key-figure semantics and authorization contexts that this
+  draft does not reproduce. Non-zero counts produce a non-blocking warning.
+  Counts describe only the local manifest; zero does not establish absence in
+  SAP and no BEx behavior is converted by this report.
+- Linked PBIP evidence now also copies the BEx manifest's declared coverage
+  statuses beside those counts, distinguishing local `not_applicable`
+  declarations from empty lists without treating either as verified SAP state.
+- The TMDL generator now disables implicit summarization for all SAP BW
+  source columns, including numeric dimensions and key figures. It does not
+  infer DAX measures or BEx aggregation behavior; non-BW summarization defaults
+  remain unchanged.
 - Universe physical-table navigation now preserves a table's declared schema
   and escapes its schema and table names in generated Power Query M.
 - PBIP generation without source visuals now creates an empty report shell

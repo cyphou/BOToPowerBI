@@ -13,7 +13,7 @@ The authoritative, machine-checked ownership map is
 
 | Agent | Invoke When | Owns |
 |-------|-------------|------|
-| **@orchestrator** | Pipeline coordination, CLI, batch | `migrate.py`, `migrate_paginated.py`, `migrate_bw.py`, `migrate_bw_convert.py`, `migrate_bw_assess.py`, `migrate_bw_reconcile.py`, `migrate_bw_handoff.py`, `migrate_bw_transform_validate.py`, `migrate_bw_bex_assess.py`, `migrate_bw_controls_assess.py`, `migrate_bw_wave_assess.py`, `migrate_bw_cutover_assess.py`, `migrate_lcm_inventory.py`, orchestration modules |
+| **@orchestrator** | Pipeline coordination, CLI, batch | `migrate.py`, `migrate_paginated.py`, `migrate_coverage_ledger.py`, `migrate_bw.py`, `migrate_bw_convert.py`, `migrate_bw_bex_pbip.py`, `migrate_bw_assess.py`, `migrate_bw_reconcile.py`, `migrate_bw_handoff.py`, `migrate_bw_transform_validate.py`, `migrate_bw_bex_assess.py`, `migrate_bw_controls_assess.py`, `migrate_bw_wave_assess.py`, `migrate_bw_cutover_assess.py`, `migrate_lcm_inventory.py`, orchestration modules |
 | **[WebI Migration](../.github/agents/webi-migration.agent.md)** | Cross-cutting WebI-to-Power BI migration and parity blockers | Coordination only; delegates to existing source, target and evidence owners |
 | **@extractor** | Parsing BusinessObjects source artifacts | `bo_export/` extraction modules, including `webi_snapshot_adapter.py` and `lcm_manifest.py` |
 | **BusinessObjects** | Live CMS/BI platform client, auth, inventory, download | `bo_export/server_client.py` |
@@ -26,7 +26,7 @@ The authoritative, machine-checked ownership map is
 | **@fabric** | Local Fabric artifacts, staged BW Bronze and normalized transformation notebooks | `fabric_project_generator.py`, its five sub-generators, `bw_bronze_generator.py`, `bw_transform_generator.py`, `fabric_constants.py`, `fabric_naming.py` |
 | **@agent-tools** (`AgentTools`) | Local MCP tools, protocol, write guards, workspace launch | `powerbi_import/mcp_server.py`, `.vscode/mcp.json` |
 | **@assessor** | Migration readiness, scoring, strategy, validation, offline BW inventory, BEx semantics, and BW-6 controls declarations | Assessment modules; `powerbi_import/bw_inventory.py` and BW-0 gap assessment; BW-5 BEx and BW-6 security/planning/compliance declarations; respective schemas/fixtures |
-| **Evidence** | Deterministic quality/comparison reports and fidelity evidence | `migration_quality.py`, `deski_migration_report.py`, report/comparison/equivalence/regression modules, BW reconciliation, handoff, transformation-vector fixtures and validation, wave evidence index and offline cutover declarations |
+| **Evidence** | Deterministic quality/comparison reports, fidelity evidence, offline feature declarations | `migration_quality.py`, `deski_migration_report.py`, report/comparison/equivalence/regression modules, BW reconciliation, handoff, transformation-vector fixtures and validation, wave evidence index and offline cutover declarations; `powerbi_import/coverage_ledger.py`, `docs/schemas/feature_coverage_ledger.schema.json`, `docs/fixtures/feature_coverage_ledger.synthetic.example.json` |
 | **Healing** | Bounded repairs and recovery ledger | `recovery_report.py`; repair-only collaboration with Semantic/Assessor |
 | **AI** | Optional LLM advisory and migration patterns | `llm_client.py`, `marketplace.py`; not MCP transport |
 | **Web Designer** | HTML presentation, theme, readability, accessibility | `html_template.py`; presentation-only collaboration with report owners |
@@ -95,6 +95,10 @@ match does not establish document identity or a query-to-report-tab relationship
 **AgentTools** owns the six-tool local MCP surface; **Evidence** owns the unified
 local quality report. The MCP server does not invoke Copilot agents: handoffs
 return findings for an external operator/agent to act on.
+For the standalone feature-coverage declaration ledger, **Orchestrator** owns
+`migrate_coverage_ledger.py`; **Evidence** owns the ledger logic, schema and
+synthetic fixture. It validates declarations without opening references,
+executing declared checks or verifying evidence, source coverage or approvals.
 Coordinators enable the `agent` tool and use exact frontmatter names such as
 `Dax`, `Semantic`, and `Fabric`, not their lowercase documentation shorthand.
 Specialists without delegation tools return out-of-scope recommendations to the coordinator.

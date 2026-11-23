@@ -2,6 +2,89 @@
 
 Detailed procedures and historical local evidence. Start with the concise [README](../README.md).
 
+## Export generated M and DAX expressions
+
+BO generation automatically attempts review exports for standard folder and
+recognized BIAR entries, a generated shared model, direct Python
+`PowerBIImporter` calls, local MCP `migrate`/`shared_model` generation, and
+the opt-in REP PBIP draft in a combined PBIP/RDL folder run. A successful
+shared export covers the merged model once, not each thin report. The importer
+defaults to automatic export for PBIP, TMDL and Fabric; its
+`defer_expression_export=True` option postpones it. The BW cube PBIP CLI
+attempts the same export after its local static validation succeeds.
+
+A shared-model export is not PBIP static validation. In a local `SAP_Shared`
+run using the eFashion and HR Universe examples, the quality report returned
+`FAIL`: the validator expected `SAP_Shared.Report`, while the `.pbip`
+references the existing `SAP_Shared_Model.Report`. This naming mismatch is
+separate from export and does not establish that the project otherwise opens
+or passes validation.
+
+For ordinary folder items other than BIAR or REP, export follows the existing
+optional DAX optimization step and, for Fabric, the local quality check.
+`--no-optimize-dax` skips that optimization. Blocking Fabric findings stop this
+folder export. BIAR and shared-model generation instead export through the
+importer before their Fabric quality check; a blocked bundle may therefore
+already contain review files and is not deployment-ready. The REP PBIP draft
+exports during import before its separate static artifact check.
+
+Recognizing a source does not guarantee a model or export. In a local folder
+check, `examples/Legacy_Sales.unv` and the Discovery example
+`Sales_Exploration.lumx` merely renamed to `.lums` failed for lack of a
+datasource; neither produced a model or export. Renaming is not a native
+LUMS test. Assessments, dry runs, pure RDL operations, BW notebook generation
+and CMS download/extraction alone do not produce persistent model expression
+exports. The optional RDL `.m` output is separate.
+
+Review files are written beside the generated `.SemanticModel` directory,
+only for expressions actually present:
+
+| Generated source | Review output, when present |
+|---|---|
+| TMDL M partitions | `PowerQuery/<table>.pq`; multiple partitions use `__1`, `__2`, etc. |
+| Shared M expressions and parameters | `PowerQuery/Expressions/<expression>.pq` |
+| M refresh-policy polling and source expressions | `PowerQuery/RefreshPolicies/<table>__Polling.pq` and `__Source.pq` |
+| TMDL DAX measures | `DAX/<table>.dax` |
+| TMDL calculated columns and calculated partitions | `DAX/CalculatedColumns/<table>.dax` and `DAX/CalculatedTables/<table>.dax` |
+| TMDL calculation-group items and RLS table filters | `DAX/CalculationGroups/<table>.dax` and `DAX/Roles/<role>.dax` |
+| Fabric Dataflow `queries/*.m` | `PowerQuery/Dataflow/<query>.pq` |
+
+`expression_export.json` uses schema version `1.1`, identifies the scope,
+source and category of each output, and does not contain expression bodies.
+Dataflow sources are project-relative; model sources are relative to the TMDL
+definition. If nothing is exportable, including any requested Dataflow queries,
+the manifest has an empty `exports` list and no `PowerQuery` or `DAX` directory.
+Names and paths in the manifest can still be sensitive.
+
+To re-export an existing model produced by this project after model edits or
+optimization, use a separate new or empty destination:
+
+```powershell
+python -m powerbi_import.expression_export `
+    --semantic-model "path\to\Report.SemanticModel" `
+    --output-dir "new-expression-output"
+```
+
+Add `--include-dataflow` for a Fabric project. It requires the sibling
+`Report.Dataflow/queries` directory and also copies its `.m` queries. The
+standalone output must not be a symlink or Windows junction, the model, or an
+ancestor or descendant of the model; the Dataflow directory must be within
+the project with no symlinks or junctions in its project-relative path.
+Existing automatic export targets (`PowerQuery`,
+`DAX`, or `expression_export.json`) are also refused; this does not protect
+other artifacts in a reused legacy batch directory. Filename collisions and
+unsupported recognized syntax fail explicitly. The standalone command returns
+exit code `2` on export errors; folder/BIAR results record per-source failures.
+An error may leave partial files.
+
+The exporter supports this project's generated TMDL form, not arbitrary
+Desktop-authored TMDL. DAX files are review listings, not executable queries;
+RLS exports contain filters, not complete role definitions. The exporter
+does not invent BEx calculations, validate or execute M/DAX, or establish
+parity. SQL, connection details, filter values and other data may be sensitive:
+protect the exports and do not commit them. Desktop rendering, refresh,
+deployment and Fabric execution remain `not_run` unless separately verified.
+
 ## Additional BO command paths
 
 The positional folder form in the README is preferred. The legacy
@@ -61,16 +144,25 @@ sensitive and protect it.
 
 For a snapshot captured with provider query metadata, the Python API
 `bo_export.webi_snapshot_adapter.extract_webi_snapshot(snapshot, connection)`
-returns the 15 BO collections. It copies the SQL verbatim from providers whose
-plan has exactly one direct statement, skipping the rest with a warning, and
-applies one explicitly declared SQL Server connection
-(`{"name": ..., "server": ..., "database": ...}`, no credentials) to all of
-them; the snapshot does not prove that connection is the one each provider
-used. Result columns, layout and report-to-provider links are not inferred, so
-report tabs produce no worksheet, and `adapt_bo_to_converted_objects` plus
-`PowerBIImporter` generate a model with the SQL partition (zero columns) and an
-empty report shell. No source visuals are reconstructed. Desktop opening,
-refresh, SQL execution and source equivalence remain `not_run`.
+returns the 15 BO collections. It adapts SQL only for a provider whose query
+plan declares `single_statement: true`. Before copying the SQL verbatim, it
+requires the plan's nonempty `document_id` and `provider_id` to match the
+enclosing snapshot's document ID and provider summary ID, respectively;
+provider summary IDs are normalized to strings (so numeric API IDs can match
+string plan IDs), and duplicate normalized provider summary IDs are rejected.
+`status` must be `available`, and there must be exactly one statement object
+with a nonempty SQL string and an empty `operators` list.
+Malformed or mismatched selected plans fail explicitly; an absent or
+non-single-statement plan is skipped with a warning. The adapter does not
+authenticate the snapshot. It applies one explicitly declared SQL Server
+connection (`{"name": ..., "server": ..., "database": ...}`, no credentials)
+to all adapted providers; the snapshot does not verify that this is the
+connection each provider used. Result columns, layout and report-to-provider
+links are not inferred, so report tabs produce no worksheet, and
+`adapt_bo_to_converted_objects` plus `PowerBIImporter` generate a model with
+the SQL partition (zero columns) and an empty report shell. No source visuals
+are reconstructed. The adapter does not run SQL or prove equivalence. Desktop
+opening, refresh, SQL execution and source equivalence remain `not_run`.
 Direct Python callers need a UTF-8-capable stdout: unlike `migrate.py`, the
 generator does not reconfigure the stream, and status messages can raise
 `UnicodeEncodeError` on legacy encodings.
@@ -233,8 +325,11 @@ written.
 
 Unless `--no-rdl` is given, `rdl/` receives one skeleton per document with its
 title, CMS description and report parameters. A skeleton has no data source,
-dataset, table or formulas. Parameter data types are not in the metadata, so
-they default to `String` and must be reviewed; names are normalized to RDL
+dataset, table or formulas. When parameters are present, their generated types
+default to `String`; the visible body `MigrationNote` discloses that source types
+are unverified or unavailable and must be reviewed. With no parameters, no
+parameter-specific body notice is added. This is disclosure only; it does not
+bind data or create report content. Parameter names are normalized to RDL
 identifiers and the original name stays in the prompt when none exists.
 `skeletons.json` reports each document as `generated` or `skipped` (the exit
 code is 1 when any is skipped; an existing output path or an unreadable
@@ -559,6 +654,62 @@ The sample is synthetic and deliberately incomplete. A
 `candidate_for_owner_review` is not migration acceptance; source/target query
 execution, result comparison, consumer sign-off and Desktop/Service rendering
 remain `not_run`. See the [BW design](SAP_BW_TO_FABRIC_DESIGN.md#bw-5-offline-bex-semantic-capture).
+
+### Local PBIP draft from an explicit BW cube plan
+
+`migrate_bw_bex_pbip.py` creates a local Import PBIP from one manually declared
+SAP BW cube selection. The report shell is empty by default:
+
+```powershell
+python migrate_bw_bex_pbip.py `
+    --plan "docs\fixtures\sap_bw_bex_pbip_plan.example.json" `
+    --output-dir "artifacts\bw-bex"
+```
+
+Generated `migration_metadata.json` also records a versioned
+`sap_bw_capability_boundary`. It distinguishes repository support from the
+illustrated Power Apps, Talend/SQL, planning, Fiori and Multiprovider target
+directions and keeps SAP/Power BI runtime and retirement evidence at `not_run`.
+This metadata does not implement those external capabilities.
+
+The [plan schema](schemas/sap_bw_bex_pbip_plan.schema.json) and
+[synthetic plan](fixtures/sap_bw_bex_pbip_plan.example.json) declare the BW
+connection metadata, one InfoArea/cube navigation, selected dimension/measure
+selectors, and exact output column names/types. Unknown fields (including
+credential fields) are rejected, and URL/userinfo syntax is rejected in the
+server identifier. The CLI does not scan every text value for secrets; never
+embed credentials in any plan field. It also rejects missing navigation,
+duplicate or mismatched output columns, and non-empty output directories.
+Plan and navigation checks happen locally; they do not prove that the SAP
+server, InfoArea, cube, selectors, data types, or columns exist.
+
+Plan 1.6 can explicitly add one review table instead:
+
+```powershell
+python migrate_bw_bex_pbip.py `
+    --plan "docs\fixtures\sap_bw_bex_pbip_report.example.json" `
+    --output-dir "artifacts\bw-bex-review"
+```
+
+The optional `review_report` names the page and a non-empty, unique list of
+exact model column names. It creates a table in that order inside the page
+with a 20-unit margin, projecting physical columns without totals or new DAX
+measures. Power BI can group identical projected values; check the grain and
+results independently. It is not a converted BEx report.
+
+An optional `bex_linkage` plan requires paired local `--inventory` and
+`--semantics` inputs for declaration checks. A declared cube parameter can
+be linked to a BEx variable ID; this does not reproduce prompt behavior.
+The result is a draft with no converted BEx visuals. The tool does not convert
+filters/hierarchies/calculated or restricted key figures/exception
+aggregation/units/currency/security, run a query, or connect to SAP/Fabric.
+Static PBIP validation errors fail the command; warnings are printed but do
+not fail it, so inspect them. After a successful static check the CLI attempts
+the expression export described above; the synthetic plan produces no DAX
+measures. The CLI does not perform credential setup, query execution, Desktop
+open/render, refresh, result equivalence or business acceptance. Protect plans and output
+because connection metadata can be sensitive. This is a local authoring
+adapter, not full BW migration or warehouse replacement.
 
 ### Local paginated RDL from a declared mapping
 
@@ -1228,7 +1379,9 @@ metadata comparison is not pixel-perfect validation.
 The BW-6 security, planning and compliance review is another separate offline
 assessment. It checks declared inventory-linked authorization contexts,
 allow/deny scenarios, planning control coverage and audit/retention/privacy/
-legal-hold obligations:
+legal-hold obligations. Controls 1.1 can additionally declare owned target
+dispositions for Copy Version, Upload File, cube activation, planning
+reporting, Forecast Update and consolidation/aggregation:
 
 ```powershell
 python migrate_bw_controls_assess.py `
@@ -1291,6 +1444,36 @@ Only inventory edges directly incident to the wave and consumers at their
 endpoints are checked. Transitive dependencies and the declared completeness
 of coverage are not verified; the report records
 `dependency_coverage_verification: not_verified`.
+
+## Offline feature coverage declaration ledger
+
+The standalone ledger validates manually supplied, cross-source feature
+declarations and reports their statuses, counts and review findings. Try the
+synthetic fixture with a **new** output file:
+
+```powershell
+python migrate_coverage_ledger.py `
+    --manifest "docs\fixtures\feature_coverage_ledger.synthetic.example.json" `
+    --output "coverage_ledger_report.json"
+```
+
+See the [manifest schema](schemas/feature_coverage_ledger.schema.json) and
+[synthetic fixture](fixtures/feature_coverage_ledger.synthetic.example.json).
+Exit `0` means declaration validation ran, not that coverage is complete or
+ready. Exit `2` indicates invalid input or an output error; a write failure can
+leave a partial file. An existing output is not overwritten.
+
+Manifest entries, statuses, evidence checks and dispositions are declarations,
+not observed results. The tool performs its own contract and duplicate checks;
+references are not opened and declared commands are not executed.
+The tool does not extract source data, compare runtime results, connect to the
+cloud, or integrate with the current `quality_report`. Source identity and
+completeness, provenance, evidence authenticity, equivalence and approvals
+remain unverified. Local evidence execution, Desktop rendering, refresh and
+remote execution remain `not_run`, even if a manifest declares a passing
+check. Counts describe supplied entries only, not verified coverage or
+readiness. Protect manifests and reports: metadata may be sensitive, and
+credential detection does not guarantee sanitization.
 
 ## Local Quality And MCP
 
@@ -1427,7 +1610,28 @@ Merge multiple BO reports into **one shared semantic model** with thin reports. 
 <td>
 
 ### 🔒 Security Profile Migration
-BO security profiles → PBI RLS roles with DAX filter expressions. Supports =, InList, Between, <>, Like operators. Generates PowerShell scripts for Azure AD group assignment.
+The standalone profile mapper produces candidate RLS role and DAX filter
+metadata. Each profile must have a nonempty restrictions list; each restriction
+must resolve case-insensitively to exactly one declared column and specify a
+supported operator with a nonempty list of strings of the required arity. The
+mapper escapes table and column names and string literals in candidate DAX.
+Empty restrictions, missing or ambiguous columns, unsupported operators and
+invalid value lists or arities raise `ValueError` rather than guessing or
+dropping restrictions. The role-dict shape and legacy operator mappings for
+accepted inputs are retained.
+
+These are candidates, not proven semantic conversion or security equivalence,
+and they do not assign target RLS roles. The normal BO adapter initializes
+`user_filters` empty, so this is not an end-to-end BO security profile migration.
+
+When PBIP generation receives user filters, it may write
+`assign_rls_roles.ps1`: a terminating manual-review reminder, not an Azure AD
+group or RLS role assignment script. Previously generated scripts are not
+retroactively replaced and should not be run. Review source restrictions,
+identities and target role definitions with the security owner; assign role
+membership manually using supported administration tools and test allowed and
+denied access in an authorized target environment. Local metadata and script
+generation do not prove deployed security or source-to-target equivalence.
 
 </td>
 </tr>
@@ -1435,11 +1639,73 @@ BO security profiles → PBI RLS roles with DAX filter expressions. Supports =, 
 <td colspan="2">
 
 ### 🔄 Enterprise-Grade Pipeline
-Assessment engine (multi-category readiness scoring) • Schedule migration (BO instances → PBI refresh config) • Incremental migration (skip unchanged artifacts) • Schema drift detection • Multi-tenant deployment • Governance & telemetry
+Assessment engine (multi-category readiness scoring) • Disabled schedule and subscription review drafts • Incremental migration (skip unchanged artifacts) • Schema drift detection • Multi-tenant deployment • Governance & telemetry
 
 </td>
 </tr>
 </table>
+
+### Schedule and subscription review drafts
+
+`refresh_generator.py` produces disabled review drafts from declared schedules
+and subscriptions, not verified Power BI REST payloads. Missing frequency,
+time, weekday or time zone values are not defaulted; invalid times or days and
+unsupported frequencies are not guessed. Only declared Daily and Weekly
+frequencies are mapped. A declared time zone is copied, not validated against
+Power BI. Multiple schedules are not combined.
+Non-list scheduled-instance inputs other than `None`, and a single non-object
+task, log a warning and return a disabled draft with an invalid-input note.
+During referenced schedule lookup, malformed collections or non-object items
+likewise log a warning and return a disabled draft with an invalid-lookup note.
+Non-list subscription inputs other than `None`, including falsy malformed
+values, raise `ValueError` in both subscription and combined refresh generation.
+In the selected schedule details, a non-dictionary `intervals` value or any
+key other than `weekDay` in that dictionary is noted for review. Nonempty
+weekday declarations when frequency is not Weekly are also noted. Recipients
+and their identities remain unverified. Review source declarations, interval
+semantics, identities and target behavior with the relevant owners.
+For a mixed weekday list, only recognized days may be retained, and a warning
+requires review of the full declaration.
+
+The local `--refresh-config` path attempts to write `refresh_config.json`
+from extracted schedules; it does not establish that schedules were extracted
+or migrated. A draft with `enabled: false` is skipped by
+`deploy_refresh_schedule`; no refresh or deployment follows from generation.
+Previously generated files are not retroactively updated; reusing the output
+directory can overwrite `refresh_config.json`. Any target configuration and
+allowed operational testing require separate authorization; Power BI
+equivalence and execution remain unverified.
+
+#### Deploying a reviewed refresh schedule
+
+`PBIWorkspaceDeployer.deploy_refresh_schedule(dataset_id, refresh_config)`
+returns `skipped` with a note for `None`, and skips dictionaries with
+`enabled: false` even if other fields are incomplete or invalid. Non-dictionaries
+and missing or non-boolean `enabled` values fail. Enabled declarations must
+explicitly provide:
+
+- `days`: a nonempty list of unique, case-sensitive weekday names from
+  `Sunday` through `Saturday`;
+- `times`: a nonempty list of valid `HH:MM` strings, from `00:00` to `23:59`;
+- `localTimeZoneId`: a nonempty, non-whitespace string.
+
+If supplied, `frequency` must be `Daily` or `Weekly`; `Daily` requires all
+seven weekdays. If supplied, `notifyOption` must be `NoNotification` or
+`MailOnFailure`. Invalid declarations return `failed` before any client call.
+For a valid declaration, the PATCH body forwards only `enabled`, `days`,
+`times`, `localTimeZoneId`, and a supplied `notifyOption`; `frequency` and
+other metadata are not sent. No time, time zone or notification default is
+invented. A client exception returns `failed`.
+
+These are local format checks, not owner review, policy or permission checks,
+or verification of Power BI service or time-zone acceptance. Mocked tests
+check the request, not deployment or refreshed data. Consult the
+[Microsoft Learn refresh schedule API reference](https://learn.microsoft.com/en-us/rest/api/power-bi/datasets/update-refresh-schedule-in-group)
+for service requirements, including at least one day and notification
+limitations for service principals. Owner review is still required; any remote
+operation requires separate authorization. Static validation, Desktop rendering,
+deployment, refresh, Fabric execution and source/target equivalence remain
+`not_run` unless separately verified.
 
 > [!NOTE]
 > **Zero external dependencies** for core migration. The entire engine runs on Python's standard library.
@@ -1584,11 +1850,15 @@ YourReport/
 ├── YourReport.pbip                     ← Double-click to open in PBI Desktop
 ├── migration_metadata.json             ← Stats, fidelity scores, warnings
 ├── credentials_template.json           ← Datasource credential placeholders
+├── assign_rls_roles.ps1                 ← Terminating review reminder, when user filters are supplied
+├── expression_export.json              ← Version 1.1 review manifest
+├── PowerQuery/                         ← M review copies, when present
+├── DAX/                                ← DAX review listings, when present
 ├── YourReport.SemanticModel/
 │   └── definition/
 │       ├── model.tmdl                  ← Tables, measures, relationships
 │       ├── expressions.tmdl            ← Power Query M queries
-│       ├── roles.tmdl                  ← Row-Level Security (from BO profiles)
+│       ├── roles.tmdl                  ← RLS role definitions, when generated
 │       └── tables/
 │           ├── Sales.tmdl              ← Columns + DAX measures
 │           └── Calendar.tmdl           ← Auto-generated date table
@@ -1739,9 +2009,9 @@ BOToPowerBI/
 │   ├── visual_generator.py            #   50+ visual types, PBIR configs
 │   ├── assessment.py                  #   Pre-migration assessment (9 categories)
 │   ├── dax_optimizer.py               #   DAX AST optimizer
-│   ├── permission_mapper.py           #   BO security profiles → RLS + PowerShell
+│   ├── permission_mapper.py           #   Candidate profile mapping + RLS review reminder
 │   ├── shared_model.py                #   Multi-report merge engine
-│   ├── refresh_generator.py           #   BO schedules → PBI refresh config
+│   ├── refresh_generator.py           #   Disabled schedule/subscription review drafts
 │   ├── incremental.py                 #   Incremental migration
 │   ├── schema_drift.py                #   Schema drift detection
 │   ├── validator.py                   #   Artifact validation + auto-fix
@@ -1800,7 +2070,7 @@ BOToPowerBI/
 | `--deploy WORKSPACE_ID` | Rejected; standard CLI deployment is not wired |
 | `--deploy-refresh` | Rejected; standard CLI deployment is not wired |
 | `--deploy-bundle WORKSPACE_ID` | Rejected; bundle deployment is not wired to the CLI |
-| `--refresh-config` | Generate PBI scheduled refresh config from BO schedules |
+| `--refresh-config` | Attempt a disabled local refresh review draft from extracted schedules; not deployment |
 | `--multi-tenant CONFIG` | Multi-tenant deployment config JSON |
 | `--incremental` | Incremental migration: skip unchanged artifacts |
 | `--schema-drift DIR` | Schema drift detection against previous extraction |
@@ -1831,6 +2101,22 @@ perform a remote write. The separate `--multi-tenant` path is not changed or
 verified here. Any future remote workflow requires an approved identity, target,
 connection bindings, and separate runtime evidence; Desktop/cloud checks remain
 `not_run`.
+
+The separate `PBIWorkspaceDeployer.deploy_project` uses a unique temporary
+directory and a fixed `project.pbix` filename rather than a name-derived file
+in the shared temp root. It attempts cleanup after packaging or upload failures;
+an OS error during temporary setup or cleanup returns a failed result. Cleanup
+can fail after an upload has started, so failure does not prove that no remote
+import occurred. PBIP-to-compatible-PBIX packaging remains unverified.
+
+`PBIWorkspaceDeployer.deploy_rolling` is intentionally disabled: it returns
+`status: failed`, `phase: blocked` and `rolled_back: false` without remote
+operations. The previous implementation could overwrite an existing canary and
+claim rollback despite calling the nonexistent `PBIServiceClient.delete_dataset`.
+This change implements neither deployment nor rollback and leaves previously
+created remote artifacts untouched. Mocked tests verify the local guard; the
+ordinary `deploy_project` path remains separate, requires explicit authorization
+and is unverified.
 
 <details>
 <summary><b>Power BI Service</b></summary>
@@ -1900,17 +2186,33 @@ Coverage is a separate CI gate, not measured by this command.
 ```mermaid
 flowchart LR
     L["Lint and type checks\nflake8, ruff, pyright"] --> T["Tests and coverage\nPython 3.12 / 3.13\nLinux / Windows / macOS"]
-    T --> V["CLI help smoke\npython migrate.py --help"]
+    T --> V["Synthetic WebI PBIP\nstatic validation"]
 
     style L fill:#6366f1,color:#fff
     style T fill:#22c55e,color:#fff
     style V fill:#3b82f6,color:#fff
 ```
 
-  This describes the [committed CI workflow](../.github/workflows/ci.yml), not an
-  observed successful CI run. Its coverage threshold is 80%; its final validation
-  job only runs CLI help. It does not generate sample projects, deploy staging or
-  production, enforce a manual release approval, or test Python 3.14.
+The [CI workflow](../.github/workflows/ci.yml) uses an 80% coverage threshold.
+Its final Ubuntu job migrates the synthetic `Enterprise_Sales.wid` folder,
+checks for the PBIP and semantic-model directory, and runs local
+`--validate-project`. Errors fail the job; warnings are displayed but do not
+fail it.
+
+A local equivalent on 2026-11-22 passed with 13 static warning findings,
+including four unknown visual Entity `"Table"` references. These require
+review and do not establish visual binding or parity.
+
+On the local dirty worktree on 2026-11-22, the configured repository-wide
+Ruff check reported 422 errors and Pyright reported 75 errors and two warnings;
+neither mentioned the changed ledger, refresh or permission modules. The
+configured critical Flake8 selection passed with one `SyntaxWarning`. Targeted
+Ruff and Pyright checks for those modules and the ledger CLI passed. No clean
+baseline was measured, so these failures are not classified as pre-existing.
+The validation job depends on the lint and test jobs. GitHub-hosted CI for
+this change has not been run; Desktop rendering, refresh and Fabric execution
+remain `not_run`. The workflow does not deploy staging or production, enforce
+a manual release approval, or test Python 3.14.
 
 ---
 

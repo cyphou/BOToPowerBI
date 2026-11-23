@@ -205,6 +205,10 @@ BIAR uses temporary file extraction and the same generation API as individual so
 Only directly named supported artifact entries are recognized; an archive with
 no recognized entries returns an error without creating a migration output.
 Embedded/segmented content and archive completeness remain unverified.
+Recognition does not guarantee a datasource or model: the existing legacy
+UNV example and a Discovery example merely renamed `.lums` failed a local
+folder check without producing a model or export. Renaming is not a native
+LUMS test.
 Fabric outputs are quality-gated after generation. Blocking findings return code
 6 for file/BIAR/batch/shared-model CLI workflows and preserve per-project
 `quality_report.json`; warnings alone do not block unless a separate strict
@@ -213,6 +217,30 @@ CSV/Excel ingestion belongs to Notebook, connected sources/custom SQL to Dataflo
 and calculated-column materialization to the single primary ETL notebook. Inspect
 the persisted ingestion/materialization plan and the actual validation findings.
 Do not pass credentials in command examples or chat; use the supported secure authentication mechanism after reading the relevant client.
+
+When generation reaches the export step, BO folder/BIAR, shared-model, Python
+importer, local MCP and opt-in REP PBIP workflows automatically write review
+copies. Ordinary folder items other than BIAR or REP export after the optional
+DAX optimizer and, for Fabric, the quality check; BIAR/shared exports precede
+their Fabric quality check, and REP export precedes its static PBIP check. A shared
+PBIP export is not static validation: the validator can report a missing
+`<model>.Report` even when the referenced `<model>_Model.Report` exists. A
+quality blocker is not deployment readiness even if files exist. BW cube PBIP
+export follows successful local static validation.
+
+The exporter copies M partitions, shared and refresh expressions, and Fabric
+Dataflow `.m` queries to `.pq`. It lists only actual TMDL measures, calculated
+columns/partitions, calculation items and RLS filters in `.dax`. Manifest
+`expression_export.json` version 1.1 has an empty `exports` list when nothing
+is exportable. No model means no export. Assessment/dry-run, BW notebooks,
+pure RDL and CMS extraction alone do not produce persistent model exports.
+For an existing generated model, use `python -m powerbi_import.expression_export`
+with `--semantic-model` and a separate new or empty `--output-dir`; add
+`--include-dataflow` for a generated Fabric Dataflow. Existing targets and
+unsupported recognized syntax fail explicitly, and failures can leave partial
+files. Protect SQL, connection details and values. These snapshots are not
+BEx conversion, runtime validation or parity evidence. See the
+[expression export reference](../../../docs/MIGRATION_REFERENCE.md#export-generated-m-and-dax-expressions).
 
 ## Separate BW Historical Landing
 
@@ -315,6 +343,50 @@ reports only gaps found in those local declarations; it does not parse BEx,
 generate target models/reports, execute queries, compare results, or approve
 consumers. See the BW-5 boundaries.
 
+`migrate_bw_bex_pbip.py` creates a local Import PBIP draft from a strict,
+manually authored plan for exactly one BW cube:
+
+```powershell
+python migrate_bw_bex_pbip.py `
+    --plan "docs\fixtures\sap_bw_bex_pbip_plan.example.json" `
+    --output-dir "artifacts\bw-cube"
+```
+
+The plan explicitly supplies the `sap_bw` server/system/client identifiers,
+InfoArea, cube, dimension/measure selectors, and output column types. The
+optional version 1.3+ dimension `properties` also maps a manually declared
+member-property selector to a model column; it does not discover keys or
+validate their types in SAP. Version 1.4 optionally passes explicit literal
+text arguments to cube parameters using `Cube.ApplyParameter`; the selector,
+argument shape, folding and values must be independently checked in SAP. This
+does not convert BEx prompts or infer range semantics. The plan and generated
+model contain those values in clear text; protect them and never include secrets.
+Plan 1.5 may bind a parameter declaration to a local BEx variable ID; this is a
+manual link only, requires BW-5 inventory and semantics inputs, and does not
+reproduce prompt defaults/selection behavior or establish SAP equivalence.
+BW-only models do not infer Calendar tables or date hierarchies. The report is
+empty by default. Plan 1.6 optionally declares `review_report` with a page
+name and non-empty, unique, exact model-column names; it adds one column-only
+table with a 20-unit page margin. Power BI may group identical projected
+values. This is a review aid, not a converted BEx report or DAX aggregation;
+verify grain and results independently. See the synthetic
+`docs/fixtures/sap_bw_bex_pbip_report.example.json`. The schema has no
+credential fields, and the CLI rejects URL/userinfo syntax in
+the server identifier; this is not a scan of every text value. Never embed
+secrets in any plan field. Use only a reviewed plan and a new or empty output
+directory. The example is synthetic. Static-validation warnings are printed
+but do not fail generation, so inspect them. Linked plans also report selected
+and omitted declared BEx key figures and warn on partial selections; any
+supplied dimension binding must resolve uniquely in the local inventory. These
+checks do not verify SAP metadata or BEx conversion. After successful static
+validation, the CLI attempts the expression export described above. The
+synthetic plan produces M review files but no DAX measures; no BEx
+calculations are invented. The copies may contain sensitive connection
+details or values. The CLI generates local PBIP files;
+it does not connect to SAP, verify metadata, execute a query, open Power BI
+Desktop, refresh data, or convert BEx semantics. See the BW-5 PBIP boundaries
+in `docs/SAP_BW_TO_FABRIC_DESIGN.md`.
+
 `migrate_bw_controls_assess.py` checks a local BW-6 security, planning and
 compliance manifest against a BW inventory:
 
@@ -327,9 +399,12 @@ python migrate_bw_controls_assess.py `
 
 This is an offline declaration review only. It checks inventory-linked
 authorization contexts, declared allow/deny test cases, planning/write-back
-control coverage, and audit/retention/privacy/legal-hold references. Access
-test execution is fixed to `not_run`; the CLI does not execute target security,
-identity/binding, planning, compliance or Fabric operations. A
+control coverage, and audit/retention/privacy/legal-hold references. Controls
+1.1 may additionally declare the six illustrated operational capabilities with
+external owner, target, evidence and fixed `not_run` execution; it does not
+implement Power Apps, Talend, SQL or planning workflows. Access test execution
+is fixed to `not_run`; the CLI does not execute target security, identity/binding,
+planning, compliance or Fabric operations. A
 `candidate_for_owner_review` is not approval and does not close BW-6 or
 authorize retirement.
 
@@ -383,7 +458,7 @@ cutover/rollback, switch consumers, shut down BW, or authorize retirement.
 | Local BO extraction and adapter | Extractor | `bo_export/` parsing modules |
 | BO CMS/server client | BusinessObjects | `bo_export/server_client.py` |
 | BO formulas to DAX | Dax | `bo_export/dax_converter.py`, `powerbi_import/dax_optimizer.py` |
-| Power Query and column classification | Wiring | `bo_export/m_query_builder.py`, `powerbi_import/m_query_generator.py`, `powerbi_import/calc_column_utils.py` |
+| Power Query, column classification and expression export | Wiring | `bo_export/m_query_builder.py`, `powerbi_import/m_query_generator.py`, `powerbi_import/calc_column_utils.py`, `powerbi_import/expression_export.py` |
 | Semantic model | Semantic | TMDL generator modules |
 | PBIR report | Visual | `powerbi_import/pbip_generator.py` and visual generators |
 | Fabric bundle | Fabric | `powerbi_import/fabric_project_generator.py` and its five sub-generators |

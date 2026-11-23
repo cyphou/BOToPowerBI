@@ -130,13 +130,35 @@ class TestUnboundRdl(unittest.TestCase):
         ns = {"r": "http://schemas.microsoft.com/sqlserver/reporting/2016/01/reportdefinition"}
         self.assertIsNone(root.find("r:DataSources", ns))
         self.assertIsNone(root.find("r:DataSets", ns))
-        names = [p.get("Name") for p in root.findall(".//r:ReportParameter", ns)]
+        parameters = root.findall(".//r:ReportParameter", ns)
+        names = [p.get("Name") for p in parameters]
         self.assertEqual(names, ["Select_Region_s", "select_region_s_2", "P_1st_year"])
-        first = root.find(".//r:ReportParameter", ns)
+        first = parameters[0]
         self.assertEqual(first.find("r:Prompt", ns).text, "Select Region(s)")
         self.assertEqual(first.find("r:DataType", ns).text, "String")
         self.assertEqual(first.find("r:MultiValue", ns).text, "true")
         self.assertEqual(first.find("r:Nullable", ns).text, "true")
+        self.assertEqual(parameters[1].find("r:Prompt", ns).text, "Again")
+        self.assertEqual(parameters[1].find("r:DataType", ns).text, "String")
+        self.assertIsNone(parameters[1].find("r:MultiValue", ns))
+        self.assertIsNone(parameters[1].find("r:Nullable", ns))
+        self.assertEqual(parameters[2].find("r:Prompt", ns).text, "Year")
+        self.assertEqual(parameters[2].find("r:DataType", ns).text, "String")
+        self.assertIsNone(parameters[2].find("r:MultiValue", ns))
+        self.assertIsNone(parameters[2].find("r:Nullable", ns))
+        note = root.findtext(
+            './/r:Body//r:Textbox[@Name="MigrationNote"]'
+            '/r:Paragraphs/r:Paragraph/r:TextRuns/r:TextRun/r:Value',
+            namespaces=ns,
+        )
+        self.assertIsNotNone(note)
+        note_lower = note.lower()
+        self.assertIn("parameter types default to string", note_lower)
+        self.assertIn("source types", note_lower)
+        self.assertIn("unverified", note_lower)
+        self.assertIn("unavailable", note_lower)
+        self.assertIn("must be reviewed", note_lower)
+        self.assertIn("Not migrated: data source, query, layout and formulas.", note)
         self.assertEqual(
             root.findtext('.//r:Textbox[@Name="ReportTitle"]/r:Style/r:FontFamily',
                           namespaces=ns),
@@ -160,6 +182,23 @@ class TestUnboundRdl(unittest.TestCase):
         self.assertIsNone(root.find("r:DataSources", ns))
         self.assertIsNone(root.find("r:DataSets", ns))
         self.assertIn("Not migrated", rdl)
+
+    def test_skeleton_without_parameters_omits_parameter_note(self):
+        contract = {**self.CONTRACT, "parameters": []}
+        root = ET.fromstring(generate_unbound_rdl(contract))
+        ns = {"r": "http://schemas.microsoft.com/sqlserver/reporting/2016/01/reportdefinition"}
+        note = root.findtext(
+            './/r:Body//r:Textbox[@Name="MigrationNote"]'
+            '/r:Paragraphs/r:Paragraph/r:TextRuns/r:TextRun/r:Value',
+            namespaces=ns,
+        )
+        self.assertIsNotNone(note)
+        note_lower = note.lower()
+        self.assertNotIn("parameter extraction", note_lower)
+        self.assertNotIn("parameter types default to string", note_lower)
+        self.assertNotIn("parameter review", note_lower)
+        self.assertNotIn("must be reviewed", note_lower)
+        self.assertIn("Not migrated: data source, query, layout and formulas.", note)
 
     def test_rejects_expressions_credentials_and_malformed_contracts(self):
         for change in (
