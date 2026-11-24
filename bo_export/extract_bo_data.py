@@ -9,7 +9,6 @@ import logging
 import os
 import re
 import tempfile
-import zipfile
 
 from powerbi_import.security_validator import redact_connection_string
 

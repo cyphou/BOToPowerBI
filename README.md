@@ -53,6 +53,28 @@ Fabric generation can return exit code `6` when local quality findings block
 the bundle; inspect the batch manifest and per-project `quality_report.json`.
 A blocked bundle is not deployment-ready.
 
+<a id="bw-bex-infocube-workflows"></a>
+
+> [!NOTE]
+> **BO / BO XI, BEx and InfoCube: choose the path that matches your source.**
+>
+> - **BO reports:** assess a file, then generate a local PBIP or Fabric bundle
+>   from a folder. [BO XI / DeskI REP](#bo-xi--desktop-intelligence) is experimental
+>   inspection plus opt-in, manually mapped drafts, not automatic conversion.
+> - **BEx query:** [assess a local BW inventory and BEx manifest](docs/SAP_BW_TO_FABRIC_DESIGN.md#bw-5-offline-bex-semantic-capture).
+>   Provider bindings and v1.2 key-figure kinds are declarations; they do not
+>   convert prompts, filters, hierarchies, calculations or report layout.
+> - **One InfoCube:** [generate a manually mapped Import PBIP draft](docs/MIGRATION_REFERENCE.md#local-pbip-draft-from-an-explicit-bw-cube-plan).
+>   The draft retains BW as its refresh source. Optional BEx linkage checks local
+>   declarations only. Start with the [reproducible BEx and InfoCube pilot](docs/MIGRATION_REFERENCE.md#linked-bex-and-infocube-pilot)
+>   to generate a column-only review table without an SAP system.
+> - **Optional evidence:** [compare supplied BEx result vectors](docs/SAP_BW_TO_FABRIC_DESIGN.md#offline-bex-result-vector-comparison).
+>   A comparison pass applies only to the supplied observations, not BEx parity.
+>
+> A BW-connected draft does not replace BW. Native InfoCube identity remains
+> unverified pending a sanitized, source-owner-approved sample and agreed
+> field mapping. See the [local review and remaining gaps](docs/GAP_ANALYSIS.md#local-bo-bex-and-infocube-review--2026-11-24).
+
 ## Parameters you will use most
 
 PBIP is the default output. `python migrate.py --help` shows common workflows;

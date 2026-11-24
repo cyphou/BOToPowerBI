@@ -583,6 +583,79 @@ class TestBExResultVectorReconciliation(unittest.TestCase):
             )
             self.assertEqual(both_inputs.returncode, 2)
 
+    def test_bex_cli_reconciles_linked_synthetic_pilot(self):
+        fixtures = ROOT / "docs" / "fixtures"
+        plan = json.loads(
+            (fixtures / "sap_bw_bex_pilot_plan.example.json").read_text(encoding="utf-8")
+        )
+        semantics = json.loads(
+            (fixtures / "sap_bw_bex_pilot_semantics.example.json").read_text(encoding="utf-8")
+        )
+        linkage = plan["bex_linkage"]
+        query_id = linkage["query_id"]
+        measure = "synthetic-billed-quantity"
+        self.assertEqual(query_id, semantics["query"]["object_id"])
+        self.assertEqual(
+            [binding["key_figure_id"] for binding in linkage["key_figure_bindings"]],
+            [measure],
+        )
+        self.assertIn(measure, {figure["id"] for figure in semantics["key_figures"]})
+
+        mismatch = {
+            "key": {"day_key": "2026-11-24"},
+            "measure": measure,
+            "source_value": "11",
+            "target_value": "12",
+            "difference": "1",
+            "allowed_difference": "0",
+            "status": "fail",
+        }
+        cases = (
+            ("sap_bw_bex_pilot_result_vectors.example.json", 0, "pass", []),
+            (
+                "sap_bw_bex_pilot_result_vectors_mismatch.example.json",
+                1, "fail", [mismatch],
+            ),
+        )
+        for filename, returncode, status, mismatches in cases:
+            with self.subTest(fixture=filename), tempfile.TemporaryDirectory() as directory:
+                vectors_path = fixtures / filename
+                vectors = json.loads(vectors_path.read_text(encoding="utf-8"))
+                report_path = Path(directory) / "report.json"
+                completed = subprocess.run(
+                    [
+                        sys.executable, str(ROOT / "migrate_bw_reconcile.py"),
+                        "--bex-result-vectors", str(vectors_path),
+                        "--output", str(report_path),
+                    ],
+                    cwd=ROOT, capture_output=True, text=True, check=False,
+                )
+                self.assertEqual(completed.returncode, returncode, completed.stderr)
+                report = json.loads(report_path.read_text(encoding="utf-8"))
+
+                # Compare local declarations; the comparator does not infer linkage.
+                self.assertEqual(vectors["rules"], {measure: {"mode": "exact"}})
+                for declaration in (vectors, report):
+                    self.assertEqual(declaration["scope"]["query_id"], query_id)
+                    self.assertEqual(declaration["source"]["object_id"], query_id)
+                    self.assertEqual(declaration["target"]["object_id"], plan["project_name"])
+
+                self.assertEqual(report["comparison_status"], status)
+                summary = report["summary"]
+                self.assertEqual(summary["measures_compared"], 2)
+                self.assertCountEqual(
+                    [(check["key"], check["measure"]) for check in report["checks"]],
+                    [({"day_key": day}, measure) for day in ("2026-11-23", "2026-11-24")],
+                )
+                for issue in ("missing_keys", "extra_keys", "duplicate_keys"):
+                    self.assertEqual(report[issue], [], issue)
+                    self.assertEqual(summary[issue], 0, issue)
+                self.assertEqual(report["measure_mismatches"], mismatches)
+                self.assertEqual(summary["measure_mismatches"], len(mismatches))
+                self.assertEqual(report["evidence_boundary"], "declared_local_bex_result_vectors_only")
+                self.assertNotIn("no_measure_observations_compared", report["limitations"])
+                self.assert_evidence_remains_unverified(report)
+
 
 if __name__ == "__main__":
     unittest.main()

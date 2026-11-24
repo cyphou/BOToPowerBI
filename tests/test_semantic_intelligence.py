@@ -135,6 +135,19 @@ class TestOptimizeRelationships:
         result = optimize_relationships(star_schema_data)
         assert len(result["redundant"]) == 0
 
+    def test_detects_circular_relationship_conflict(self):
+        result = optimize_relationships({"joins": [
+            {"left_table": "A", "right_table": "B"},
+            {"left_table": "B", "right_table": "C"},
+            {"left_table": "C", "right_table": "A"},
+        ]})
+
+        assert result["redundant"] == []
+        circular = [item for item in result["conflicting"] if item["type"] == "circular"]
+        assert circular
+        assert set(circular[0]["tables"]) == {"A", "B", "C"}
+        assert any("circular relationships" in text for text in result["suggestions"])
+
     def test_empty_joins(self):
         result = optimize_relationships({"joins": []})
         assert result["redundant"] == []

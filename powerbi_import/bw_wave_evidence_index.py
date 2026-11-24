@@ -16,14 +16,13 @@ from typing import Any, NoReturn
 from .bw_inventory import assess_bw0, validate_snapshot
 from .security_validator import scan_for_credentials
 
-
 CURRENT_SCHEMA_VERSION = "1.0"
 LAYERS = ("bw2_reconciliation", "bw3_handoff", "bw4_transform", "bw5_bex", "bw6_controls")
 OPERATIONAL_KINDS = (
     "freshness_target", "latency_target", "availability_target", "cost_target",
     "monitoring_alerting", "failure_replay", "schema_drift", "restore", "rpo_rto",
 )
-_LAYER_SET = set(LAYERS)
+_LAYER_SET: set[str] = set(LAYERS)
 _OPERATIONAL_SET = set(OPERATIONAL_KINDS)
 _APPLICABILITY = {"applicable", "not_applicable"}
 _LAYER_STATUS = {"pass", "fail", "not_run", "not_applicable"}

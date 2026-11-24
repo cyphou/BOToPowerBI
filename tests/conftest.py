@@ -2,8 +2,15 @@
 
 import json
 import os
+import sys
 import tempfile
 import unittest
+from pathlib import Path
+
+# Make local packages importable when pytest is launched via its console script.
+_REPO_ROOT = str(Path(__file__).resolve().parents[1])
+if _REPO_ROOT not in sys.path:
+    sys.path.insert(0, _REPO_ROOT)
 
 
 def make_temp_dir():

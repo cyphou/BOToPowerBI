@@ -1,0 +1,44 @@
+{
+  "schema_version": "1.0",
+  "comparison_id": "synthetic-bex-infocube-pilot-match",
+  "scope": {
+    "query_id": "SYNTHETIC-BW-PILOT:BEX:SALES-DAILY",
+    "query_scope_id": "synthetic-day-detail-2026-11-23-to-2026-11-24"
+  },
+  "key_fields": ["day_key"],
+  "source": {
+    "system_id": "SYNTHETIC-BW-PILOT",
+    "object_id": "SYNTHETIC-BW-PILOT:BEX:SALES-DAILY",
+    "run_id": "synthetic-bex-pilot-source-detail",
+    "evidence_ref": "synthetic://bex-infocube-pilot/results/source-detail",
+    "scope": {
+      "query_id": "SYNTHETIC-BW-PILOT:BEX:SALES-DAILY",
+      "query_scope_id": "synthetic-day-detail-2026-11-23-to-2026-11-24"
+    },
+    "role": "synthetic-sales-review",
+    "prompt_context_ref": "synthetic://bex-infocube-pilot/context/no-prompts",
+    "grain": "one detail row per calendar day",
+    "rows": [
+      {"key": {"day_key": "2026-11-23"}, "measures": {"synthetic-billed-quantity": 7}},
+      {"key": {"day_key": "2026-11-24"}, "measures": {"synthetic-billed-quantity": 11}}
+    ]
+  },
+  "target": {
+    "system_id": "SYNTHETIC-POWER-BI-PILOT",
+    "object_id": "Synthetic BEx InfoCube Pilot",
+    "run_id": "synthetic-bex-pilot-target-detail-match",
+    "evidence_ref": "synthetic://bex-infocube-pilot/results/target-detail-match",
+    "scope": {
+      "query_id": "SYNTHETIC-BW-PILOT:BEX:SALES-DAILY",
+      "query_scope_id": "synthetic-day-detail-2026-11-23-to-2026-11-24"
+    },
+    "role": "synthetic-sales-review",
+    "prompt_context_ref": "synthetic://bex-infocube-pilot/context/no-prompts",
+    "grain": "one detail row per calendar day",
+    "rows": [
+      {"key": {"day_key": "2026-11-24"}, "measures": {"synthetic-billed-quantity": 11}},
+      {"key": {"day_key": "2026-11-23"}, "measures": {"synthetic-billed-quantity": 7}}
+    ]
+  },
+  "rules": {"synthetic-billed-quantity": {"mode": "exact"}}
+}

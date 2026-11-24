@@ -8,7 +8,6 @@ breaks, sections, and data tracking configurations.
 import hashlib
 import json
 import logging
-import os
 import re
 import xml.etree.ElementTree as ET
 import zipfile

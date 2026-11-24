@@ -199,10 +199,53 @@ class TestSapBwMQuery(unittest.TestCase):
         self.assertIn('SapBusinessWarehouse.Cubes(', table)
         self.assertIn('InfoArea{[Id="$0D_DECU"]}[Data]', table)
         self.assertIn('Cube.AddMeasureColumn', table)
-        self.assertIn("sourceColumn: 'Calendar day'", table)
+        self.assertIn('sourceColumn: "Calendar day"', table)
         self.assertIn("sourceColumn: Quantity", table)
         self.assertIn("mode: import", table)
         self.assertNotIn('Source{[Schema=', table)
+
+    def test_generated_bw_server_and_quoted_alias_use_their_own_literal_escapes(self):
+        table = copy.deepcopy(self.table)
+        table_name = 'Sales "review"'
+        alias = 'Jour "ouvré" #(lf)'
+        table["name"] = table_name
+        table["sap_bw_navigation"]["dimensions"][0]["columns"] = [alias]
+        table["columns"] = [
+            {"name": alias, "datatype": "string"},
+            {"name": "Quantity", "datatype": "decimal"},
+        ]
+        data = [{"name": "BW", "connection": self.connection, "tables": [table]}]
+        with tempfile.TemporaryDirectory() as temporary:
+            generate_tmdl(data, "BW", {}, temporary)
+            definition = Path(temporary) / "definition"
+            expressions = (definition / "expressions.tmdl").read_text(encoding="utf-8")
+            model = (definition / "model.tmdl").read_text(encoding="utf-8")
+            table_path, = (definition / "tables").glob("*.tmdl")
+            table_text = table_path.read_text(encoding="utf-8")
+
+        self.assertIn(
+            'expression ServerName = "bw ""test"" #(#)(lf)" meta '
+            '[IsParameterQuery=true, Type="Text", IsParameterQueryRequired=true]',
+            expressions.splitlines(),
+        )
+        table_lines = table_text.splitlines()
+        self.assertIn(
+            '\t\t\t\t    #"Source" = SapBusinessWarehouse.Cubes('
+            '"bw ""test"" #(#)(lf)", "00", "001", [Implementation="2.0"]),',
+            table_lines,
+        )
+        self.assertIn(
+            '\t\t\t\t        {Cube.AddAndExpandDimensionColumn, "[0CALDAY]", '
+            '{"[0CALDAY].[LEVEL01]"}, {"Jour ""ouvré"" #(#)(lf)"}},',
+            table_lines,
+        )
+        self.assertIn('\t\tsourceColumn: "Jour ""ouvré"" #(lf)"', table_lines)
+        query_order_prefix = "annotation PBI_QueryOrder = "
+        self.assertEqual(
+            [json.loads(line.removeprefix(query_order_prefix)) for line in model.splitlines()
+             if line.startswith(query_order_prefix)],
+            [[table_name]],
+        )
 
     def test_non_bw_date_enrichments_remain_enabled(self):
         data = [{

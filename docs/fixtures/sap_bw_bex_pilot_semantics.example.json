@@ -1,0 +1,53 @@
+{
+  "schema_version": "1.2",
+  "query": {
+    "object_id": "SYNTHETIC-BW-PILOT:BEX:SALES-DAILY",
+    "definition_reference": "synthetic://bex-infocube-pilot/sales-by-day",
+    "definition_sha256": "2d1a679debcf6f80570fbf37e4661b50aad25b42761e00136e630ca5008e7048"
+  },
+  "coverage": {
+    "variables": "not_applicable",
+    "filters": "not_applicable",
+    "hierarchies": "not_applicable",
+    "master_data": "not_applicable",
+    "key_figures": "complete",
+    "exception_aggregation": "not_applicable",
+    "units_currencies": "complete",
+    "authorization_contexts": "not_applicable",
+    "consumers": "complete"
+  },
+  "variables": [],
+  "filters": [],
+  "hierarchies": [],
+  "master_data": [],
+  "key_figures": [
+    {
+      "id": "synthetic-billed-quantity",
+      "name": "Synthetic billed quantity",
+      "kind": "basic",
+      "aggregation": "SUM",
+      "exception_aggregation": {"status": "not_applicable", "method": null, "reference_characteristic": null},
+      "unit_currency": {"status": "observed", "unit": "EA", "currency": null, "conversion_reference": null},
+      "status": "observed",
+      "evidence_reference": "synthetic://bex-infocube-pilot/quantity"
+    }
+  ],
+  "provider_key_figure_bindings": [
+    {
+      "key_figure_id": "synthetic-billed-quantity",
+      "provider_id": "SYNTHETIC-BW-PILOT:INFOCUBE:SALES",
+      "provider_measure_name": "ZPILOT_QTY",
+      "status": "observed",
+      "evidence_reference": "synthetic://bex-infocube-pilot/quantity-provider"
+    }
+  ],
+  "authorization_contexts": [],
+  "consumers": [
+    {
+      "inventory_object_id": "SYNTHETIC-BW-PILOT:CONSUMER:SALES-REVIEW",
+      "target_candidate_reference": null,
+      "acceptance_status": "not_run",
+      "evidence_reference": null
+    }
+  ]
+}

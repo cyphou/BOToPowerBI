@@ -4,7 +4,6 @@ Reads SAP BusinessObjects BIAR and LCMBIAR archives, extracts individual
 artifacts (WebI, Crystal, Universe), and routes them for extraction.
 """
 
-import json
 import logging
 import os
 import xml.etree.ElementTree as ET

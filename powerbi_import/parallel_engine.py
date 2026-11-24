@@ -19,8 +19,7 @@ import json
 import logging
 import os
 import time
-from concurrent.futures import ProcessPoolExecutor, as_completed, TimeoutError
-from pathlib import Path
+from concurrent.futures import ProcessPoolExecutor, TimeoutError, as_completed
 
 logger = logging.getLogger(__name__)
 

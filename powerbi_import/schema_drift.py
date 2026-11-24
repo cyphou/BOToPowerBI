@@ -17,6 +17,15 @@ from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
+_SNAPSHOT_FILES = {
+    'datasources': 'datasources.json',
+    'worksheets': 'worksheets.json',
+    'dashboards': 'dashboards.json',
+    'calculations': 'calculations.json',
+    'parameters': 'parameters.json',
+    'filters': 'filters.json',
+}
+
 
 class SchemaDriftEntry:
     """A single schema change between two versions of a BO artifact."""
@@ -394,21 +403,13 @@ def load_snapshot(snapshot_dir):
     """Load a previous extraction snapshot from JSON files on disk.
 
     Args:
-        snapshot_dir: Directory containing the 17 extracted JSON files
+        snapshot_dir: Directory containing supported converted-object snapshot JSON files
 
     Returns:
         dict: Loaded snapshot (same format as _load_converted_objects)
     """
     data = {}
-    files_map = {
-        'datasources': 'datasources.json',
-        'worksheets': 'worksheets.json',
-        'dashboards': 'dashboards.json',
-        'calculations': 'calculations.json',
-        'parameters': 'parameters.json',
-        'filters': 'filters.json',
-    }
-    for key, fname in files_map.items():
+    for key, fname in _SNAPSHOT_FILES.items():
         path = os.path.join(snapshot_dir, fname)
         if os.path.isfile(path):
             try:
@@ -429,7 +430,7 @@ def save_snapshot(extracted_data, output_dir):
         output_dir: Directory to write snapshot files
     """
     os.makedirs(output_dir, exist_ok=True)
-    for key in ('datasources', 'worksheets', 'calculations', 'parameters', 'filters'):
+    for key in _SNAPSHOT_FILES:
         data = extracted_data.get(key, [])
         path = os.path.join(output_dir, f'{key}.json')
         with open(path, 'w', encoding='utf-8') as f:

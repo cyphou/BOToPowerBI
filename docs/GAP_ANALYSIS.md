@@ -1,5 +1,63 @@
 # Gap Analysis — BO to Power BI Migration
 
+## Local BO, BEx and InfoCube review — 2026-11-24
+
+This review used synthetic data on Windows/Python 3.12.16. The BO pipeline,
+BEx assessment, and single-cube PBIP generator are separate paths; see the
+[workflow guide](../README.md#bw-bex-infocube-workflows).
+
+| Path exercised | Observed local result |
+|---|---|
+| BO XI / Desktop Intelligence | The synthetic REP assessment exited `0` and returned a partial report; no automatic report conversion. |
+| WebI sample to PBIP | The batch produced a PBIP. Default validation returned `WARN` with 13 warnings and no errors; strict validation exited `6`. This does not resolve the visual bindings. |
+| Same WebI sample to a local Fabric bundle | Generation exited `6` with three blocking findings and seven warnings: an ordering-dependent calculation needs a supported or manual materialization path, a group lacks declared source members, and a calculated column did not meet the exactly-once materialization check. Not a publishable bundle. |
+| Offline BEx | The partial v1.1 fixture exited `1` with an open report and 17 blockers. A fully bound synthetic v1.2 manifest reached `candidate_for_owner_review` without closing BW-5. A conflicting declared digest exited `2` without creating a report. |
+| One InfoCube to Import PBIP | The unlinked v1.6 sample generated the declared table and one review visual, with no DAX exports. A synthetic v1.2 plan linked to a v1.2 manifest also generated; the linkage report still says `native_infocube_identity_verification: not_verified`. |
+| Offline BEx vectors | The mismatched fixture exited `1`. Two empty vectors exited `0` with `no_measure_observations_compared`; this did not compare any measure observations. |
+
+**2026-11-24 follow-up:** The [delivered linked pilot](DEVELOPMENT_PLAN.md#delivered-local-bex-and-infocube-pilot--2026-11-24)
+combines manifest 1.2 and plan 1.6 in a reproducible example. It generated
+one BW Import table, three typed physical columns and a review visual. Strict
+static validation reported zero errors and warnings. This is not SAP or
+Desktop validation.
+
+### Findings and follow-up
+
+- **P1 — CI test collection (fixed locally):** without the repository on
+  the import path, the [configured console invocation](../.github/workflows/ci.yml#L38-L43)
+  could not collect AI advisory and alerts tests. The [shared test setup](../tests/conftest.py#L5-L13)
+  now adds the repository root before collection. The console suite passed
+  locally with `PYTHONPATH` unset and 80.67% coverage. Hosted CI is separate.
+- **P1 — Single-cube PBIP completeness (fixed locally):** the review produced a
+	false success for a table named `Unknown`. An explicitly navigated SAP BW
+	table now keeps that name. The BW CLI refuses a missing or mismatched cube
+	table, reference, physical column or Import partition before writing review
+	exports or linkage evidence. The [linked pilot](MIGRATION_REFERENCE.md#linked-bex-and-infocube-pilot)
+	has a positive manifest 1.2 / plan 1.6 regression and negative linkage and
+	generated-output cases. Native identity remains unverified.
+- **P1 — Semantic fidelity:** [duplicate-table repair](../powerbi_import/tmdl_generator.py#L488-L503)
+	can redirect both relationship endpoints to the renamed table even when a
+	column exists only on the original. The [DAX-to-M `SUBSTITUTE` rewrite](../powerbi_import/tmdl_generator.py#L305-L313)
+	also discards the occurrence argument, so it replaces all matches rather
+	than one. Test valid relationship endpoints and preserve or reject unsupported
+	occurrence-specific rewrites; do not treat the current assertions as parity.
+- **P2 — InfoCube shared M expression (fixed locally):** the shared parameter
+  now encodes BW server metadata with the same M literal rules as the cube
+  partition. The test covers embedded quotes and a literal M escape sequence.
+- **P2 — Generated notebook path:** the [generated Python string](../powerbi_import/notebook_api.py#L405-L419)
+	does not round-trip a path containing an apostrophe. Check the actual parsed
+	argument in the generated cell without executing the notebook.
+
+The suite at the time of the original review passed via `python -m pytest`
+with **1,257 passed, 1 skipped, 1,422 subtests** and **80.67%** statement
+coverage against the unchanged 80% threshold. Repository-wide Ruff/Pyright
+findings remain open. The
+[CI evidence and next actions](DEVELOPMENT_PLAN.md#review-and-current-priorities--2026-11-24)
+are local; GitHub-hosted CI was not run. SAP/CMS access, Desktop rendering,
+refresh, deployment, Fabric execution, source equivalence and consumer
+acceptance were not validated. Native InfoCube identity still requires a
+sanitized, source-owner-approved native sample and agreed field mapping.
+
 ## Desktop Intelligence — experimental REP inventory and VBA handoff
 
 The standalone `migrate_deski_inspect.py` inventory is under implementation.
@@ -262,9 +320,9 @@ or report-feature conversion. Supported `.wid`, `.rpt`, `.unx`, `.unv` and
 experimental `.rep` metadata/candidates can be used for direct SQL selection
 (Crystal candidates are heuristic readable-text matches; REP candidates require
 an explicit unverified-candidate acknowledgement);
-BIAR/LCMBIAR is an archive
-and cannot be passed to the RDL selector. See the README source-preparation
-matrix for manual steps and remaining gaps. SQL result/field linkage, Report
+BIAR/LCMBIAR is an archive and cannot be passed to the RDL selector. See
+[BO source preparation](MIGRATION_REFERENCE.md#bo-source-preparation-and-limitations)
+for manual steps and remaining gaps. SQL result/field linkage, Report
 Builder rendering, execution and equivalence remain unverified.
 The folder RDL dispatcher applies per-source mappings and reports archive
 entries as unsupported; it does not infer a report's query, convert its layout
@@ -392,9 +450,11 @@ still apply.
 - Shared generation ignores `--deploy`; standalone `--deploy-bundle` does not
 	provide a working publish path. Single-file hooks need service-side checks:
 	deployment errors may be logged without a nonzero migration exit code.
-- CI currently runs lint/type checks, tests/coverage on Python 3.12/3.13 across
-	three OSes, then CLI help. No sample-generation, staging, or production gate is
-	implemented in that workflow; hosted CI itself was not executed in this review.
+- At this 2026-10-28 snapshot, CI ran lint/type checks and tests/coverage on
+	Python 3.12/3.13 across three OSes, followed by CLI help. The current workflow
+	has since added a synthetic WebI PBIP generation and static-validation job;
+	it still has no staging or production deployment gate. Hosted CI was not
+	executed for the review recorded in this historical section.
 - Documentation corrections do not implement these missing runtime behaviors.
 	Track their owners and evidence gates in the [development plan](DEVELOPMENT_PLAN.md).
 

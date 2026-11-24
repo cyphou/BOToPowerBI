@@ -651,10 +651,11 @@ production readiness.
 The assessment report includes one `key_figure_provider_links` row per captured
 key figure, with `resolved`, `blocked`, `missing` or `not_assessed` status.
 `resolved` means only that the local declarations cross-reference successfully.
-The inventory query definition must also be marked `observed` and carry a
-SHA-256 digest matching the manifest digest; otherwise BW-5 reports a blocker.
-This only cross-checks two local declarations and does not read or authenticate
-the referenced definition bytes or prove their SAP origin.
+An unobserved inventory query definition or a missing digest is a blocker.
+If an inventory digest is present but differs from the manifest digest, the
+CLI rejects the inputs (exit `2`) before writing a report. These checks compare
+local declarations; they do not read or authenticate the referenced definition
+bytes or prove their SAP origin.
 The assessment also lists direct `queries` dependencies from the BEx query to
 declared InfoCubes, ADSOs, InfoProviders or CompositeProviders. A missing,
 unresolved or unobserved dependency, an unknown or out-of-scope provider, a
@@ -670,16 +671,25 @@ blockers. An open BW-0 inventory review is also a blocker for this BW-5
 candidate assessment.
 
 The [synthetic example](fixtures/sap_bw_bex_semantics.partial.example.json)
-intentionally leaves coverage open. The report's
+is intentionally manifest version 1.1: it remains a compatibility example and
+does not demonstrate the v1.2 `kind` declaration. It leaves coverage open and
+its empty provider-binding list is not evidence that a key figure is mapped.
+The example produces a blocker report (exit `1`); exit `0` indicates that the
+report is ready for owner review, not accepted. Use a new report path.
+Use a separately reviewed v1.2 manifest to exercise declaration-only key-figure
+kinds and explicit provider bindings. The report's
 `candidate_for_owner_review` status means only that the declared BEx capture
 and local BW-0 inventory review have no reported blocker; `gate_closed`
 remains false. It is not owner approval. The assessor does not parse a BW
 query, check source provenance, create a target semantic model or report, run
 source or target queries, validate performance, or approve consumer acceptance.
 The local vector comparator below does not change those assessment limits.
-Query execution, runtime/source-target reconciliation, consumer acceptance and
-Desktop/Service rendering remain `not_run`. This is a contract and gap report,
-not a BEx converter or BW-5 exit gate.
+Neither a BEx declaration nor its local provider binding verifies native
+InfoCube identity. That remains blocked on a sanitized, source-owner-approved
+sample and agreed field mapping. Query execution, runtime/source-target
+reconciliation, consumer acceptance and Desktop/Service rendering remain
+`not_run`. This is a contract and gap report, not a BEx converter or BW-5 exit
+gate.
 
 ### Offline BEx result-vector comparison
 
@@ -699,7 +709,11 @@ exact composite key declared in `key_fields`. The report identifies missing,
 extra and duplicate keys, and measure mismatches. Each measure has an explicit
 `exact` rule or a decimal tolerance rule with absolute and relative tolerances.
 The [synthetic fixture](fixtures/sap_bw_bex_result_vectors.example.json) is
-deliberately mismatched.
+deliberately mismatched. For the linked InfoCube pilot, the
+[synthetic replay](MIGRATION_REFERENCE.md#replay-the-synthetic-result-comparison)
+exercises nonempty matching and mismatched day-level quantities without
+running the PBIP. The [authorized pilot handoff](MIGRATION_REFERENCE.md#collect-evidence-for-an-authorized-pilot)
+describes what to collect before comparing real results.
 
 A `pass` means only that the supplied local vectors satisfy those declared
 rules. It does not authenticate SAP source or Fabric target values or prompt-
@@ -777,17 +791,20 @@ retain the same requirement. The list maps every selected
 navigation dimension selector exactly once to an observed InfoCube dimension
 name that occurs exactly once in the provider's dimension declarations.
 Ambiguous selected names are rejected; version 1.1 linked plans may omit this
-list for compatibility. When
-linkage is present, also pass `--inventory` and `--semantics`. The CLI runs the
-existing offline BW-5 assessment and only generates when that report is
-`candidate_for_owner_review`; the result is written to
-`bex_linkage_assessment.json` beside the PBIP. The check requires the selected
-provider to be an observed direct InfoCube dependency and each selected key
-figure to resolve to that provider's observed measure name. Exact selector
-comparisons check declarations against each other; they do not verify that a
-selector or cube ID is correct in SAP. For linked plans, the SAP client in the
-connection must exactly match the BW inventory's source client; this does not
-verify the server, system number or InfoCube ID. The dimension binding checks
+list for compatibility. For a linked plan, pass both `--inventory` and
+`--semantics`; omit both for an unlinked plan. Plan and manifest versions are
+independent. Linked generation requires the offline BW-5 assessment to reach
+`candidate_for_owner_review`. After generation and expression export, the CLI
+writes `bex_linkage_assessment.json` at the root of `--output-dir`; the PBIP is
+in the child directory named by `project_name`. The linkage report schema is
+1.0; its nested `bw5_assessment` uses schema 1.1 for manifest v1.2.
+The check requires the selected provider to be an observed direct InfoCube
+dependency and each selected key figure to resolve to that provider's observed
+measure name. Exact selector comparisons check declarations against each other;
+they do not verify that a selector or cube ID is correct in SAP. For linked
+plans, the SAP client in the connection must exactly match the BW inventory's
+source client; this does not verify the server, system number or InfoCube ID.
+The dimension binding checks
 provider declarations only; they do not prove that the BEx query uses a
 dimension. Replace sample selectors, types and connection metadata only with
 independently verified values. The output is an Import model with an empty
@@ -955,13 +972,20 @@ declarations, in manifest order, alongside the existing `counts` and
 or SAP identity, and do not convert or implement filter or hierarchy
 semantics.
 
-The CLI validates the output column declarations and PBIP structure locally;
-it cannot confirm that SAP objects exist or that the declared query returns
-those names/types. Static validation warnings are reported but do not fail the
-command. Invalid plans are rejected before output creation, and output
-directories must be new or empty. Other generation errors may leave partial
-files; inspect warnings and do not treat an unsuccessful output as a finished
-project.
+After generic PBIP validation, the CLI checks this generator's TMDL against
+the plan: one explicitly named table and corresponding model reference, the
+exact physical columns, their declared type mappings and source aliases,
+no implicit summarization or DAX measures, and one Import partition with
+the expected BW M query. A mismatch exits `1` before expression export or
+linkage output. The check does not run the query or confirm that its SAP
+objects and result types exist. Static warnings alone do not fail the command.
+Invalid plans and linkage blockers exit `2` before generation. The output
+directory must be new or empty; failures can leave partial project files.
+
+The [linked BEx and InfoCube pilot](MIGRATION_REFERENCE.md#linked-bex-and-infocube-pilot)
+replays a synthetic inventory 1.0, manifest 1.2, and plan 1.6 together. It adds
+a typed date key and a column-only visual, not a converted BEx report or
+proof of runtime acceptance.
 
 After successful static validation, the BW CLI exports the generated model's
 M partitions to `PowerQuery/*.pq`, shared M expressions to

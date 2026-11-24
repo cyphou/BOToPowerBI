@@ -1,0 +1,47 @@
+{
+  "schema_version": "1.6",
+  "project_name": "Synthetic BEx InfoCube Pilot",
+  "datasource": {
+    "name": "Synthetic BW Pilot",
+    "connection": {
+      "type": "sap_bw",
+      "server": "synthetic-bw.invalid",
+      "system_number": "00",
+      "client_id": "000"
+    },
+    "tables": [{
+      "name": "Ventes d'été",
+      "columns": [
+        {"name": "Jour", "datatype": "string"},
+        {"name": "Clé du jour", "datatype": "datetime"},
+        {"name": "Quantité facturée", "datatype": "integer"}
+      ],
+      "sap_bw_navigation": {
+        "info_area": "$INFOCUBE",
+        "cube_id": "$ZPILOT_SALES",
+        "dimensions": [{
+          "selector": "[ZPILOT_DAY]",
+          "attributes": ["[ZPILOT_DAY].[LEVEL01]"],
+          "columns": ["Jour"],
+          "properties": [{"source_column": "Jour", "selector": "[2ZPILOT_DAY]", "column": "Clé du jour"}]
+        }],
+        "measures": [{"selector": "[Measures].[ZPILOT_QTY]", "column": "Quantité facturée"}]
+      }
+    }]
+  },
+  "bex_linkage": {
+    "query_id": "SYNTHETIC-BW-PILOT:BEX:SALES-DAILY",
+    "provider_id": "SYNTHETIC-BW-PILOT:INFOCUBE:SALES",
+    "cube_id": "$ZPILOT_SALES",
+    "dimension_bindings": [{"selector": "[ZPILOT_DAY]", "provider_dimension_name": "ZPILOT_DAY"}],
+    "key_figure_bindings": [{
+      "key_figure_id": "synthetic-billed-quantity",
+      "selector": "[Measures].[ZPILOT_QTY]",
+      "column": "Quantité facturée"
+    }]
+  },
+  "review_report": {
+    "page_name": "Revue des ventes par jour",
+    "columns": ["Jour", "Clé du jour", "Quantité facturée"]
+  }
+}

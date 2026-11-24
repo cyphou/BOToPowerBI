@@ -3,6 +3,23 @@
 ## [Unreleased]
 
 ### In progress
+- Added a reproducible [linked BEx and InfoCube pilot](docs/MIGRATION_REFERENCE.md#linked-bex-and-infocube-pilot)
+  using a synthetic BW inventory 1.0, BEx manifest 1.2 and plan 1.6. It produces
+  a local single-cube Import PBIP with typed physical columns, a review table,
+  M copies and linkage evidence; it does not translate BEx semantics.
+- The pilot now includes a [synthetic reconciliation replay](docs/MIGRATION_REFERENCE.md#replay-the-synthetic-result-comparison)
+  for two day-level observations and one deliberately changed quantity.
+  It uses the existing offline comparator and does not query SAP or Power BI.
+- Console `pytest` now collects local packages without requiring an installed
+  checkout or `PYTHONPATH`. The test-only change leaves assertions and the
+  80% coverage threshold unchanged.
+- BW cube PBIP generation now preserves explicitly named `Unknown` tables,
+  writes physical source aliases as TMDL text properties and escapes the shared
+  BW server expression. Before exporting M or writing linkage evidence, it
+  rejects a missing or mismatched table reference, physical columns or Import
+  partition. No plan versions or manifest versions changed. Native identity
+  remains `not_verified`; SAP and Desktop execution, refresh and equivalence
+  remain `not_run`.
 - BEx semantic manifest 1.2 now requires `provider_key_figure_bindings` and a
   `kind` (`basic`, `restricted`, `calculated` or `unknown`) on every key
   figure. Assessment report schema 1.1 adds `key_figure_kinds` entries
@@ -154,9 +171,10 @@
   rather than being reported as successful generation. It does not discover
   SAP metadata or convert BEx semantics.
 - BW cube plan 1.4 optionally emits explicitly declared text arguments as
-  `Cube.ApplyParameter` operations before cube selection. It preserves argument
-  order and list shape, but does not map BEx variables or verify SAP semantics,
-  parameter compatibility, folding or results. Literal arguments are present
+  `Cube.ApplyParameter` operations after cube navigation and before dimension
+  and measure projection. It preserves argument order and list shape, but
+  does not map BEx variables or verify SAP semantics, parameter compatibility,
+  folding or results. Literal arguments are present
   in the plan and generated model; protect them and never include secrets.
 - BW cube plan 1.5 can associate an explicitly declared cube parameter with a
   BEx variable ID from the linked local manifest. The linkage report records

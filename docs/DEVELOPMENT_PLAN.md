@@ -1,10 +1,342 @@
 # Development Plan — BO to Power BI Migration
 
-> **Last reviewed**: 2026-11-22
+> **Last reviewed**: 2026-11-24
 > The March 2026 version 3.0 plan is retained below as historical planning evidence,
 > not a current release or a certification that every phase exit criterion passed.
 
-## Current Evidence - 2026-11-22
+## Review and current priorities — 2026-11-24
+
+**Review basis before the linked pilot:** the initial code/evidence review
+used a clean `main` worktree. The manifest v1.2 change was verified in
+`powerbi_import/bw_bex_assessment.py`,
+`docs/schemas/sap_bw_bex_semantics.schema.json` and
+`tests/test_bw_bex_assessment.py`: BEx semantic manifest v1.2 requires provider
+key-figure bindings and a declared kind (`basic`, `restricted`, `calculated` or
+`unknown`); its assessment adds kind summaries and marks identity, provenance
+and equivalence `unverified`. Manifests v1.0/v1.1 retain prior acceptance and
+report shape. This is local declaration/assessment behavior only: no kind
+converts semantics or generates measures, the gate stays open, and runtime is
+`not_run`. The initial local CI-equivalent baseline on Windows/Python 3.12.16
+passed critical Flake8 and all pytest assertions, but the CI test command failed
+its coverage gate: 55.79% against the unchanged 80% threshold. Ruff 0.17.6
+reported 404 diagnostics, and Pyright 1.1.414 reported 74 errors and 2 warnings.
+A first run using the machine's default
+temporary path had eight Windows short/long-path mismatches; rerunning under a
+non-aliased temporary root removed those test failures. This is one local matrix
+leg only: other OS/Python jobs and hosted CI were not run. SAP, Desktop and
+Fabric runtime remain `not_run`; these measurements do not establish parity.
+Other recorded local slices remain bounded: WebI snapshot checks validate
+declared query-plan links, the synthetic WebI PBIP retains unresolved visual
+references, and the BW vector comparator compares only supplied rows. None
+verifies native source identity or parity. See the
+[local BO, BEx and InfoCube review](GAP_ANALYSIS.md#local-bo-bex-and-infocube-review--2026-11-24)
+for the migration findings and the
+[linked pilot](#delivered-local-bex-and-infocube-pilot--2026-11-24) for the
+subsequent implementation and local validation.
+
+**Ordered next work** (detail and historical evidence are retained in the
+sections below):
+
+1. **Recover the independent CI gates — baseline complete, gate open.** `Tester`
+  coordinates owner-scoped Ruff/Pyright remediation and coverage-focused
+  regressions; each affected module's primary owner in
+  `.github/agents/ownership.json` fixes its own findings. First bounded slice:
+  `Evidence` widened the `_LAYER_SET` annotation in
+  `powerbi_import/bw_wave_evidence_index.py`; focused Ruff/Pyright and its
+  focused tests passed (9 passed, 3 subtests passed). The next `Dax` slice fixed the
+  optional regex-match dereference in
+  `bo_export/dax_converter.py`; focused Python 3.12 Pyright and 56 converter
+  tests pass. A follow-up `Dax` cleanup removed an unused compiled regex; its
+  focused Ruff, Pyright and 56 converter tests pass. Repository Ruff is now
+  402 diagnostics (from 404 initially); `Extractor` then removed one unused
+  `json` import from `bo_export/biar_reader.py` (14 focused tests pass), bringing
+  Ruff to 401. `Orchestrator` then removed unused `pathlib.Path` and corrected
+  the adjacent concurrent-futures import ordering in
+  `powerbi_import/parallel_engine.py`; focused Ruff/Pyright and 12 tests pass,
+  bringing repository Ruff to 399. `Evidence` then removed unused
+  `collections.Counter` from `powerbi_import/fidelity_scorer.py`; focused
+  Ruff/Pyright and 36 visual-fidelity tests pass, bringing repository Ruff to
+  398. `Extractor` then removed unused `os` from
+  `bo_export/crystal_extractor.py`; its focused F401 check, Pyright and 49
+  Crystal tests pass. Full-file Ruff still reports the separate existing E741
+  ambiguous loop variable in that module. Repository Ruff is now 397, and
+  Pyright remains at 72 errors and 2 warnings (from 74 errors initially). A
+  subsequent Python 3.12.16 full coverage-gated run after these cleanups passed
+  all pytest assertions (955 passed, 1 skipped, 1358 subtests), but measured
+  55.78%, still below the unchanged 80% threshold.
+  **Current local follow-up — 2026-11-24:** `Extractor` removed only the
+  unused `zipfile` import from `bo_export/extract_bo_data.py` and unused `os`
+  import from `bo_export/webi_extractor.py`. The focused F401 suites
+  `test_extraction.py` and `test_webi_extractor.py` report **35 passed, 24
+  subtests**. The post-cleanup plain full run, using
+  `python -m pytest -o 'addopts=' tests/ --tb=short -q`, reports **1,257 passed, 1
+  skipped, 1,422 subtests passed in 43.14s**. After cleanup, critical
+  Flake8 exits 0
+  (Python emits `SyntaxWarning: invalid escape sequence` in
+  `universe_extractor.py:254`); Ruff decreases from **397 to 395** diagnostics
+  with **395 remaining**, and Pyright is unchanged at **72 errors and 2
+  warnings**. This is local evidence only: the **CI static gate remains open**
+  and hosted CI was not run.
+
+   **Full-review replay — 2026-11-24 (Windows/Python 3.12.16):** With
+   `PYTHONPATH` unset and no repository install, directly replaying the unchanged
+   [workflow console command](../.github/workflows/ci.yml#L38-L43)
+   `pytest tests/ --tb=short -q --cov=bo_export --cov=powerbi_import --cov-report=term-missing --cov-fail-under=80`
+   exited **2** during collection. Both
+   [tests/test_ai_advisory.py](../tests/test_ai_advisory.py#L10-L16) and
+   [tests/test_alerts_generator.py](../tests/test_alerts_generator.py#L6-L10)
+   import `powerbi_import` before the repository root is on the import path.
+   A separate `python -m pytest` run on the same post-cleanup source state passed
+   the unchanged 80% threshold: **21,666/26,858 (80.67%)**, with **1,257 passed,
+   1 skipped, 1,422 subtests**. This does not verify the console invocation.
+
+  **Console test follow-up — 2026-11-24:** `Tester` added the repository root
+  to the test import path in [conftest](../tests/conftest.py#L5-L13) before
+  collection. Both affected files pass in isolation. The workflow console
+  test command also exits `0` locally with `PYTHONPATH` unset on Python
+  3.12.16: **21,675/26,868 (80.67%)**, above the unchanged 80% threshold.
+  This is not a hosted CI or static-gate pass.
+
+  **Next:** Re-run critical Flake8, repository Ruff and Pyright as configured,
+  then the full OS/Python test matrix with its existing coverage gate. Do not
+  lower the threshold, change coverage scope, or weaken assertions. Require focused
+   behavior regressions for behavior changes and `pytest tests/ --tb=short -q`.
+   Exit requires all configured checks, including hosted CI, to pass. Do not
+   suppress findings, weaken assertions or treat a local suite pass as gate
+   recovery. CI recovery is independent of migration parity and source evidence.
+2. **WebI source-backed binding — blocked.** First obtain a sanitized,
+   source-owner-approved CMS response or verified API contract for
+   report-element-to-provider linkage and typed query-output mapping. The
+   `WebI Migration` role coordinates; `BusinessObjects` owns the CMS
+   contract/client, `Extractor` local metadata, `Wiring` query mapping,
+   `Semantic` model columns, `Visual` PBIR bindings, `Assessor` static checks,
+   and `Tester` regressions. The approved source evidence is a prerequisite to
+   changing schemas or generators. Then test matched, missing, ambiguous and
+   mismatched links, focused owner tests and the required full suite. Synthetic
+   warnings, query-plan ID consistency and successful static validation do
+   not satisfy this gate or establish visual parity.
+3. **BW identity before BEx conversion — blocked on native evidence.** First
+   request a sanitized, source-owner-approved native InfoCube identity sample
+   and agreed field mapping. `Assessor` owns offline identity assessment;
+   `Orchestrator` owns any linked-plan gate; `Tester` owns regressions. Source
+   owner approval and field meaning are external dependencies. Only after
+   identity is resolved may `Assessor` scope one approved query's variables,
+   filters, hierarchy and key-figure semantics; `Dax`, `Semantic`, `Wiring`,
+   `Evidence` and `Tester` own their respective conversion/model/query/result
+   slices. Require focused contract, M/DAX/model and reconciliation tests plus
+   the full suite. Manifest v1.2 kind declarations alone do not unblock this
+   work; no SAP API or identity mapping is to be inferred.
+4. **Runtime, deployment and cutover stay downstream.** `Deployer` owns any
+   separately authorized target operation; `Evidence` reconciles results and
+   `Reviewer` reviews acceptance. Named source/business/security/platform
+   owners, approved scope, safe test design and explicit authorization are
+   prerequisites. Local generation/tests and hosted CI do not authorize CMS or
+   SAP reads, Desktop/Report Builder launch, Power BI/Fabric access, cloud
+   writes, refresh, deployment, rollback, cutover or retirement. Until each
+   is explicitly authorized and performed, record it as `not_run`; do not
+   promote local evidence to hosted or runtime evidence.
+
+The independent CI recovery gate may proceed while source owners prepare
+evidence. The WebI and BW evidence blockers are independent of each other and
+of CI. The sections below preserve their dated details; historical counts and
+phase labels do not supersede this priority order.
+
+## Test-coverage recovery roadmap — 2026-11-23
+
+**Historical planning baseline:** the goal was to raise meaningful automated
+statement coverage to the unchanged CI gate of 80%, with a planning target of
+80.5% for a small margin. The earliest Python 3.12.16 coverage JSON used for
+this roadmap recorded 14,982 of 26,860 statements covered (55.78%), leaving
+11,878 missed. At that baseline denominator, 6,506 additional covered
+statements would reach the 80% gate and 6,641 would reach 80.5%. These are
+arithmetic planning values, not forecasts; recalculate after each increment if
+the measured denominator changes. The earlier 55.79% value remains the separate
+initial-run measurement above.
+
+**Prioritization basis:** the historical plan used missed-statement counts,
+behavioral risk and existing test leverage, not low percentage alone. The
+largest opportunities at baseline included `pbip_generator.py` (1,184 missed,
+44.0%), `tmdl_generator.py` (1,097, 60.0%), `shared_model.py` (984, 46.5%),
+`visual_generator.py` (414, 32.6%), and `validator.py` (383, 57.1%). High-risk
+modules with zero measured coverage at baseline included `global_assessment.py`
+(508), `api_server.py` (284), `governance.py` (258), and
+`telemetry_dashboard.py` (241). These percentages and counts come from the same
+historical Python 3.12.16 coverage JSON; use a fresh profile to rank any further
+work.
+
+### Incremental delivery gates
+
+| Increment | Primary owners | Target scope and test leverage | Minimum cumulative gain from baseline | Project checkpoint* |
+|---|---|---|---:|---:|
+| 1. PBIP and visuals | `Visual`; `Tester` owns tests | `pbip_generator.py`, `visual_generator.py`; expand `tests/test_cli.py`, `tests/test_e2e_pipeline.py`, and `tests/test_visual_fidelity.py` around successful generation, fallback, malformed inputs, and local validation outcomes. | +1,100 statements | 59.9% |
+| 2. Semantic and merge | `Semantic` for `tmdl_generator.py`; `Merger` for `shared_model.py` and `thin_report_generator.py` | Extend `tests/test_shared_model.py`, `tests/test_semantic_intelligence.py`, and `tests/test_e2e_pipeline.py`; cover model modes, schema/source identity, collisions, and preservation of declared metadata. | +2,550 statements | 65.3% |
+| 3. Assessment and validation | `Assessor` | `global_assessment.py`, `validator.py`, `schema_drift.py`, `strategy_advisor.py`; extend `tests/test_assessment.py` and `tests/test_migration_quality.py`, adding focused suites where a module contract is not covered. Assert findings for invalid, incomplete, ambiguous, and supported inputs. | +3,450 statements | 68.6% |
+| 4. Local orchestration | `Orchestrator`; `Tester` owns tests | `api_server.py`, `wizard.py`, `incremental.py`, `notebook_api.py`; add isolated tests for request validation, error paths, and state transitions with temporary files and mocked boundaries. Reuse CLI/E2E suites only where they exercise these contracts. | +4,100 statements | 71.0% |
+| 5. Deployment guards | `Deployer`; `Tester` owns tests | `deploy/bundle_deployer.py`, `deploy/multi_tenant.py`, `governance.py`, `telemetry_dashboard.py`; extend `tests/test_phase5_advanced.py` and add focused tests for fail-closed validation, payload construction, and local reports. Mock every client boundary and verify forbidden paths make no calls. | +4,900 statements | 74.0% |
+| 6. Evidence and optional integrations | `Evidence` for comparison/report/diff modules; `AI` for `llm_client.py` and `marketplace.py`; `Tester` owns tests | `comparison_report.py`, `migration_report.py`, `visual_diff.py`, `llm_client.py`, `marketplace.py`, then re-rank remaining misses using the refreshed profile. Extend existing report tests or add focused `tests/test_evidence_reports.py` and `tests/test_ai_advisory.py`; use deterministic fixtures and fake providers, without network access. | +6,641 statements | 80.5% |
+
+**Increment 1 progress — checkpoint achieved; CI gate remains open:** Four local behavior-test
+slices now cover (1) PBIR decorations through public `create_visual_container()`,
+(2) PBIP visual query roles, analytics, fallback, filters, and layout, and
+(3) report-level slicers, rich text, actions, tooltip/drillthrough, mobile
+positions, and report filters through generated artifacts. Six further
+query-path tests cover color/category and series roles, date-aware series
+selection, measure-only card fallbacks, and scatter placeholders; the latest
+slice adds specialty query roles, script visuals, report metadata/theme,
+asset handling, styling, paginated output, review tables, and thin-report shell
+preservation. All **41 tests** in `TestPBIPGeneratorCoverageSlices` pass (24
+subtests). The full Python 3.12.16 rerun reports **1,002 passed, 1 skipped,
+1,382 subtests, no test failures**; its coverage-gated command still fails only
+because total coverage is below 80%.
+
+Against the original coverage JSON, project statement coverage is now
+**16,129/26,860 (60.05%)**, up from **14,982/26,860 (55.78%)**: a cumulative
+gain of **1,147 statements** (+4.27 percentage points from the exact profile),
+meeting the increment's **+1,100** checkpoint by **47 statements**.
+`pbip_generator.py` rose from **930/2,114 (43.99%)** to **1,896/2,114
+(89.69%)** (+966); `visual_generator.py` rose from **200/614 (32.57%)** to
+**363/614 (59.12%)** (+163). The two module gains account for 1,129 of the
+project gain; the refreshed full-suite profile includes 18 additional
+statements in other measured code. Focused-suite coverage is not added
+separately.
+
+The coverage-gated command exits nonzero: **60.05%** remains below the
+unchanged **80%** threshold. Increment 1's statement-gain checkpoint is
+achieved, but the repository-wide CI coverage gate remains open. This test-only
+work made no product-code change and does not establish Desktop rendering,
+cloud behavior, source equivalence, or runtime acceptance; those remain
+separate evidence and authorization gates.
+
+**Increment 2 progress — started:** **31 behavior-focused test methods** were
+added across four modules: 14 in `tests/test_shared_model.py`, 10 in
+`tests/test_tmdl_generator.py`, 6 in `tests/test_thin_report_generator.py`, and
+1 in `tests/test_semantic_intelligence.py`. They cover calculation
+deduplication/conflict namespacing, Unicode hierarchy selection,
+field-parameter union, calculation-group conflict provenance, culture/type
+history, TMDL round-tripping, incremental add/remove, validation, RLS, goals,
+and thin-report references. The combined four-suite focused run passes
+**66 tests**. Test files remain `Tester`-owned; the source modules remain owned
+by `Semantic` (`tmdl_generator.py`) and `Merger` (`shared_model.py` and
+`thin_report_generator.py`). Against the Python 3.12.16 Increment 1 profile of
+**16,129/26,860 (60.05%)**, the latest full profile is **17,583/26,860
+(65.46%)**, a net gain of **1,454 statements** (+5.41 percentage points from
+the exact profile). `tmdl_generator.py` is now **2,190/2,743 (79.84%)**,
+`shared_model.py` **1,594/1,840 (86.63%)**, and `thin_report_generator.py`
+**240/254 (94.49%)**. Per-module changes and whole-project changes are measured
+independently in the same full-suite profile; test-only gains can be offset by
+platform-specific paths not exercised in this Windows run. Against the original
+baseline of 14,982 statements, the cumulative gain is **+2,601**, exceeding
+Increment 2's **+2,550** checkpoint by **51 statements**.
+
+The full coverage run associated with this checkpoint records **17,583/26,860
+(65.46%)** and exits nonzero against the unchanged 80% gate. Later full-suite
+counts are recorded with their corresponding increments. No assessment,
+production code, or coverage assertions were weakened.
+
+**Increment 3 progress — checkpoint achieved; CI gate remains open:** the
+Assessor slices added 21 portfolio/schema-drift/strategy tests and 12 public
+validator behavior tests. A local snapshot round-trip defect was fixed:
+`schema_drift.py` now saves and loads the same six supported collections,
+including dashboards. The focused Assessor suites pass. Against the Increment 2
+checkpoint profile of **17,583/26,860 (65.46%)**, coverage is now
+**18,444/26,860 (68.67%)**, a net gain of **861 statements** (+3.21 percentage
+points). Against the original baseline of 14,982, cumulative gain is **+3,462**,
+exceeding Increment 3's **+3,450 checkpoint by 12 statements**. Module results:
+`global_assessment.py` **398/508 (78.35%)**, `validator.py` **641/892 (71.86%)**,
+`schema_drift.py` **229/232 (98.71%)**, and `strategy_advisor.py` **125/153
+(81.70%)**.
+
+The latest full Python 3.12.16 run reports **1,077 passed, 1 skipped, 1,401
+subtests, no test failures**. Its coverage command exits nonzero at **68.67%**;
+the 80% CI coverage gate remains open.
+Continue into Increment 4 (local orchestration) while retaining the unchanged
+80% gate; no hosted CI, cloud, Desktop, or runtime acceptance is claimed.
+
+**Increment 4 progress — checkpoint achieved; CI gate remains open:**
+`Tester` added 38 behavior-focused test methods in
+[tests/test_orchestration_surfaces.py](../tests/test_orchestration_surfaces.py)
+for local API, wizard, incremental merge, and notebook-session contracts. The
+new suite passes **38 tests and 9
+subtests**. Against the Increment 3 profile of **18,444/26,860 (68.67%)**,
+coverage is now **19,084/26,860 (71.05%)**, a net gain of **640 statements**
+(+2.38 percentage points). `api_server.py` is **239/284 (84.15%)**,
+`wizard.py` **127/146 (86.99%)**, `incremental.py` **219/226 (96.90%)**, and
+`notebook_api.py` **172/178 (96.63%)**. Against the original 14,982 baseline,
+the cumulative gain is **+4,102**, two statements above Increment 4's **+4,100**
+checkpoint.
+
+The latest full Python 3.12.16 run reports **1,115 passed, 1 skipped, 1,410
+subtests, no test failures**. Coverage-gated execution still exits nonzero at
+**71.05%**, below the unchanged 80% CI threshold. This test-only increment does
+not exercise live API/network service, deploy cloud resources, launch Desktop,
+or establish runtime success; those evidence gates remain `not_run`.
+
+**Increment 5 progress — checkpoint achieved; CI gate remains open:** `Tester`
+added **40 behavior-focused tests** in
+[tests/test_deployer_governance.py](../tests/test_deployer_governance.py), using
+local files and mocked clients for tenant configuration and placeholder
+safety, governance/PII/audit, dashboard inputs and escaping, and bundle
+permission/conflict/failure/rollback/refresh behavior. The focused suite passes
+**40 tests and 6 subtests**; the existing deployment suite passes **83 tests
+and 265 subtests**. Compared with the Increment 4 profile
+**19,084/26,860 (71.05%)**, the full profile is **19,928/26,860 (74.19%)**, a
+gain of **844 statements** (+3.14 percentage points). Module coverage rose to
+`bundle_deployer.py` **250/313 (79.87%)**, `multi_tenant.py` **172/185
+(92.97%)**, `governance.py` **235/258 (91.09%)**, and `telemetry_dashboard.py`
+**224/241 (92.95%)**. From the original baseline of 14,982, cumulative gain is
+**+4,946**, exceeding Increment 5's **+4,900 checkpoint by 46 statements**.
+
+The full Python 3.12.16 run reports **1,155 passed, 1 skipped, 1,416
+subtests, no test failures**. The unchanged 80% coverage gate remains open at
+74.19%; all test assertions pass. Deployment-related tests are mocked and do
+not verify or authorize cloud deployment, refresh, workspace permissions, or
+target acceptance; those runtime checks remain `not_run`.
+
+**Increment 6 progress — checkpoint achieved; hosted CI remains unverified:** `Tester` added 36 behavior-focused methods in [tests/test_evidence_reports.py](../tests/test_evidence_reports.py) and [tests/test_ai_advisory.py](../tests/test_ai_advisory.py), then 22 tests for configuration, alert extraction and monitoring, and 44 tests for SLA tracking, merge config, progress, plugins, DAX recipes, scorecards and geo passthrough. The three follow-up suites and seven-suite tranche pass locally; together with the original 36 focused cases, these are 102 tests. The tests use synthetic fixtures, temporary paths and mocked provider/monitoring clients; they make no network or cloud calls.
+
+Against Increment 5's **19,928/26,860 (74.19%)**, the pre-cleanup full-suite
+profile was **21,668/26,860 (80.67%)**, a gain of **1,740 statements** (+6.48
+percentage points), with **1,257 passed, 1 skipped, 1,422 subtests**. That
+local measurement passed the unchanged 80% threshold. Against the initial
+14,982 covered statements, the cumulative gain was **+6,686**, exceeding
+the **+6,641 checkpoint** and the corresponding 80.5% planning target by
+**45 statements**. After the two unused-import removals, the same test scope
+measured **21,666/26,858 (80.67%)**.
+
+The previously uncovered follow-up modules measured: `migration_config.py`
+**135/136 (99.26%)**, `alerts_generator.py` **132/135 (97.78%)**,
+`monitoring.py` **116/120 (96.67%)**, `sla_tracker.py` **79/79 (100%)**,
+`merge_config.py` **76/79 (96.20%)**, `progress.py` **78/78 (100%)**,
+`plugins.py` **81/87 (93.10%)**, `dax_recipes.py` **42/44 (95.45%)**,
+`goals_generator.py` **57/57 (100%)**, and `geo_passthrough.py` **97/100
+(97%)**. The full-suite project profile determines the checkpoint.
+
+The post-cleanup local Windows/Python 3.12.16 `python -m pytest` run passed
+the coverage threshold; the workflow console replay failed collection as
+recorded in ordered work item 1. Hosted CI across the supported OS/Python
+matrix, Desktop/Fabric behavior, source equivalence and runtime acceptance
+were not run and remain unverified; local tests do not establish those separate
+evidence gates.
+
+\* Checkpoints estimate project coverage from the measured baseline of 26,860
+statements and the stated cumulative gain; they are not per-module promises.
+Exit each increment only when focused behavior tests pass, the full
+`pytest tests/ --tb=short -q` suite passes, and a fresh coverage JSON confirms
+the cumulative gain. The last increment must also pass the existing CI coverage
+command with the 80% gate; retain 80.5% as the planning target, not a new CI
+threshold. Keep coverage configuration and exclusions unchanged. Do not count
+trivial accessors, exercise private implementation solely for line hits, weaken
+assertions, or add `pragma: no cover`/omissions to improve the percentage.
+
+**Evidence boundaries:** zero coverage in the planning baseline identified
+candidate areas, not an instruction to test every line indiscriminately. Cover
+observable contracts, error handling, privacy and safe failure behavior first.
+Deployment tests remain mocked and do not authorize or verify cloud writes,
+refresh, rollback, or target acceptance. Local model generation and validation
+do not establish Desktop rendering, source equivalence, or deployed execution;
+those remain separate evidence gates and `not_run` until performed.
+
+## Dated local evidence record — 2026-11-22
 
 - The SAP BW capability mapping now distinguishes repository behavior from
   the target architecture. `migrate_bw_bex_pbip.py` writes a versioned
@@ -197,10 +529,15 @@ source evidence; neither is proof of SAP identity or feature parity.
   1.0 records declared objects and edges; [BEx semantic capture](schemas/sap_bw_bex_semantics.schema.json)
   1.0/1.1 records query, variables, filters, hierarchies, key-figure and
   authorization declarations. The [synthetic BEx fixture](fixtures/sap_bw_bex_semantics.partial.example.json)
-  has a filter but incomplete hierarchy and exception-aggregation evidence.
-  The assessor checks direct query/provider and consumer edges, not transitive
-  provider composition or SAP origin. The schema does not distinguish
-  restricted from calculated key figures.
+  is an existing manifest v1.1 example retained for backward compatibility,
+  not a v1.2 example; it has a filter but incomplete hierarchy and
+  exception-aggregation evidence. The assessor checks direct query/provider
+  and consumer edges, not transitive provider composition or SAP origin.
+  Versions 1.0/1.1 do not distinguish restricted from calculated key figures;
+  v1.2 adds declaration-only key-figure kind and requires direct provider
+  bindings. Neither the v1.1 fixture declarations nor v1.2 declarations verify
+  native InfoCube identity. Identity remains blocked pending a sanitized,
+  source-owner-approved sample and agreed field mapping.
 - **Implemented locally, partial:** the [PBIP plan](schemas/sap_bw_bex_pbip_plan.schema.json)
   1.0–1.6 describes one manually navigated BW cube, Import columns, optional
   local BEx linkage, explicit parameters/member properties and an optional
@@ -350,6 +687,43 @@ source evidence; neither is proof of SAP identity or feature parity.
   dependencies, units, exception aggregation and context. It establishes no
   aggregation safety, conversion, source identity, provenance or equivalence;
   no measures are generated from it.
+
+### Delivered local BEx and InfoCube pilot — 2026-11-24
+
+- **Outcome:** The [reproducible linked pilot](MIGRATION_REFERENCE.md#linked-bex-and-infocube-pilot)
+  replays inventory 1.0, manifest 1.2 and plan 1.6 against one fictional query
+  and its directly declared InfoCube. Local assessment reports no blockers
+  and one review item; generation writes one Import table with three typed
+  physical columns, a review visual, M exports and linkage evidence. It
+  writes no DAX measures and does not change input contract versions.
+- **Output gate:** The BW CLI checks the generated table reference, table,
+  physical columns/types/aliases, lack of implicit summarization and one
+  Import partition with the declared M query before producing exports or a
+  linkage report. `Semantic` preserves explicit BW names such as `Unknown`,
+  writes TMDL source aliases as text properties and uses the `Wiring` M
+  encoder for the shared server expression. `Orchestrator` owns the CLI and
+  pilot plan, `Assessor` the inventory/manifest fixtures, and `Tester` the
+  regressions.
+- **Local validation:** Windows/Python 3.12.16. The pilot passed strict
+  static project validation with zero errors and warnings. Focused suites
+  passed **93 tests and 451 subtests**. The full `python -m pytest` run with
+  the unchanged 80% threshold passed **1,262 tests, 1 skipped and 1,434
+  subtests** at **21,675/26,868 (80.67%)** coverage. At this milestone, the
+  console collection issue had not yet been fixed and hosted CI had not run.
+- **Synthetic reconciliation:** The [offline replay](MIGRATION_REFERENCE.md#replay-the-synthetic-result-comparison)
+  compared two observations per case with no key discrepancies. It returned
+  `pass`/0 for matching vectors and `fail`/1 for the changed target quantity
+  (`12` vs `11` on `2026-11-24`). The full local suite passed **1,263 tests**
+  with **1 skipped, 1,438 subtests and 80.67% coverage**. The comparator and
+  schema are unchanged; the values were supplied, not queried from the PBIP.
+- **Next real pilot:** The [owner handoff](MIGRATION_REFERENCE.md#collect-evidence-for-an-authorized-pilot)
+  records the prerequisites for comparing real results. P1-B and P1-D remain
+  blocked on a sanitized, source-owner-approved native InfoCube sample, query
+  definition and agreed field mapping. Then compare independently captured
+  source and target results for one selected key figure at the same grain,
+  role and prompt context. The synthetic fixture is not SAP evidence: `gate_closed`
+  is false, native identity is `not_verified`, and SAP, Desktop, refresh,
+  Fabric and equivalence checks remain `not_run`.
 
 ### P1-D — query semantics and source-backed mapping (blocked for conversion)
 
@@ -548,7 +922,7 @@ source evidence; neither is proof of SAP identity or feature parity.
   authenticity remains `not_verified`. No automatic decommission or broad
   equivalence claim follows.
 
-## Next actionable roadmap — 2026-11-22
+## Detailed delivery and priority snapshot — 2026-11-22
 
 This sequence is **planned**, not authorization to implement or release. It
 extends the cross-source and BW plans below without replacing their historical
@@ -814,7 +1188,7 @@ coverage or migration equivalence.
   parity. Publications, planning/write-back and unsupported source features
   require separately owned dispositions rather than silent replacement.
 
-## Current cross-source roadmap — 2026-11-22
+## Cross-source roadmap snapshot — 2026-11-22
 
 **Goal:** work toward comprehensive, equivalent migration of each inventoried
 source feature to an appropriate Power BI, Fabric or paginated RDL target.

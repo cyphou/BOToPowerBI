@@ -8,16 +8,23 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from contextlib import redirect_stderr, redirect_stdout
+from io import StringIO
 from pathlib import Path
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from migrate_bw_bex_pbip import main as bw_bex_pbip_main
 from powerbi_import.validator import ArtifactValidator
 
 ROOT = Path(__file__).resolve().parents[1]
 CLI = ROOT / "migrate_bw_bex_pbip.py"
 FIXTURE = ROOT / "docs" / "fixtures" / "sap_bw_bex_pbip_plan.example.json"
 PROPERTY_FIXTURE = ROOT / "docs" / "fixtures" / "sap_bw_bex_pbip_properties.example.json"
+PILOT_PLAN_FIXTURE = ROOT / "docs" / "fixtures" / "sap_bw_bex_pilot_plan.example.json"
+PILOT_INVENTORY_FIXTURE = ROOT / "docs" / "fixtures" / "sap_bw_bex_pilot_inventory.example.json"
+PILOT_SEMANTICS_FIXTURE = ROOT / "docs" / "fixtures" / "sap_bw_bex_pilot_semantics.example.json"
 SCHEMA = ROOT / "docs" / "schemas" / "sap_bw_bex_pbip_plan.schema.json"
 
 
@@ -53,6 +60,32 @@ class TestMigrateBWBExPBIP(unittest.TestCase):
             errors="replace",
             check=False,
         )
+
+    @staticmethod
+    def _pilot_cli_args(output_dir, semantics_path=PILOT_SEMANTICS_FIXTURE):
+        return [
+            "--plan", str(PILOT_PLAN_FIXTURE),
+            "--inventory", str(PILOT_INVENTORY_FIXTURE),
+            "--semantics", str(semantics_path),
+            "--output-dir", str(output_dir),
+        ]
+
+    def _run_pilot_cli(self, output_dir, semantics_path=PILOT_SEMANTICS_FIXTURE):
+        return subprocess.run(
+            [sys.executable, str(CLI), *self._pilot_cli_args(output_dir, semantics_path)],
+            cwd=ROOT, capture_output=True, text=True, encoding="utf-8",
+            errors="replace", check=False,
+        )
+
+    def _only_import_partition_m(self, table_text):
+        self.assertEqual(len(re.findall(r"(?m)^\tpartition ", table_text)), 1)
+        sources = re.findall(
+            r"(?m)^\tpartition .+ = m\n\t\tmode: import\n\t\tsource =\n"
+            r"((?:\t{4}[^\n]*\n)+)",
+            table_text,
+        )
+        self.assertEqual(len(sources), 1, table_text)
+        return "\n".join(line[4:] for line in sources[0].splitlines())
 
     def _linked_plan_and_evidence(self):
         plan = copy.deepcopy(self.fixture)
@@ -357,7 +390,7 @@ class TestMigrateBWBExPBIP(unittest.TestCase):
                 '{Cube.AddMeasureColumn, "Quantity", "[Measures].[0D_INV_QTY]"}',
                 model_table,
             )
-            self.assertIn("sourceColumn: 'Calendar day'", model_table)
+            self.assertIn('sourceColumn: "Calendar day"', model_table)
             self.assertIn("sourceColumn: Quantity", model_table)
             query = (project / "PowerQuery" / "Sales.pq").read_text(encoding="utf-8")
             self.assertIn('InfoArea{[Id="$0D_DECU"]}[Data]', query)
@@ -385,6 +418,229 @@ class TestMigrateBWBExPBIP(unittest.TestCase):
             )
             validation = ArtifactValidator.validate_project(project)
             self.assertTrue(validation["valid"], validation["errors"])
+
+    def test_cli_generates_linked_synthetic_bex_infocube_pilot(self):
+        for fixture, version in (
+            (PILOT_PLAN_FIXTURE, "1.6"),
+            (PILOT_INVENTORY_FIXTURE, "1.0"),
+            (PILOT_SEMANTICS_FIXTURE, "1.2"),
+        ):
+            declaration = json.loads(fixture.read_text(encoding="utf-8"))
+            self.assertEqual(declaration["schema_version"], version, fixture.name)
+
+        project_name = "Synthetic BEx InfoCube Pilot"
+        table_name = "Ventes d'été"
+        with tempfile.TemporaryDirectory() as temporary:
+            output_dir = Path(temporary) / "generated"
+            result = self._run_pilot_cli(output_dir)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("statically validated", result.stdout)
+            project = output_dir / project_name
+            validation = ArtifactValidator.validate_project(project)
+            self.assertTrue(validation["valid"], validation["errors"])
+
+            definition = project / f"{project_name}.SemanticModel" / "definition"
+            model = (definition / "model.tmdl").read_text(encoding="utf-8")
+            self.assertEqual(
+                [line for line in model.splitlines() if line.startswith("ref table ")],
+                ["ref table 'Ventes d''été'"],
+            )
+            table_path = definition / "tables" / f"{table_name}.tmdl"
+            self.assertEqual(list(table_path.parent.glob("*.tmdl")), [table_path])
+            table = table_path.read_text(encoding="utf-8")
+            self.assertEqual(table.partition("\n")[0], "table 'Ventes d''été'")
+            expected_columns = {
+                "Jour": ("string", "Jour"),
+                "'Clé du jour'": ("dateTime", '"Clé du jour"'),
+                "'Quantité facturée'": ("int64", '"Quantité facturée"'),
+            }
+            column_blocks = re.findall(
+                r"(?m)^\tcolumn ([^\n]+)\n((?:\t\t[^\n]*\n|\n)*)", table,
+            )
+            self.assertCountEqual([name for name, _ in column_blocks], expected_columns)
+            property_prefixes = ("\t\tdataType:", "\t\tsourceColumn:", "\t\tsummarizeBy:")
+            for name, body in column_blocks:
+                datatype, alias = expected_columns[name]
+                with self.subTest(column=name):
+                    self.assertCountEqual(
+                        [line for line in body.splitlines() if line.startswith(property_prefixes)],
+                        [
+                            f"\t\tdataType: {datatype}",
+                            f"\t\tsourceColumn: {alias}",
+                            "\t\tsummarizeBy: none",
+                        ],
+                    )
+            expected_m = (
+                'let\n'
+                '    #"Source" = SapBusinessWarehouse.Cubes("synthetic-bw.invalid", '
+                '"00", "000", [Implementation="2.0"]),\n'
+                '    #"InfoArea" = Source{[Name="$INFOCUBE"]}[Data],\n'
+                '    #"Cube" = InfoArea{[Id="$ZPILOT_SALES"]}[Data],\n'
+                '    #"Selection" = Cube.Transform(Cube, {\n'
+                '        {Cube.AddAndExpandDimensionColumn, "[ZPILOT_DAY]", '
+                '{"[ZPILOT_DAY].[LEVEL01]"}, {"Jour"}},\n'
+                '        {Table.AddColumn, "Clé du jour", each '
+                'Cube.AttributeMemberProperty([#"Jour"], "[2ZPILOT_DAY]")},\n'
+                '        {Cube.AddMeasureColumn, "Quantité facturée", "[Measures].[ZPILOT_QTY]"}\n'
+                '    })\n'
+                'in\n'
+                '    #"Selection"'
+            )
+            self.assertEqual(self._only_import_partition_m(table), expected_m)
+            pq_path = project / "PowerQuery" / f"{table_name}.pq"
+            self.assertEqual(pq_path.read_text(encoding="utf-8"), expected_m + "\n")
+            self.assertNotRegex(table, r"(?m)^\tmeasure ")
+            self.assertFalse((project / "DAX").exists())
+
+            pbip = json.loads((project / f"{project_name}.pbip").read_text(encoding="utf-8"))
+            report = project / pbip["artifacts"][0]["report"]["path"]
+            pbir = json.loads((report / "definition.pbir").read_text(encoding="utf-8"))
+            self.assertEqual(
+                pbir["datasetReference"]["byPath"]["path"], f"../{project_name}.SemanticModel",
+            )
+            visual_path, = report.rglob("visual.json")
+            visual = json.loads(visual_path.read_text(encoding="utf-8"))["visual"]
+            self.assertEqual(visual["visualType"], "tableEx")
+            expected_projections = [
+                {
+                    "field": {"Column": {
+                        "Expression": {"SourceRef": {"Entity": table_name}},
+                        "Property": name,
+                    }},
+                    "queryRef": f"{table_name}.{name}",
+                    "nativeQueryRef": name,
+                    "active": True,
+                }
+                for name in ("Jour", "Clé du jour", "Quantité facturée")
+            ]
+            self.assertEqual(
+                visual["query"]["queryState"], {"Values": {"projections": expected_projections}},
+            )
+
+            evidence_path = output_dir / "bex_linkage_assessment.json"
+            self.assertEqual(list(output_dir.rglob(evidence_path.name)), [evidence_path])
+            evidence = json.loads(evidence_path.read_text(encoding="utf-8"))
+            self.assertEqual(evidence["schema_version"], "1.0")
+            self.assertEqual(evidence["native_infocube_identity_verification"], "not_verified")
+            assessment = evidence["bw5_assessment"]
+            self.assertEqual(assessment["schema_version"], "1.1")
+            self.assertEqual(assessment["gate_status"], "candidate_for_owner_review")
+            self.assertIs(assessment["gate_closed"], False)
+            self.assertEqual(set(assessment["runtime_evidence"].values()), {"not_run"})
+            self.assertEqual(assessment["key_figure_kinds"], [{
+                "key_figure_id": "synthetic-billed-quantity",
+                "declared_kind": "basic",
+                "declaration_boundary": "declaration_only; no expression or behavior captured",
+                "assessment": "aggregation_safety_and_conversion_unverified",
+            }])
+            self.assertEqual(assessment["key_figure_provider_links"], [{
+                "key_figure_id": "synthetic-billed-quantity",
+                "provider_id": "SYNTHETIC-BW-PILOT:INFOCUBE:SALES",
+                "provider_measure_name": "ZPILOT_QTY",
+                "binding_status": "resolved",
+            }])
+
+    def test_pilot_v12_rejects_invalid_provider_bindings_before_output(self):
+        semantics = json.loads(PILOT_SEMANTICS_FIXTURE.read_text(encoding="utf-8"))
+        for mutation, blocker in (
+            ("missing", "bex_key_figure_provider_mapping_missing"),
+            ("wrong_measure", "key_figure_provider_measure_unresolved"),
+        ):
+            with self.subTest(binding=mutation), tempfile.TemporaryDirectory() as temporary:
+                invalid = copy.deepcopy(semantics)
+                if mutation == "missing":
+                    invalid["provider_key_figure_bindings"] = []
+                else:
+                    invalid["provider_key_figure_bindings"][0]["provider_measure_name"] = "ZOTHER"
+                semantics_path = Path(temporary) / "semantics.json"
+                semantics_path.write_text(json.dumps(invalid), encoding="utf-8")
+                output_dir = Path(temporary) / "generated"
+                result = self._run_pilot_cli(output_dir, semantics_path)
+                self.assertEqual(result.returncode, 2, result.stderr)
+                self.assertIn(blocker, result.stderr)
+                self.assertFalse(output_dir.exists())
+
+    def test_explicit_unknown_bw_table_has_real_import_partition(self):
+        plan = copy.deepcopy(self.fixture)
+        plan["datasource"]["tables"][0]["name"] = "Unknown"
+        with tempfile.TemporaryDirectory() as temporary:
+            output_dir = Path(temporary) / "generated"
+            result = self._run_cli(plan, output_dir, temporary)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("statically validated", result.stdout)
+            project = output_dir / plan["project_name"]
+            definition = project / f'{plan["project_name"]}.SemanticModel' / "definition"
+            model = (definition / "model.tmdl").read_text(encoding="utf-8")
+            self.assertEqual(
+                [line for line in model.splitlines() if line.startswith("ref table ")],
+                ["ref table Unknown"],
+            )
+            table_path = definition / "tables" / "Unknown.tmdl"
+            self.assertEqual(list(table_path.parent.glob("*.tmdl")), [table_path])
+            table = table_path.read_text(encoding="utf-8")
+            self.assertEqual(table.partition("\n")[0], "table Unknown")
+            query = self._only_import_partition_m(table)
+            self.assertIn('SapBusinessWarehouse.Cubes("synthetic-bw.invalid", "00", "000",', query)
+            self.assertIn('InfoArea{[Id="$0D_DECU"]}[Data]', query)
+            self.assertIn('{Cube.AddMeasureColumn, "Quantity", "[Measures].[0D_INV_QTY]"}', query)
+            self.assertNotIn("#table", query)
+            self.assertEqual(
+                (project / "PowerQuery" / "Unknown.pq").read_text(encoding="utf-8"),
+                query + "\n",
+            )
+
+    def test_generated_cube_corruption_stops_expression_export_and_linkage_evidence(self):
+        from powerbi_import.pbip_generator import PowerBIProjectGenerator
+
+        real_generate = PowerBIProjectGenerator.generate_project
+
+        def generate_then_corrupt(replacement):
+            def wrapped(generator, report_name, *args, **kwargs):
+                project = real_generate(generator, report_name, *args, **kwargs)
+                definition = Path(project) / f"{report_name}.SemanticModel" / "definition"
+                table_path, = (definition / "tables").glob("*.tmdl")
+                if replacement is None:
+                    table_path.unlink()
+                else:
+                    before, after = replacement
+                    table = table_path.read_text(encoding="utf-8")
+                    self.assertEqual(table.count(before), 1, before)
+                    table_path.write_text(table.replace(before, after, 1), encoding="utf-8")
+                return project
+            return wrapped
+
+        for corruption, replacement, message in (
+            ("missing_table", None, "Expected exactly one generated cube table"),
+            ("wrong_type", ("\t\tdataType: int64\n", "\t\tdataType: string\n"),
+             "does not match its expected dataType"),
+            ("wrong_source", ('\t\tsourceColumn: "Quantité facturée"\n',
+                              "\t\tsourceColumn: OtherAlias\n"),
+             "does not match its expected sourceColumn"),
+            ("wrong_partition_m", ('[Id="$ZPILOT_SALES"]', '[Id="$ZPILOT_OTHER"]'),
+             "Expected one Import partition with the declared SAP BW Power Query"),
+        ):
+            with self.subTest(corruption=corruption), tempfile.TemporaryDirectory() as temporary:
+                output_dir = Path(temporary) / "generated"
+                stdout, stderr = StringIO(), StringIO()
+                with (
+                    patch.object(
+                        PowerBIProjectGenerator, "generate_project", autospec=True,
+                        side_effect=generate_then_corrupt(replacement),
+                    ) as generate,
+                    redirect_stdout(stdout),
+                    redirect_stderr(stderr),
+                ):
+                    status = bw_bex_pbip_main(self._pilot_cli_args(output_dir))
+
+                generate.assert_called_once()
+                self.assertEqual(status, 1, stderr.getvalue())
+                self.assertIn("SAP BW PBIP static validation failed:", stderr.getvalue())
+                self.assertIn(message, stderr.getvalue())
+                self.assertNotIn("statically validated", stdout.getvalue())
+                for artifact in (
+                    "PowerQuery", "DAX", "expression_export.json", "bex_linkage_assessment.json",
+                ):
+                    self.assertEqual(list(output_dir.rglob(artifact)), [], artifact)
 
     def test_explicit_review_table_preserves_column_bindings_order_and_layout(self):
         plan = copy.deepcopy(self.fixture)
@@ -640,7 +896,7 @@ class TestMigrateBWBExPBIP(unittest.TestCase):
                 'Cube.AttributeMemberProperty([#"Calendar day"], "[20CALDAY]")}',
                 table_text,
             )
-            self.assertIn("sourceColumn: 'Calendar day key'", table_text)
+            self.assertIn('sourceColumn: "Calendar day key"', table_text)
             self.assertNotIn("Date.Year", table_text)
             self.assertNotIn("hierarchy 'Calendar day key Hierarchy'", table_text)
             self.assertFalse((model / "definition" / "tables" / "Calendar.tmdl").exists())

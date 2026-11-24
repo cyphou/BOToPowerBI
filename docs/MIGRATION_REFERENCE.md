@@ -641,7 +641,8 @@ equivalence, or approve business results. SAP/source and target execution and
 business approval remain `not_run`.
 
 The BW-5 BEx capture contract and gap assessment are separate from conversion.
-They compare declared query semantics and inventory-linked consumers only:
+The assessment checks declared query semantics, inventory-linked consumers,
+direct provider links and, for v1.1/v1.2, key-figure bindings:
 
 ```powershell
 python migrate_bw_bex_assess.py `
@@ -650,10 +651,15 @@ python migrate_bw_bex_assess.py `
     --output "bw_bex_assessment.json"
 ```
 
-The sample is synthetic and deliberately incomplete. A
-`candidate_for_owner_review` is not migration acceptance; source/target query
-execution, result comparison, consumer sign-off and Desktop/Service rendering
-remain `not_run`. See the [BW design](SAP_BW_TO_FABRIC_DESIGN.md#bw-5-offline-bex-semantic-capture).
+The sample is synthetic, deliberately incomplete, and remains manifest version
+1.1 for backward-compatibility coverage; it does not demonstrate the v1.2
+key-figure `kind` field. The example exits `1` and writes a blocker report.
+A conflicting declared query digest exits `2` without a report. Exit `0` with
+`candidate_for_owner_review` is not migration acceptance. Native InfoCube
+identity remains blocked pending a sanitized, source-owner-approved sample and
+agreed field mapping; source/target query execution, result comparison,
+consumer sign-off and Desktop/Service rendering remain `not_run`. See the
+[BW design and v1.2 contract](SAP_BW_TO_FABRIC_DESIGN.md#bw-5-offline-bex-semantic-capture).
 
 ### Local PBIP draft from an explicit BW cube plan
 
@@ -698,18 +704,148 @@ measures. Power BI can group identical projected values; check the grain and
 results independently. It is not a converted BEx report.
 
 An optional `bex_linkage` plan requires paired local `--inventory` and
-`--semantics` inputs for declaration checks. A declared cube parameter can
-be linked to a BEx variable ID; this does not reproduce prompt behavior.
-The result is a draft with no converted BEx visuals. The tool does not convert
+`--semantics` inputs for declaration checks. The linked run places
+`bex_linkage_assessment.json` at the root of `--output-dir`, outside the
+named PBIP project directory. A declared cube parameter can be linked to a
+BEx variable ID; this does not reproduce prompt behavior. The result is a
+draft with no converted BEx visuals. The tool does not convert
 filters/hierarchies/calculated or restricted key figures/exception
 aggregation/units/currency/security, run a query, or connect to SAP/Fabric.
-Static PBIP validation errors fail the command; warnings are printed but do
-not fail it, so inspect them. After a successful static check the CLI attempts
-the expression export described above; the synthetic plan produces no DAX
-measures. The CLI does not perform credential setup, query execution, Desktop
-open/render, refresh, result equivalence or business acceptance. Protect plans and output
-because connection metadata can be sensitive. This is a local authoring
-adapter, not full BW migration or warehouse replacement.
+Invalid plans or linkage blockers exit `2` before generation. Static PBIP
+errors exit `1` after generation; warnings alone do not fail the command.
+The CLI also checks that the generated model references exactly the named cube
+table, with the declared types and physical source columns, no implicit
+summarization or DAX measures, and one Import partition with the declared SAP
+BW M query. A mismatch exits `1` before expression export or linkage output.
+Partial project files may remain. The CLI does not set credentials, execute
+queries, open Desktop, refresh, or verify equivalence or business acceptance.
+Protect plans and output because connection metadata can be sensitive. This is
+a local authoring adapter, not full BW migration or warehouse replacement.
+
+#### Linked BEx and InfoCube pilot
+
+Start here to exercise the linked workflow without SAP. The three matching
+inputs are a synthetic [BW inventory 1.0](fixtures/sap_bw_bex_pilot_inventory.example.json),
+[BEx manifest 1.2](fixtures/sap_bw_bex_pilot_semantics.example.json), and
+[cube plan 1.6](fixtures/sap_bw_bex_pilot_plan.example.json). They describe one
+query, a direct InfoCube provider, a date dimension with a typed key, and one
+explicitly bound basic key figure. The synthetic `.invalid` server is not a
+refresh endpoint; fixture observations and sign-off are fictional.
+
+From the repository root, use a new report path and a new or empty output
+directory. The standalone assessment is optional; generation repeats it for
+a linked plan:
+
+```powershell
+$fixtures = "docs\fixtures"
+$pilot = Join-Path ([System.IO.Path]::GetTempPath()) ("bo-bex-pilot-" + [guid]::NewGuid().ToString("N"))
+New-Item -ItemType Directory -Path $pilot | Out-Null
+
+python migrate_bw_bex_assess.py `
+  --inventory "$fixtures\sap_bw_bex_pilot_inventory.example.json" `
+  --semantics "$fixtures\sap_bw_bex_pilot_semantics.example.json" `
+  --output "$pilot\assessment.json"
+if ($LASTEXITCODE -ne 0) { throw "BEx assessment did not reach owner review" }
+
+python migrate_bw_bex_pbip.py `
+  --plan "$fixtures\sap_bw_bex_pilot_plan.example.json" `
+  --inventory "$fixtures\sap_bw_bex_pilot_inventory.example.json" `
+  --semantics "$fixtures\sap_bw_bex_pilot_semantics.example.json" `
+  --output-dir "$pilot\pbip"
+if ($LASTEXITCODE -ne 0) { throw "InfoCube PBIP generation failed" }
+
+$project = Join-Path $pilot "pbip\Synthetic BEx InfoCube Pilot"
+python migrate.py --validate-project $project --quality-strict --quality-output "$pilot\quality.json"
+if ($LASTEXITCODE -ne 0) { throw "Strict static PBIP validation failed" }
+$pilot
+```
+
+Expect exit `0` for all three commands. The assessment is
+`candidate_for_owner_review` with zero blockers and one consumer review item.
+Under `pbip/Synthetic BEx InfoCube Pilot`, the draft contains one Import table,
+the three physical columns `Jour`, `Clé du jour`, and `Quantité facturée`, one
+column-only review visual, and M review exports. No DAX measures are generated.
+The strict static check reports `PASS` with zero errors and warnings for this
+fixture. The linkage report in `pbip` records the resolved local binding and
+leaves `gate_closed: false` and `native_infocube_identity_verification: not_verified`.
+
+##### Replay the synthetic result comparison
+
+The [matching vectors](fixtures/sap_bw_bex_pilot_result_vectors.example.json)
+and [single-value mismatch](fixtures/sap_bw_bex_pilot_result_vectors_mismatch.example.json)
+use the existing [result-vector schema 1.0](schemas/sap_bw_bex_result_vectors.schema.json).
+Both describe two detail days for `SYNTHETIC-BW-PILOT:BEX:SALES-DAILY` at
+one row per calendar day, with the same declared role and prompt context
+(no prompts). The example manually normalizes the declared BW key `ZPILOT_DAY`
+and the typed Power BI column `Clé du jour` to `day_key` (`YYYY-MM-DD`), not
+the display caption `Jour`. For `synthetic-billed-quantity`, the manifest
+declares `EA` and the plan maps `[Measures].[ZPILOT_QTY]` to `Quantité facturée`.
+The comparator checks numeric values exactly; it does not validate units,
+normalize keys, read the plan or verify the mapping. The two sides have
+distinct fictional run and evidence references.
+
+Reuse `$fixtures` and `$pilot` from the setup above. No generated PBIP is
+needed for these commands; the report paths must be new:
+
+```powershell
+python migrate_bw_reconcile.py `
+  --bex-result-vectors "$fixtures\sap_bw_bex_pilot_result_vectors.example.json" `
+  --output "$pilot\reconciliation-pass.json"
+if ($LASTEXITCODE -ne 0) { throw "Matching vectors should exit 0" }
+
+python migrate_bw_reconcile.py `
+  --bex-result-vectors "$fixtures\sap_bw_bex_pilot_result_vectors_mismatch.example.json" `
+  --output "$pilot\reconciliation-mismatch.json"
+if ($LASTEXITCODE -ne 1) { throw "The deliberate mismatch should exit 1" }
+
+$match = Get-Content -Raw -LiteralPath "$pilot\reconciliation-pass.json" | ConvertFrom-Json
+$mismatch = Get-Content -Raw -LiteralPath "$pilot\reconciliation-mismatch.json" | ConvertFrom-Json
+if ($match.summary.measures_compared -ne 2 -or $match.summary.measure_mismatches -ne 0 -or
+   $mismatch.summary.measures_compared -ne 2 -or $mismatch.summary.measure_mismatches -ne 1) {
+   throw "Expected two comparisons in each report and one deliberate mismatch"
+}
+$match.summary
+$mismatch.measure_mismatches
+```
+
+Both reports compare two observations with no missing, extra or duplicate
+keys. The first reports `pass`; the second reports `fail` and identifies
+`2026-11-24`, with `11` on the source side and `12` on the target side
+(numeric difference `1`, allowed `0`). Exit `2` is an input or write error.
+A `pass` with zero observations is not measure agreement. These values are
+invented, not results queried from SAP or from the PBIP. The replay does not
+verify InfoCube identity, linkage, provenance or equivalence, run a refresh,
+or close BW-5.
+
+##### Collect evidence for an authorized pilot
+
+Do not copy the example's coverage, values or sign-off into a real inventory.
+Keep approved captures and references in protected storage, not the repository
+or chat. The connected draft still depends on BW for refresh and does not
+convert BEx calculations, prompts, security or layout.
+
+1. **BW source owner:** approve a sanitized native InfoCube identity sample
+  with provenance, system/client, and a mapping to the inventory provider
+  and cube navigation selector. Supply one approved BEx query ID and
+  versioned definition that identifies the provider. Confirm the selected
+  key figure's unit/currency, aggregation and any exception aggregation;
+  neither `basic` nor a declared `SUM` establishes safe aggregation.
+2. **SAP and Power BI operators:** independently capture the source and
+  target result vectors after authorization, at the same grain, period and
+  data snapshot, with equivalent effective permissions, filters and prompt
+  values. Once that context is confirmed, declare matching `scope`, `role`,
+  `prompt_context_ref` and `grain` on both sides, but keep distinct run and
+  evidence references. The comparator checks those declarations, not actual
+  permissions or prompts. Record the agreed key and measure mappings. Use
+  stable keys, not formatted captions; compare detail and totals separately.
+  Review missing or duplicate keys, nulls and rounding before comparison.
+  Schema 1.0 does not accept null measures; do not substitute zero or
+  silently drop rows.
+3. **Business owner:** approve the comparison scope, units, rounding and any
+  tolerance; require nonzero observations and review discrepancies before
+  accepting the result. Record Desktop rendering, refresh and consumer
+  acceptance separately. P1-B (native identity) and P1-D (source-backed
+  semantics) remain blocked pending review of the required source evidence.
 
 ### Local paginated RDL from a declared mapping
 
@@ -2072,7 +2208,7 @@ BOToPowerBI/
 | `--deploy-bundle WORKSPACE_ID` | Rejected; bundle deployment is not wired to the CLI |
 | `--refresh-config` | Attempt a disabled local refresh review draft from extracted schedules; not deployment |
 | `--multi-tenant CONFIG` | Multi-tenant deployment config JSON |
-| `--incremental` | Incremental migration: skip unchanged artifacts |
+| `--incremental` | Parsed but not wired into migration dispatch; it does not skip unchanged artifacts |
 | `--schema-drift DIR` | Schema drift detection against previous extraction |
 | `--calendar-start YEAR` | Calendar table start year (default: 2020) |
 | `--calendar-end YEAR` | Calendar table end year (default: 2030) |
@@ -2207,8 +2343,9 @@ On the local dirty worktree on 2026-11-22, the configured repository-wide
 Ruff check reported 422 errors and Pyright reported 75 errors and two warnings;
 neither mentioned the changed ledger, refresh or permission modules. The
 configured critical Flake8 selection passed with one `SyntaxWarning`. Targeted
-Ruff and Pyright checks for those modules and the ledger CLI passed. No clean
-baseline was measured, so these failures are not classified as pre-existing.
+Ruff and Pyright checks for those modules and the ledger CLI passed. That run
+did not measure a clean baseline; see the [development plan](DEVELOPMENT_PLAN.md)
+for the separate baseline comparison and current local CI evidence.
 The validation job depends on the lint and test jobs. GitHub-hosted CI for
 this change has not been run; Desktop rendering, refresh and Fabric execution
 remain `not_run`. The workflow does not deploy staging or production, enforce

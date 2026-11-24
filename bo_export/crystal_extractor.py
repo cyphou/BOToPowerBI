@@ -6,7 +6,6 @@ and conditional formatting.
 """
 
 import logging
-import os
 import re
 import struct
 

@@ -1,7 +1,9 @@
 """Generate a local Import PBIP from an explicitly authored SAP BW cube plan."""
 
 import argparse
+import copy
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -567,6 +569,53 @@ def _add_bw_capability_boundary(project_path):
     )
 
 
+def _generated_cube_mismatch(project_path, plan):
+    """Check the single-cube contract against this generator's emitted TMDL."""
+    from bo_export.compat import generate_power_query_m, map_bo_to_powerbi_type
+    from powerbi_import.tmdl_generator import _quote_name, _tmdl_datatype, _tmdl_text_property
+
+    datasource = plan["datasource"]
+    table = datasource["tables"][0]
+    name = _quote_name(table["name"])
+    definition = project_path / f'{plan["project_name"]}.SemanticModel' / "definition"
+    table_files = list((definition / "tables").glob("*.tmdl"))
+    if len(table_files) != 1:
+        return f"Expected exactly one generated cube table ({table['name']!r})"
+    model = (definition / "model.tmdl").read_text(encoding="utf-8")
+    if [line for line in model.split("\n") if line.startswith("ref table ")] != [f"ref table {name}"]:
+        return f"The generated model does not reference the declared cube table ({table['name']!r})"
+
+    contents = table_files[0].read_text(encoding="utf-8")
+    if contents.partition("\n")[0] != f"table {name}":
+        return f"The generated table name does not match the declared cube table ({table['name']!r})"
+    # A single tab marks a table member, rather than nested column or partition content.
+    members = [block.rstrip("\n").split("\n") for block in re.split(r"\n\t(?!\t)", contents)[1:]]
+    columns = [lines for lines in members if lines[0].startswith("column ")]
+    expected_columns = {f"column {_quote_name(column['name'])}": column for column in table["columns"]}
+    if sorted(lines[0] for lines in columns) != sorted(expected_columns):
+        return "Generated cube columns do not exactly match the declared physical columns"
+    for header, *properties in columns:
+        column = expected_columns[header]
+        expected = {
+            "dataType": _tmdl_datatype(map_bo_to_powerbi_type(column["datatype"])),
+            "sourceColumn": _tmdl_text_property(column["name"]),
+            "summarizeBy": "none",
+        }
+        for field, value in expected.items():
+            prefix = f"\t\t{field}:"
+            if [line for line in properties if line.startswith(prefix)] != [f"{prefix} {value}"]:
+                return f"Generated cube column {column['name']!r} does not match its expected {field}"
+
+    if any(lines[0].startswith("measure ") for lines in members):
+        return "The cube review draft must not contain generated DAX measures"
+    partitions = [lines for lines in members if lines[0].startswith("partition ")]
+    query = generate_power_query_m(datasource["connection"], table)
+    expected_source = ["\t\tmode: import", "\t\tsource =", *(f"\t\t\t\t{line}" for line in query.split("\n"))]
+    if len(partitions) != 1 or not partitions[0][0].endswith(" = m") or partitions[0][1:] != expected_source:
+        return "Expected one Import partition with the declared SAP BW Power Query"
+    return None
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--plan", required=True, help="Local SAP BW cube mapping plan JSON (1.0 to 1.6)")
@@ -602,12 +651,13 @@ def main(argv=None):
             linkage_assessment = None
         output_dir = Path(args.output_dir)
         _require_new_or_empty_directory(output_dir)
-        if hasattr(sys.stdout, "reconfigure"):
-            sys.stdout.reconfigure(encoding="utf-8")
+        reconfigure_stdout = getattr(sys.stdout, "reconfigure", None)
+        if callable(reconfigure_stdout):
+            reconfigure_stdout(encoding="utf-8")
         from powerbi_import.pbip_generator import PowerBIProjectGenerator
         from powerbi_import.validator import ArtifactValidator
 
-        converted_objects = {"datasources": [plan["datasource"]]}
+        converted_objects = {"datasources": [copy.deepcopy(plan["datasource"])]}
         generator = PowerBIProjectGenerator(str(output_dir))
         project_path = Path(generator.generate_project(plan["project_name"], converted_objects))
         if "review_report" in plan:
@@ -627,6 +677,11 @@ def main(argv=None):
         )
         _add_bw_capability_boundary(project_path)
         result = ArtifactValidator.validate_project(project_path)
+        if result["valid"]:
+            mismatch = _generated_cube_mismatch(project_path, plan)
+            if mismatch:
+                result["valid"] = False
+                result["errors"].append(mismatch)
     except (BWBExPBIPPlanError, OSError, UnicodeError, ValueError) as error:
         print(f"SAP BW PBIP generation failed: {error}", file=sys.stderr)
         return 2

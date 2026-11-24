@@ -25,30 +25,31 @@ Generated structure:
       {TableName}.tmdl
 """
 
-import sys
-import os
-import re
-import uuid
 import json
 import logging
+import os
+import re
 import shutil
+import sys
 import time
-
-logger = logging.getLogger(__name__)
+import uuid
 
 # Import BO compatibility layer (replaces tableau_export)
 from bo_export.compat import (
-    generate_power_query_m,
     convert_tableau_formula_to_dax,
-    map_tableau_to_powerbi_type,
-    inject_m_steps,
-    m_transform_rename,
-    m_transform_remove_columns,
-    m_transform_filter_values,
-    m_transform_filter_nulls,
-    m_transform_add_column,
     generate_m_from_hyper,
+    generate_power_query_m,
+    inject_m_steps,
+    m_transform_add_column,
+    m_transform_filter_nulls,
+    m_transform_filter_values,
+    m_transform_remove_columns,
+    m_transform_rename,
+    map_tableau_to_powerbi_type,
 )
+from bo_export.m_query_builder import _m_escape_string
+
+logger = logging.getLogger(__name__)
 
 
 # ════════════════════════════════════════════════════════════════════
@@ -982,6 +983,13 @@ def _generate_aggregation_tables(model):
     model['model']['tables'].extend(new_tables)
 
 
+def _is_sap_bw_type(source_type):
+    return (
+        isinstance(source_type, str)
+        and source_type.lower().replace('_', ' ').replace('-', ' ').strip() in ('sap bw', 'bw')
+    )
+
+
 def _collect_semantic_context(datasources, extra_objects):
     """Phases 1-2c: Collect tables, deduplicate, and build DAX context mappings.
 
@@ -1016,8 +1024,19 @@ def _collect_semantic_context(datasources, extra_objects):
         for table in tables:
             table_name = table.get('name', 'Table1')
 
-            # Skip tables without a name
-            if not table_name or table_name == 'Unknown':
+            if not table_name:
+                continue
+
+            table_conn = table.get('connection_details', {})
+            if not table_conn:
+                conn_ref = table.get('connection', '')
+                table_conn = connection_map.get(conn_ref, ds_connection)
+
+            # Only inferred placeholder tables are discarded. A BW plan names its table explicitly.
+            if table_name == 'Unknown' and not (
+                'sap_bw_navigation' in table
+                and _is_sap_bw_type(table.get('type') or table_conn.get('type', ''))
+            ):
                 continue
 
             # Inherit datasource-level columns into tables that have none
@@ -1035,12 +1054,6 @@ def _collect_semantic_context(datasources, extra_objects):
                 table['columns'] = cleaned_cols
 
             col_count = len(table.get('columns', []))
-
-            # Resolve per-table connection
-            table_conn = table.get('connection_details', {})
-            if not table_conn:
-                conn_ref = table.get('connection', '')
-                table_conn = connection_map.get(conn_ref, ds_connection)
 
             # Deduplicate: merge columns from all datasources sharing the same table name
             if table_name not in best_tables:
@@ -1384,11 +1397,7 @@ def _apply_semantic_enrichments(model, extra_objects, main_table_name, column_ta
         for datasource in datasources
         for table in datasource.get('tables', [])
     ]
-    bw_only = bool(source_types) and all(
-        isinstance(source_type, str)
-        and source_type.lower().replace('_', ' ').replace('-', ' ').strip() in ('sap bw', 'bw')
-        for source_type in source_types
-    )
+    bw_only = bool(source_types) and all(_is_sap_bw_type(source_type) for source_type in source_types)
     # Phase 5: Add sets, groups, bins as calculated columns
     _process_sets_groups_bins(model, extra_objects, main_table_name, column_table_map)
 
@@ -1547,11 +1556,7 @@ def _build_table(table, connection, calculations, columns_metadata, dax_context=
     table_name = table.get('name', 'Table1')
     columns = table.get('columns', [])
     datasource_type = table.get('type') or connection.get('type', '')
-    normalized_datasource_type = (
-        datasource_type.lower().replace('_', ' ').replace('-', ' ').strip()
-        if isinstance(datasource_type, str) else ''
-    )
-    is_sap_bw = normalized_datasource_type in ('sap bw', 'bw')
+    is_sap_bw = _is_sap_bw_type(datasource_type)
 
     # Generate M query: use Prep flow override if available, else generate from connection
     if m_query_override:
@@ -1590,6 +1595,8 @@ def _build_table(table, connection, calculations, columns_metadata, dax_context=
         ],
         "measures": []
     }
+    if is_sap_bw:
+        result_table['_sap_bw_source'] = True
 
     # Track column names (avoid duplicates within the table)
     column_name_counts = {}
@@ -4102,6 +4109,13 @@ def _quote_name(name):
     return name
 
 
+def _tmdl_text_property(value):
+    """Encode text, not a TMDL object identifier."""
+    if re.search(r'[^a-zA-Z0-9_]', value):
+        return '"' + value.replace('"', '""') + '"'
+    return value
+
+
 def _tmdl_datatype(bim_type):
     """Convert a type to TMDL type."""
     mapping = {
@@ -4816,7 +4830,7 @@ def _write_model_tmdl(def_dir, model, tables, roles=None, relationships=None):
 
     # Table order annotation
     table_names = [t.get('name', '') for t in tables]
-    table_names_json = '["' + '","'.join(table_names) + '"]'
+    table_names_json = json.dumps(table_names, ensure_ascii=False, separators=(',', ':'))
     lines.append(f"annotation PBI_QueryOrder = {table_names_json}")
     lines.append("")
 
@@ -4930,7 +4944,8 @@ def _write_expressions_tmdl(def_dir, tables, datasources=None, direct_lake=None)
             server = conn.get('server', conn.get('host', ''))
             db = conn.get('dbname', conn.get('database', ''))
             if server:
-                server_names.add(server)
+                # The BW connection value here is raw metadata, not an extracted M literal.
+                server_names.add(_m_escape_string(server) if _is_sap_bw_type(conn.get('type')) else server)
             if db:
                 database_names.add(db)
 
@@ -5227,7 +5242,7 @@ def _write_table_tmdl(tables_dir, table):
             deduped_columns.append(column)
     deduped_columns.reverse()
     for column in deduped_columns:
-        _write_column(lines, column)
+        _write_column(lines, column, sap_bw=table.get('_sap_bw_source', False))
 
     # Hierarchies
     for hierarchy in table.get('hierarchies', []):
@@ -5355,7 +5370,7 @@ def _write_column_flags(lines, column):
     lines.append("")
 
 
-def _write_column(lines, column):
+def _write_column(lines, column, *, sap_bw=False):
     """Write a column in TMDL (physical or calculated)."""
     col_name = column.get('name', 'Column')
     cname_quoted = _quote_name(col_name)
@@ -5380,8 +5395,8 @@ def _write_column(lines, column):
         _write_column_properties(lines, column)
 
         source_col = column.get('sourceColumn', col_name)
-        source_col_quoted = _quote_name(source_col) if re.search(r'[^a-zA-Z0-9_]', source_col) else source_col
-        lines.append(f"\t\tsourceColumn: {source_col_quoted}")
+        source_value = _tmdl_text_property(source_col) if sap_bw else _quote_name(source_col)
+        lines.append(f"\t\tsourceColumn: {source_value}")
         _write_column_flags(lines, column)
 
 

@@ -269,12 +269,6 @@ def _convert_if_then_else(dax):
     """Convert BO If/Then/Else/ElseIf to DAX IF() or SWITCH(TRUE(), ...)."""
 
     # ── Nested ElseIf → SWITCH(TRUE(), cond1, val1, cond2, val2, ..., default)
-    elseif_pattern = re.compile(
-        r"\bIf\b\s+(.+?)\s+\bThen\b\s+(.+?)"
-        r"(?:\s+\bElseIf\b\s+(.+?)\s+\bThen\b\s+(.+?))*"
-        r"\s+\bElse\b\s+(.+?)(?=\s*$|\s*;)",
-        re.IGNORECASE | re.DOTALL,
-    )
     # Try to find ElseIf patterns first
     if re.search(r"\bElseIf\b", dax, re.IGNORECASE):
         # Parse structured: split on ElseIf/Then/Else boundaries
@@ -639,11 +633,11 @@ def _extract_dimension_column(expr, tbl):
         r"\b(?:SUM|COUNT|AVERAGE|MIN|MAX|DISTINCTCOUNT)\s*\(\s*(?:'[^']*')?\[[^\]]+\]",
         re.IGNORECASE,
     )
-    agg_refs = set(
-        re.search(r"(?:'[^']*')?\[[^\]]+\]", m.group()).group()
+    agg_refs = {
+        ref_match.group()
         for m in agg_pattern.finditer(expr)
-        if re.search(r"(?:'[^']*')?\[[^\]]+\]", m.group())
-    )
+        if (ref_match := re.search(r"(?:'[^']*')?\[[^\]]+\]", m.group())) is not None
+    }
     for ref in refs:
         if ref not in agg_refs:
             # Qualify with table if bare [Col]

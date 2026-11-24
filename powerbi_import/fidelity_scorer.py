@@ -10,7 +10,6 @@ Usage:
 
 import logging
 import math
-from collections import Counter
 
 logger = logging.getLogger(__name__)
 

@@ -210,7 +210,7 @@ UNV example and a Discovery example merely renamed `.lums` failed a local
 folder check without producing a model or export. Renaming is not a native
 LUMS test.
 Fabric outputs are quality-gated after generation. Blocking findings return code
-6 for file/BIAR/batch/shared-model CLI workflows and preserve per-project
+6 for supported folder, BIAR and shared-model CLI workflows and preserve per-project
 `quality_report.json`; warnings alone do not block unless a separate strict
 validation is requested. A generated directory is not sufficient success evidence.
 CSV/Excel ingestion belongs to Notebook, connected sources/custom SQL to Dataflow,
@@ -341,7 +341,14 @@ See the BW-4 boundaries.
 a BW inventory, including BW-0 review blockers and query-to-consumer links. It
 reports only gaps found in those local declarations; it does not parse BEx,
 generate target models/reports, execute queries, compare results, or approve
-consumers. See the BW-5 boundaries.
+consumers. Manifest v1.2 requires provider key-figure bindings and a
+declaration-only kind (`basic`, `restricted`, `calculated` or `unknown`) for
+each key figure; no kind converts semantics or generates DAX/measures. The
+[synthetic fixture](../../../docs/fixtures/sap_bw_bex_semantics.partial.example.json)
+is v1.1 and is retained for compatibility, not as a v1.2 example. Neither a
+kind nor a local binding verifies native InfoCube identity. This requires a
+sanitized, source-owner-approved sample and agreed field mapping. See the
+[BW-5 boundaries](../../../docs/SAP_BW_TO_FABRIC_DESIGN.md#bw-5-offline-bex-semantic-capture).
 
 `migrate_bw_bex_pbip.py` creates a local Import PBIP draft from a strict,
 manually authored plan for exactly one BW cube:
@@ -375,7 +382,10 @@ credential fields, and the CLI rejects URL/userinfo syntax in
 the server identifier; this is not a scan of every text value. Never embed
 secrets in any plan field. Use only a reviewed plan and a new or empty output
 directory. The example is synthetic. Static-validation warnings are printed
-but do not fail generation, so inspect them. Linked plans also report selected
+but do not fail generation, so inspect them. The CLI fails if the generated
+table reference, physical columns or Import partition do not match the plan.
+Use the [linked synthetic pilot](../../../docs/MIGRATION_REFERENCE.md#linked-bex-and-infocube-pilot)
+to exercise the manifest 1.2 and plan 1.6 together without SAP. Linked plans report selected
 and omitted declared BEx key figures and warn on partial selections; any
 supplied dimension binding must resolve uniquely in the local inventory. These
 checks do not verify SAP metadata or BEx conversion. After successful static

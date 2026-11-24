@@ -1,0 +1,102 @@
+{
+  "schema_version": "1.0",
+  "run_id": "synthetic-bex-infocube-pilot",
+  "captured_at": "2026-11-24T00:00:00Z",
+  "source_system": {
+    "id": "SYNTHETIC-BW-PILOT",
+    "product": "SAP BW",
+    "version": "synthetic-version",
+    "client": "000",
+    "landscape": {"id": null, "name": null, "status": "not_applicable"}
+  },
+  "provenance": {
+    "discovery_method": "manual",
+    "extraction_method": "manual",
+    "extractor_name": null,
+    "extractor_version": null,
+    "evidence_reference": "synthetic://bex-infocube-pilot/inventory"
+  },
+  "discovery": {"method": "manual", "evidence_reference": "synthetic://bex-infocube-pilot/inventory"},
+  "extraction_access": {"status": "not_applicable", "approval_reference": null, "credential_material_included": false},
+  "scope": {
+    "included_domains": ["Synthetic sales by day"],
+    "excluded_domains": ["All real SAP BW systems"],
+    "completeness": "complete",
+    "owner_signoff": "accepted",
+    "coverage": {
+      "systems": "complete", "sources": "not_applicable", "providers": "complete",
+      "transformations": "not_applicable", "process_chains": "not_applicable", "consumers": "complete",
+      "usage": "not_applicable", "data_volume_history_retention": "not_applicable", "delta_mechanisms": "not_applicable",
+      "authorizations": "not_applicable", "planning_writeback": "not_applicable"
+    },
+    "known_gaps": ["Completeness, observation and owner sign-off describe this fictional fixture only; no SAP export or owner approval was obtained."]
+  },
+  "objects": [
+    {
+      "id": "SYNTHETIC-BW-PILOT:INFOCUBE:SALES",
+      "type": "infocube", "name": "Synthetic sales cube", "discovery_status": "observed",
+      "disposition": "in_scope", "criticality": "low", "business_owner": "Synthetic Fixture Owner",
+      "source_reference": "synthetic://bex-infocube-pilot/cube", "location": null,
+      "usage_profile": {"status": "not_applicable", "observation_window_start": null, "observation_window_end": null, "last_used_at": null, "access_count": null},
+      "data_profile": {"status": "not_applicable", "estimated_rows": null, "estimated_bytes": null, "history_start": null, "history_end": null, "retention_policy": null},
+      "delta_profile": {"status": "not_applicable", "mechanism": "not_applicable", "delete_capture": null},
+      "migration_decision": {"classification": "not_assessed", "target_candidate": null, "rationale": null, "decision_owner": null, "route": null, "prerequisites": [], "validation": {"status": "not_run", "justification": null}},
+      "metadata_status": "observed",
+      "definition": {"status": "not_assessed", "reference": null, "hash_algorithm": null, "hash": null},
+      "keys_status": "observed",
+      "keys": [{"name": "ZPILOT_DAY", "data_type": "DATS", "nullable": false, "role": "business"}],
+      "semantics": {
+        "status": "observed",
+        "measures": [{"name": "ZPILOT_QTY", "data_type": "INTEGER", "status": "observed", "details": null}],
+        "dimensions": [{"name": "ZPILOT_DAY", "data_type": "DATS", "status": "observed", "details": null}],
+        "functions": []
+      }
+    },
+    {
+      "id": "SYNTHETIC-BW-PILOT:BEX:SALES-DAILY",
+      "type": "bex_query", "name": "Synthetic sales by day", "discovery_status": "observed",
+      "disposition": "in_scope", "criticality": "low", "business_owner": "Synthetic Fixture Owner",
+      "source_reference": "synthetic://bex-infocube-pilot/sales-by-day", "location": null,
+      "usage_profile": {"status": "not_applicable", "observation_window_start": null, "observation_window_end": null, "last_used_at": null, "access_count": null},
+      "data_profile": {"status": "not_applicable", "estimated_rows": null, "estimated_bytes": null, "history_start": null, "history_end": null, "retention_policy": null},
+      "delta_profile": {"status": "not_applicable", "mechanism": "not_applicable", "delete_capture": null},
+      "migration_decision": {"classification": "not_assessed", "target_candidate": null, "rationale": null, "decision_owner": null, "route": null, "prerequisites": [], "validation": {"status": "not_run", "justification": null}},
+      "metadata_status": "observed",
+      "definition": {
+        "status": "observed", "reference": "synthetic://bex-infocube-pilot/sales-by-day",
+        "hash_algorithm": "sha256", "hash": "2d1a679debcf6f80570fbf37e4661b50aad25b42761e00136e630ca5008e7048"
+      },
+      "keys_status": "not_applicable", "keys": [],
+      "semantics": {"status": "observed", "measures": [], "dimensions": [], "functions": []}
+    },
+    {
+      "id": "SYNTHETIC-BW-PILOT:CONSUMER:SALES-REVIEW",
+      "type": "consumer", "name": "Synthetic sales reviewer", "discovery_status": "observed",
+      "disposition": "in_scope", "criticality": "low", "business_owner": "Synthetic Fixture Owner",
+      "source_reference": null, "location": null,
+      "usage_profile": {"status": "not_applicable", "observation_window_start": null, "observation_window_end": null, "last_used_at": null, "access_count": null},
+      "data_profile": {"status": "not_applicable", "estimated_rows": null, "estimated_bytes": null, "history_start": null, "history_end": null, "retention_policy": null},
+      "delta_profile": {"status": "not_applicable", "mechanism": "not_applicable", "delete_capture": null},
+      "migration_decision": {"classification": "not_assessed", "target_candidate": null, "rationale": null, "decision_owner": null, "route": null, "prerequisites": [], "validation": {"status": "not_run", "justification": null}},
+      "metadata_status": "observed",
+      "definition": {"status": "not_assessed", "reference": null, "hash_algorithm": null, "hash": null},
+      "keys_status": "not_applicable", "keys": [],
+      "semantics": {"status": "not_assessed", "measures": [], "dimensions": [], "functions": []}
+    }
+  ],
+  "dependencies": [
+    {
+      "source_id": "SYNTHETIC-BW-PILOT:BEX:SALES-DAILY", "target_id": "SYNTHETIC-BW-PILOT:INFOCUBE:SALES",
+      "kind": "queries", "evidence_status": "observed", "resolution_status": "resolved",
+      "evidence_reference": "synthetic://bex-infocube-pilot/query-provider"
+    },
+    {
+      "source_id": "SYNTHETIC-BW-PILOT:CONSUMER:SALES-REVIEW", "target_id": "SYNTHETIC-BW-PILOT:BEX:SALES-DAILY",
+      "kind": "consumes", "evidence_status": "observed", "resolution_status": "resolved",
+      "evidence_reference": "synthetic://bex-infocube-pilot/query-consumer"
+    }
+  ],
+  "errors": [],
+  "unknowns": [],
+  "unsupported_features": []
+}

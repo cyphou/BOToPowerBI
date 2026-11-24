@@ -26,7 +26,8 @@ You are the **Assessor** agent for the BusinessObjects to Power BI migration pro
   and inventory-linked gap assessment; no query parsing or execution
 - `docs/schemas/sap_bw_bex_semantics.schema.json` and
   `docs/fixtures/sap_bw_bex_semantics.partial.example.json` - strict local
-  BEx semantic manifest schema and synthetic partial fixture
+  BEx semantic manifest schema and synthetic partial fixture (manifest v1.1,
+  retained for compatibility; it does not demonstrate v1.2 key-figure kinds)
 - `powerbi_import/bw_controls_assessment.py` - offline BW-6 security, planning,
   and compliance declaration assessment; no target-control execution or approval
 - `docs/schemas/sap_bw_controls.schema.json` and
@@ -40,3 +41,8 @@ You are the **Assessor** agent for the BusinessObjects to Power BI migration pro
 - Do NOT modify conversion or generation logic — read-only access for analysis
 - Do NOT modify test files — delegate to **@tester**
 - Assessment output is HTML/JSON/console — never modify source artifacts
+- BEx manifest v1.2 requires provider key-figure bindings and a declaration-only
+  kind (`basic`, `restricted`, `calculated` or `unknown`) for each key figure;
+  no kind performs conversion or verifies native InfoCube identity. Keep that
+  identity gate blocked pending a sanitized, source-owner-approved sample and
+  agreed field mapping; see `docs/SAP_BW_TO_FABRIC_DESIGN.md`.
