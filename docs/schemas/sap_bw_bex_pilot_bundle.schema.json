@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:bo-to-powerbi:schema:sap-bw-bex-pilot-bundle:1.0",
+  "title": "Local SAP BW BEx/InfoCube pilot bundle",
+  "description": "Portable path bundle for the local declared BEx/InfoCube pilot. All referenced inputs are local files; the bundle does not provide SAP access or migration approval.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "plan", "inventory", "semantics", "csv_mapping", "source_csv", "target_csv", "output_dir"],
+  "properties": {
+    "schema_version": {"const": "1.0"},
+    "plan": {"$ref": "#/$defs/path"},
+    "inventory": {"$ref": "#/$defs/path"},
+    "semantics": {"$ref": "#/$defs/path"},
+    "csv_mapping": {"$ref": "#/$defs/path"},
+    "source_csv": {"$ref": "#/$defs/path"},
+    "target_csv": {"$ref": "#/$defs/path"},
+    "output_dir": {"$ref": "#/$defs/path"}
+  },
+  "$defs": {
+    "path": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "\\S",
+      "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
+    }
+  }
+}

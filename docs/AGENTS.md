@@ -84,8 +84,9 @@ reconciliation, normalized handoff, golden-vector comparisons and the wave
 and cutover evidence indexes. Assessment and comparison tools inspect local
 declarations; the bounded conversion generator can optionally compare local
 definition bytes and plan rules with a declared ledger, but does not verify
-source-rule completeness or runtime outcomes. None implies ownership of live SAP discovery
-or authorization to deploy, switch consumers, or retire BW.
+source-rule completeness or runtime outcomes. BusinessObjects owns the bounded
+BO REST BW connection and BEx outline metadata client; this is not native SAP BW
+discovery or authorization to deploy, switch consumers, or retire BW.
 The RDL choice in `migrate.py` and the separate `migrate_paginated.py` use
 Visual's RDL generator with explicit mappings, not automatic BO/BEx conversion.
 BusinessObjects owns the read-only CMS WebI report/element/plan client,

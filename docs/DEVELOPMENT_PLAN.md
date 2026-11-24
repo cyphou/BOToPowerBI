@@ -8,7 +8,7 @@
 
 | Result | Verified locally | Still open |
 |---|---|---|
-| 🟢 Python suite | 1 283 passed, 1 skipped, 1 504 subtests; 80.74% coverage | Hosted CI matrix |
+| 🟢 Python suite | 1 294 passed, 1 skipped, 1 547 subtests; 80.73% coverage | Hosted CI matrix |
 | 🟢 BEx / InfoCube | Strict PBIP: 0 errors, 0 warnings; 2 synthetic observations, 0 mismatches | Real SAP/Power BI execution and approval |
 | 🟠 WebI synthetic | Batch generated; 13 static review warnings | Visual bindings and runtime rendering |
 | 🟠 Static quality | Critical Flake8 passed; coverage gate passed | Ruff 387 findings; Pyright 71 errors, 2 warnings |
@@ -558,7 +558,7 @@ source evidence; neither is proof of SAP identity or feature parity.
   an independent SAP capture. References, `complete` declarations, matching
   hashes and a comparison pass do not authenticate evidence or establish
   coverage. Zero observations carry a limitation, not measure agreement.
-- **Unsupported / unverified:** SAP discovery and native InfoCube identity,
+- **Unsupported / unverified:** native SAP discovery and InfoCube identity,
   general BEx/ABAP conversion, automatic provider composition, BW analysis
   authorization equivalence and BW-independent ingestion are not established.
   The inventory has `infocube`, `adso`, `infoprovider` and
@@ -757,6 +757,15 @@ source evidence; neither is proof of SAP identity or feature parity.
   the full local suite passed **1,282 tests, 1 skipped and 1,500 subtests**
   at **80.72%** coverage against the unchanged 80% threshold. This does not
   change the source-evidence or approval requirements; hosted CI was not verified.
+- **Local pilot orchestration:** `Orchestrator` now assembles assessment,
+  linked PBIP generation, strict static quality and direct CSV reconciliation
+  in `migrate_bw_bex_pilot.py --bundle <bundle.json>`. A portable JSON bundle
+  replaces seven repeated command-line paths; the explicit form remains for
+  diagnostics. It snapshots inputs, stages outputs privately
+  and publishes only a new final directory. `Tester` covers pass, mismatch,
+  empty captures, invalid declarations and destination safety. This is a local
+  review workflow only; SAP execution, Power BI refresh, Fabric deployment,
+  native identity and business approval remain outside its scope.
 - **Next real pilot:** The [owner handoff](MIGRATION_REFERENCE.md#collect-evidence-for-an-authorized-pilot)
   records the prerequisites for comparing real results. P1-B and P1-D remain
   blocked on a sanitized, source-owner-approved native InfoCube sample, query

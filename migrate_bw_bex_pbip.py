@@ -69,7 +69,7 @@ _BW_CAPABILITY_BOUNDARY = {
             "object": "master_data_infoobjects",
             "target_direction": "Governed conformed dimensions",
             "status": "partial",
-            "boundary": "Selected dimensions can be declared and assessed; SAP discovery is not implemented.",
+            "boundary": "Selected dimensions can be declared and assessed; this generator does not discover SAP metadata.",
         },
         {
             "object": "transactional_dso",

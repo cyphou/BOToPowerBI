@@ -1,0 +1,10 @@
+{
+  "schema_version": "1.0",
+  "plan": "sap_bw_bex_pilot_plan.example.json",
+  "inventory": "sap_bw_bex_pilot_inventory.example.json",
+  "semantics": "sap_bw_bex_pilot_semantics.example.json",
+  "csv_mapping": "sap_bw_bex_pilot_csv_mapping.example.json",
+  "source_csv": "sap_bw_bex_pilot_source.example.csv",
+  "target_csv": "sap_bw_bex_pilot_target.example.csv",
+  "output_dir": "../../artifacts/bex-infocube-bundle-example-20261124"
+}

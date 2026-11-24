@@ -11,7 +11,7 @@ files still require source, data, security and report validation.
 
 | Area | Result | Boundary |
 |---|---|---|
-| Python tests | 🟢 **1 283 passed**, 1 skipped, 1 504 subtests | 80.74% coverage; 80% threshold passed |
+| Python tests | 🟢 **1 294 passed**, 1 skipped, 1 547 subtests | 80.73% coverage; 80% threshold passed |
 | BEx / InfoCube | 🟢 Synthetic pilot strictly validated | 0 static errors, 0 warnings; 2 CSV observations, 0 mismatches |
 | WebI | 🟠 Synthetic batch generated | 0 static errors, 13 review warnings |
 | Hosted CI | ⚪ Not run | Ruff 387; Pyright 71 errors / 2 warnings; hosted OS/Python jobs remain open |
@@ -82,10 +82,22 @@ A blocked bundle is not deployment-ready.
 > - **BEx query:** [assess a local BW inventory and BEx manifest](docs/SAP_BW_TO_FABRIC_DESIGN.md#bw-5-offline-bex-semantic-capture).
 >   Provider bindings and v1.2 key-figure kinds are declarations; they do not
 >   convert prompts, filters, hierarchies, calculations or report layout.
-> - **One InfoCube:** [generate a manually mapped Import PBIP draft](docs/MIGRATION_REFERENCE.md#local-pbip-draft-from-an-explicit-bw-cube-plan).
+> - **BW analytical selection:** [generate a manually mapped Import PBIP draft](docs/MIGRATION_REFERENCE.md#local-pbip-draft-from-an-explicit-bw-cube-plan).
 >   The draft retains BW as its refresh source. Optional BEx linkage checks local
 >   declarations only. Start with the [reproducible BEx and InfoCube pilot](docs/MIGRATION_REFERENCE.md#linked-bex-and-infocube-pilot)
 >   to generate a column-only review table without an SAP system.
+> - **Live BO metadata:** the [BEx live draft CLI](docs/MIGRATION_REFERENCE.md#live-bo-bex-metadata-and-independent-pbip-draft)
+>   fetches a BO BW connection and BEx outline, then generates a review-only PBIP
+>   from an independent unlinked plan. It does not convert the outline or prove
+>   its correspondence to the plan; source data and target runtime are not run.
+> - **Live cube / InfoCube:** use the [cube navigation CLI](docs/MIGRATION_REFERENCE.md#live-bo-cube-or-infocube-navigation)
+>   with one `--path` or `--pattern`. It inventories exposed navigation nodes,
+>   then generates the same review-only PBIP; it does not extract cube rows or
+>   prove native InfoCube identity.
+> - **One-command pilot:** use the [local BEx/InfoCube pilot CLI](docs/MIGRATION_REFERENCE.md#local-bex-infocube-pilot-cli).
+>   It validates declarations, generates the PBIP, runs strict static quality
+>   checks and compares supplied CSV captures. It never queries SAP or deploys.
+>   Start with the one-file [synthetic bundle](docs/fixtures/sap_bw_bex_pilot_bundle.example.json).
 > - **Optional evidence:** [compare supplied BEx result vectors](docs/SAP_BW_TO_FABRIC_DESIGN.md#offline-bex-result-vector-comparison).
 >   A comparison pass applies only to the supplied observations, not BEx parity.
 >
@@ -154,7 +166,7 @@ folder draft is opt-in and does not reconstruct the source report.
 | Desktop Intelligence `.rep` | Partial inventory, explicitly acknowledged RDL drafts and an opt-in manually declared PBIP table draft; no automatic PBIP/Fabric conversion. |
 | Power BI Desktop | PBIP is intended for standard Desktop; open and verify the project separately. |
 | Power BI Report Server | Desktop for Report Server does not support PBIP. An optional SQL-based M query is a manual reconstruction aid; RDL is a separate paginated target. |
-| SAP BW | Offline assessments, staged-data tools, a declaration-based single-cube PBIP draft with optional local BW-5 linkage checks, and a local BEx result-vector comparator; not BW extraction, BEx conversion, or warehouse replacement. See the [BW design](docs/SAP_BW_TO_FABRIC_DESIGN.md). |
+| SAP BW | Offline assessments, staged-data tools, a declaration-based BW analytical PBIP draft with optional local BW-5 linkage checks, live BO metadata with an independent draft, and a local BEx result-vector comparator; not BW data extraction, complete BEx conversion, or warehouse replacement. See the [BW design](docs/SAP_BW_TO_FABRIC_DESIGN.md). |
 
 ### Offline BW declared-lineage API
 

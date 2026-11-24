@@ -3,7 +3,7 @@
 Detailed procedures and historical local evidence. Start with the concise [README](../README.md).
 
 > [!NOTE]
-> **Bilan — 24 nov. 2026:** 1 282 tests réussis, 1 ignoré, 80.72% de couverture.
+> **Bilan — 24 nov. 2026:** 1 294 tests réussis, 1 ignoré, 80.73% de couverture.
 > BEx/InfoCube synthétique: PBIP strict PASS, 2 observations comparées, 0 écart.
 > WebI synthétique: génération réussie, 13 avertissements statiques. Aucun SAP,
 > Desktop, rafraîchissement, Fabric, CI hébergée ou acceptation métier exécuté.
@@ -728,6 +728,86 @@ queries, open Desktop, refresh, or verify equivalence or business acceptance.
 Protect plans and output because connection metadata can be sensitive. This is
 a local authoring adapter, not full BW migration or warehouse replacement.
 
+### Live BO BEx metadata and independent PBIP draft
+
+`migrate_bw_bex_live.py` uses a preauthenticated `BO_LOGON_TOKEN` from the
+environment to fetch a BO BW connection with `get_bw_connection` and a BEx
+query outline with `get_bw_query_outline`. It does not log off the externally
+owned token. Before an authorized run, provision the token into the process
+environment through an approved secure mechanism; do not put it in a command,
+plan or chat. See the [SAP BW connection and BEx query API](https://help.sap.com/docs/SAP_BUSINESSOBJECTS_BUSINESS_INTELLIGENCE_PLATFORM/5431204882b44fc98d56bd752e69f132/b3d51abec20b428f89fcfdaecab9be2d.html).
+Real BO endpoint compatibility, XML responses, permissions and versions are
+`not_run`; validate them with the administrator before an authorized run.
+
+Replace the generic placeholders with an authorized HTTPS BO base URL, the BO
+BW connection ID, the exact BEx outline ID, a reviewed **unlinked** BW PBIP
+plan, and a new destination under an existing trusted parent inaccessible to
+untrusted writers. The URL must not contain userinfo, a query or a fragment.
+The destination cannot already exist; linked paths and linked plans are
+rejected. For plan requirements, see the local PBIP draft above.
+
+Set the shared values once, then keep the execution line short:
+
+```powershell
+$bo = "https://bo.example.invalid"
+$connection = "connection-id"
+$bex = "bex-outline-id"
+$plan = "path\to\reviewed-unlinked-plan.json"
+$out = "trusted-parent\new-draft"
+python migrate_bw_bex_live.py --server-url $bo --connection-id $connection --bex-id $bex --plan $plan --output-dir $out
+```
+
+After the metadata requests, the CLI generates a PBIP from the independent
+plan and publishes it alongside `migration_report.json`. The report counts
+only literal unnamespaced XML `item` elements by exact, case-sensitive `type`;
+other or missing types are grouped, and completeness is unknown. The outline
+itself is not persisted. The report does not establish that the independently
+declared plan, selectors or cube correspond to the outline, or verify source
+provenance, native identity or equivalence. Generated PBIP files can contain
+sensitive plan metadata; protect them. The report does not retain source IDs
+or captions, so maintain source attribution separately in protected storage.
+Arguments can be visible to local process observers; the token check is not a
+general secret scanner. BW authorization semantics are not converted.
+
+Exit `0` means generation and local static checks completed, not BEx migration
+or acceptance; static checking is non-strict and warnings do not fail it. The
+wrapper discards generator diagnostics, including warning details and counts;
+run a separate strict quality check on the generated project. Exit `1` retains
+a report and potentially partial artifacts after any nonzero generator exit,
+without retaining its diagnostic text. Exit `2`
+indicates preflight, metadata, staging or
+publication failure; cleanup is attempted when staging was created, and a
+failure after publication can leave the destination. This is review-only: it
+does not perform complete BEx conversion or extract source data. Source and
+target data execution, Desktop rendering, refresh, deployment and business
+approval remain `not_run` without separate evidence.
+
+### Live BO cube or InfoCube navigation
+
+`migrate_bw_cube_live.py` uses the same secure BO session and reviewed plan,
+but browses an exposed cube path or pattern. It counts observed `bwnode`
+types and produces a review-only PBIP plus `migration_report.json`. It does
+not extract cube rows, prove native InfoCube identity, infer dimensions or
+measures, or convert cube semantics.
+
+Reuse `$bo`, `$connection`, and `$plan` from the previous block:
+
+```powershell
+$cubePath = "/InfoArea/InfoCube"
+python migrate_bw_cube_live.py --server-url $bo --connection-id $connection --path $cubePath --plan $plan --output-dir "trusted-parent\cube-draft"
+```
+
+Or search by pattern instead of path:
+
+```powershell
+python migrate_bw_cube_live.py --server-url $bo --connection-id $connection --pattern "*SALES*" --plan $plan --output-dir "trusted-parent\cube-draft"
+```
+
+Use exactly one of `--path` or `--pattern`. The source path/pattern and any
+owner-approved attribution should be retained separately in protected storage;
+the generated report intentionally omits names and IDs. Endpoint compatibility,
+source data, refresh and equivalence remain `not_run` until separately verified.
+
 #### Linked BEx and InfoCube pilot
 
 Start here to exercise the linked workflow without SAP. The three matching
@@ -774,6 +854,41 @@ column-only review visual, and M review exports. No DAX measures are generated.
 The strict static check reports `PASS` with zero errors and warnings for this
 fixture. The linkage report in `pbip` records the resolved local binding and
 leaves `gate_closed: false` and `native_infocube_identity_verification: not_verified`.
+
+##### Local BEx/InfoCube pilot CLI
+
+`migrate_bw_bex_pilot.py` assembles the local two-object workflow into one
+reviewable run. It snapshots declarations and CSV captures, validates the
+linked BEx/InfoCube contract, generates the Import PBIP in private staging,
+runs strict static quality validation, compares the CSV captures and publishes
+one new output directory. It does not query SAP, open Desktop, refresh Power BI,
+deploy Fabric or approve the result.
+
+For the usual run, one bundle replaces the seven repeated path arguments:
+
+```powershell
+python migrate_bw_bex_pilot.py --bundle "docs\fixtures\sap_bw_bex_pilot_bundle.example.json"
+```
+
+The [bundle schema](schemas/sap_bw_bex_pilot_bundle.schema.json) requires
+`plan`, `inventory`, `semantics`, `csv_mapping`, `source_csv`, `target_csv`
+and `output_dir`. Paths are resolved relative to the bundle file so the
+example's input/output declarations stay together. The `--bundle` argument
+itself is resolved from the current working directory; use an absolute path
+when launching it elsewhere. The sample destination is new on a clean checkout;
+choose another new `output_dir` for every rerun. Copy and edit the bundle for a
+real, authorized local capture; it contains paths only, not SAP credentials.
+The seven explicit flags remain available for scripting and diagnostics, but
+cannot be mixed with `--bundle`.
+
+The destination must be a new directory. Exit `0` means the local assessment,
+PBIP generation, strict static validation and nonempty comparison pass. Exit
+`1` writes evidence for a mismatch, zero observations or static quality
+failure. Exit `2` means invalid input, orchestration or publication failure and
+publishes no final directory. The output contains assessment, reconciliation,
+pilot and quality reports plus the PBIP tree. Native identity, provenance and
+equivalence remain `not_verified`; SAP, Power BI, Fabric, refresh and approval
+remain `not_run`.
 
 ##### Compare two CSV captures directly
 

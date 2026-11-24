@@ -3,8 +3,8 @@
 ## [Unreleased]
 
 ### In progress
-- **2026-11-24 evidence snapshot:** 1 283 tests passed, 1 skipped and
-  1 504 subtests passed; coverage reached 80.74%. The synthetic linked
+- **2026-11-24 evidence snapshot:** 1 294 tests passed, 1 skipped and
+  1 547 subtests passed; coverage reached 80.73%. The synthetic linked
   BEx/InfoCube PBIP passed strict static validation with 0 errors and 0
   warnings, and direct CSV reconciliation found 0 mismatches across 2
   synthetic observations. The synthetic Enterprise Sales WebI batch generated
@@ -41,6 +41,18 @@
 - [Direct CSV reconciliation](docs/MIGRATION_REFERENCE.md#compare-two-csv-captures-directly)
   reuses that mapping and the linked InfoCube checks in one command. It writes
   only the existing linked report 1.1, without a separate vector JSON file.
+- Added `migrate_bw_bex_pilot.py`, a local one-command orchestrator for the
+  declared BEx/InfoCube pilot: it snapshots inputs, generates the PBIP in
+  staging, validates static quality, compares CSV captures and publishes a new
+  evidence directory. A single `--bundle` JSON now supplies those paths for the
+  simple invocation; individual flags remain for diagnostics. It performs no
+  SAP, Power BI or Fabric runtime operation.
+- Added the [live BO BEx metadata and independent PBIP draft](docs/MIGRATION_REFERENCE.md#live-bo-bex-metadata-and-independent-pbip-draft)
+  workflow. It uses an externally provisioned preauthenticated token, fetches
+  connection and outline metadata, and generates a review-only PBIP from an
+  unlinked plan. The report counts literal unnamespaced outline items; it does
+  not retain the outline or verify plan correspondence, provenance or BEx
+  equivalence. It does not extract source data or run the target.
 - Console `pytest` now collects local packages without requiring an installed
   checkout or `PYTHONPATH`. The test-only change leaves assertions and the
   80% coverage threshold unchanged.

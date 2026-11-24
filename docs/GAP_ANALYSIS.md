@@ -10,7 +10,7 @@ BEx assessment, and single-cube PBIP generator are separate paths; see the
 
 | Check | Local result | What it proves |
 |---|---|---|
-| Python suite | 🟢 1 283 passed, 1 skipped, 1 504 subtests; 80.74% coverage | Code behavior only |
+| Python suite | 🟢 1 294 passed, 1 skipped, 1 547 subtests; 80.73% coverage | Code behavior only |
 | BEx / InfoCube | 🟢 PBIP strict validation: 0 errors, 0 warnings | Local structure, not SAP parity |
 | CSV reconciliation | 🟢 2 synthetic observations, 0 mismatches | Supplied declarations only |
 | WebI Enterprise Sales | 🟠 Batch generated, 13 static warnings | Generation, not visual or runtime parity |

@@ -12,6 +12,7 @@ import urllib.request
 import urllib.parse
 import urllib.error
 import xml.etree.ElementTree as ET
+import xml.parsers.expat as expat
 
 logger = logging.getLogger(__name__)
 
@@ -22,6 +23,9 @@ _WEBI_PLAN_SNAPSHOT_LIMIT = 64 * 1024 * 1024
 _WEBI_PLAN_MAX_DEPTH = 256
 _WEBI_REQUEST_TIMEOUT = 30
 _WEBI_NO_IDENTIFIER = object()
+_BW_RESPONSE_LIMIT = 16 * 1024 * 1024
+_BW_REQUEST_TIMEOUT = 30
+_BW_PAGE_LIMIT = 50
 
 
 class BOServerClient:
@@ -216,6 +220,64 @@ class BOServerClient:
         """Get detailed info about a document."""
         url = f"{self.server_url}/biprws/raylight/{API_VERSION}/documents/{doc_id}"
         return self._get_json(url)
+
+    def list_bw_connections(self, offset=0, limit=10):
+        """Return one XML page of BW connections; limit is locally bounded to 1..50."""
+        if type(offset) is not int or offset < 0:
+            raise ValueError("BW offset must be a nonnegative integer")
+        if type(limit) is not int or not 1 <= limit <= _BW_PAGE_LIMIT:
+            raise ValueError("BW limit must be an integer from 1 to 50")
+        query = urllib.parse.urlencode({"offset": offset, "limit": limit})
+        return self._request_bw_metadata("?" + query, "bwconnections")
+
+    def get_bw_connection(self, connection_id):
+        """Return an XML BW connection, including any initial nodes."""
+        segment = _webi_path_segment(connection_id, "BW connection ID")
+        return self._request_bw_metadata("/" + segment, "bwconnection")
+
+    def browse_bw_connection(self, connection_id, *, path=None, pattern=None):
+        """Browse one connection by exactly one XML path or search pattern."""
+        segment = _webi_path_segment(connection_id, "BW connection ID")
+        if (path is None) == (pattern is None):
+            raise ValueError("Specify exactly one BW path or pattern")
+        name, value = ("path", path) if path is not None else ("pattern", pattern)
+        body = _bw_node_xml(name, value)
+        return self._request_bw_metadata("/" + segment, "bwconnection", body)
+
+    def get_bw_query_outline(self, connection_id, query_id):
+        """Return a BEx query's XML outline; query_id is sent verbatim as XML text."""
+        segment = _webi_path_segment(connection_id, "BW connection ID")
+        return self._request_bw_metadata(
+            "/" + segment + "/outline", "outline", _bw_node_xml("id", query_id),
+        )
+
+    def _request_bw_metadata(self, suffix, expected_root, body=None):
+        if not self._session_id:
+            raise RuntimeError("A logged-on BO session is required for BW metadata")
+        try:
+            base = urllib.parse.urlsplit(self.server_url)
+            valid_base = (base.scheme == "https" and base.hostname
+                          and base.username is None and base.password is None
+                          and not base.query and not base.fragment
+                          and not any(ord(char) <= 32 or ord(char) == 127
+                                      for char in self.server_url))
+            base.port  # Validate the port before attaching the session token.
+        except ValueError:
+            valid_base = False
+        if not valid_base:
+            raise ValueError("Invalid BO server URL for BW metadata; HTTPS required")
+        url = f"{self.server_url}/biprws/raylight/{API_VERSION}/bwconnections{suffix}"
+        request = self._make_request(url, method="PUT" if body is not None else "GET", data=body)
+        request.add_header("Accept", "application/xml")
+        if body is not None:
+            request.add_header("Content-Type", "application/xml; charset=utf-8")
+        # Reject all redirects, including same-origin, before forwarding the token.
+        opener = urllib.request.build_opener(_BWNoRedirect())
+        with opener.open(request, timeout=_BW_REQUEST_TIMEOUT) as response:
+            payload = response.read(_BW_RESPONSE_LIMIT + 1)
+        if len(payload) > _BW_RESPONSE_LIMIT:
+            raise ValueError("BW XML response exceeds the maximum supported size")
+        return _parse_bw_xml(payload, expected_root)
 
     def list_webi_reports(self, document_id):
         """List the report tabs of one Web Intelligence document."""
@@ -512,6 +574,43 @@ def _webi_path_segment(value, label):
 
 def _webi_xml_name(tag):
     return tag.rsplit("}", 1)[-1]
+
+
+class _BWNoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
+def _bw_node_xml(name, value):
+    if (not isinstance(value, str) or not value.strip()
+            or any(ord(char) < 32 or 0x7f <= ord(char) <= 0x9f
+                   or 0xd800 <= ord(char) <= 0xdfff or ord(char) in (0xfffe, 0xffff)
+                   for char in value)):
+        raise ValueError("Invalid BW node value")
+    node = ET.Element("bwnode")
+    ET.SubElement(node, name).text = value
+    body = ET.tostring(node, encoding="utf-8", xml_declaration=True)
+    if len(body) > _BW_RESPONSE_LIMIT:
+        raise ValueError("BW XML request exceeds the maximum supported size")
+    return body
+
+
+def _parse_bw_xml(payload, expected_root):
+    def reject_declaration(*args):
+        raise ValueError("BW XML response contains a prohibited declaration")
+
+    parser = expat.ParserCreate()
+    parser.StartDoctypeDeclHandler = reject_declaration
+    parser.EntityDeclHandler = reject_declaration
+    parser.ExternalEntityRefHandler = reject_declaration
+    try:
+        parser.Parse(payload, True)
+        root = ET.fromstring(payload)
+    except (expat.ExpatError, ET.ParseError, ValueError) as error:
+        raise ValueError("Invalid or prohibited BW XML response") from error
+    if root.tag != expected_root:
+        raise ValueError("Unexpected BW XML response root")
+    return root
 
 
 def _parse_webi_query_plan(payload):

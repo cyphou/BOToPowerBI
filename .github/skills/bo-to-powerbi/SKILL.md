@@ -397,6 +397,34 @@ it does not connect to SAP, verify metadata, execute a query, open Power BI
 Desktop, refresh data, or convert BEx semantics. See the BW-5 PBIP boundaries
 in `docs/SAP_BW_TO_FABRIC_DESIGN.md`.
 
+`migrate_bw_bex_live.py` is a separate, authorized live BO metadata workflow:
+it reads an externally preauthenticated `BO_LOGON_TOKEN` from the environment,
+fetches the BO BW connection and BEx outline, and does not log off that token.
+Provision it via an approved secure mechanism, never in commands or chat. The
+five required flags are `--server-url`, `--connection-id`, `--bex-id`, `--plan`
+and `--output-dir`. Use HTTPS, a reviewed unlinked plan, and a new destination
+under an existing trusted parent inaccessible to untrusted writers.
+
+The CLI generates a review-only PBIP from the independent plan and writes
+`migration_report.json`; it does not persist the outline. Counts cover only
+literal unnamespaced `item` elements by exact `type`, grouping other or missing
+types. They do not prove completeness or plan-to-outline correspondence. Source
+provenance, native identity and equivalence remain unverified; complete BEx
+conversion and source-data extraction are not provided. Source/target execution,
+Desktop rendering, refresh, deployment and approval are `not_run` without
+separate evidence. The wrapper's static check is non-strict and discards warning
+details; perform a separate strict quality check. BO endpoint compatibility has
+not been tested against a live server. Protect generated metadata and record
+source attribution separately. See the [live workflow reference](../../../docs/MIGRATION_REFERENCE.md#live-bo-bex-metadata-and-independent-pbip-draft).
+
+`migrate_bw_cube_live.py` is the parallel cube/InfoCube navigation workflow.
+It accepts the same server, connection, reviewed plan and output values, plus
+exactly one `--path` or `--pattern`. It counts observed `bwnode` types and
+generates a review-only PBIP; it does not extract rows or prove native InfoCube
+identity. Reuse the shared PowerShell variables in the live workflow reference
+to keep commands short. Runtime and endpoint checks remain `not_run` until
+separately authorized.
+
 `migrate_bw_controls_assess.py` checks a local BW-6 security, planning and
 compliance manifest against a BW inventory:
 
