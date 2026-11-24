@@ -1,5 +1,9 @@
 # Architectures de migration SAP BusinessObjects
 
+> **Lecture rapide :** ces schémas sont des options d’architecture, pas une
+> migration exécutée. Chaque cible reste soumise aux validations de données,
+> sécurité, fraîcheur, coûts et acceptation métier.
+
 Ce guide aide à choisir une cible pour les rapports et univers BO, puis à
 organiser leur migration vers Power BI et, si nécessaire, Fabric. Les schémas
 décrivent des **architectures cibles** : ils ne signifient pas que le dépôt

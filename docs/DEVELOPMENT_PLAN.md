@@ -4,6 +4,18 @@
 > The March 2026 version 3.0 plan is retained below as historical planning evidence,
 > not a current release or a certification that every phase exit criterion passed.
 
+## Evidence dashboard — 2026-11-24
+
+| Result | Verified locally | Still open |
+|---|---|---|
+| 🟢 Python suite | 1 283 passed, 1 skipped, 1 504 subtests; 80.74% coverage | Hosted CI matrix |
+| 🟢 BEx / InfoCube | Strict PBIP: 0 errors, 0 warnings; 2 synthetic observations, 0 mismatches | Real SAP/Power BI execution and approval |
+| 🟠 WebI synthetic | Batch generated; 13 static review warnings | Visual bindings and runtime rendering |
+| 🟠 Static quality | Critical Flake8 passed; coverage gate passed | Ruff 387 findings; Pyright 71 errors, 2 warnings |
+
+These results are local and synthetic. They do not prove identity, provenance,
+equivalence, refresh, deployment or retirement readiness.
+
 ## Review and current priorities — 2026-11-24
 
 **Review basis before the linked pilot:** the initial code/evidence review
@@ -34,112 +46,106 @@ for the migration findings and the
 [linked pilot](#delivered-local-bex-and-infocube-pilot--2026-11-24) for the
 subsequent implementation and local validation.
 
+**Historical CI trail (not current):** the early coverage baseline was 55.78%;
+owner-scoped cleanup reduced Ruff from 404 to 395 findings and Pyright from
+74 errors to 72 errors / 2 warnings. A later shared test bootstrap fixed
+console collection locally. Detailed per-increment results remain in the
+coverage recovery section below; the dashboard above is the latest snapshot.
+
 **Ordered next work** (detail and historical evidence are retained in the
 sections below):
 
-1. **Recover the independent CI gates — baseline complete, gate open.** `Tester`
-  coordinates owner-scoped Ruff/Pyright remediation and coverage-focused
-  regressions; each affected module's primary owner in
-  `.github/agents/ownership.json` fixes its own findings. First bounded slice:
-  `Evidence` widened the `_LAYER_SET` annotation in
-  `powerbi_import/bw_wave_evidence_index.py`; focused Ruff/Pyright and its
-  focused tests passed (9 passed, 3 subtests passed). The next `Dax` slice fixed the
-  optional regex-match dereference in
-  `bo_export/dax_converter.py`; focused Python 3.12 Pyright and 56 converter
-  tests pass. A follow-up `Dax` cleanup removed an unused compiled regex; its
-  focused Ruff, Pyright and 56 converter tests pass. Repository Ruff is now
-  402 diagnostics (from 404 initially); `Extractor` then removed one unused
-  `json` import from `bo_export/biar_reader.py` (14 focused tests pass), bringing
-  Ruff to 401. `Orchestrator` then removed unused `pathlib.Path` and corrected
-  the adjacent concurrent-futures import ordering in
-  `powerbi_import/parallel_engine.py`; focused Ruff/Pyright and 12 tests pass,
-  bringing repository Ruff to 399. `Evidence` then removed unused
-  `collections.Counter` from `powerbi_import/fidelity_scorer.py`; focused
-  Ruff/Pyright and 36 visual-fidelity tests pass, bringing repository Ruff to
-  398. `Extractor` then removed unused `os` from
-  `bo_export/crystal_extractor.py`; its focused F401 check, Pyright and 49
-  Crystal tests pass. Full-file Ruff still reports the separate existing E741
-  ambiguous loop variable in that module. Repository Ruff is now 397, and
-  Pyright remains at 72 errors and 2 warnings (from 74 errors initially). A
-  subsequent Python 3.12.16 full coverage-gated run after these cleanups passed
-  all pytest assertions (955 passed, 1 skipped, 1358 subtests), but measured
-  55.78%, still below the unchanged 80% threshold.
-  **Current local follow-up — 2026-11-24:** `Extractor` removed only the
-  unused `zipfile` import from `bo_export/extract_bo_data.py` and unused `os`
-  import from `bo_export/webi_extractor.py`. The focused F401 suites
-  `test_extraction.py` and `test_webi_extractor.py` report **35 passed, 24
-  subtests**. The post-cleanup plain full run, using
-  `python -m pytest -o 'addopts=' tests/ --tb=short -q`, reports **1,257 passed, 1
-  skipped, 1,422 subtests passed in 43.14s**. After cleanup, critical
-  Flake8 exits 0
-  (Python emits `SyntaxWarning: invalid escape sequence` in
-  `universe_extractor.py:254`); Ruff decreases from **397 to 395** diagnostics
-  with **395 remaining**, and Pyright is unchanged at **72 errors and 2
-  warnings**. This is local evidence only: the **CI static gate remains open**
-  and hosted CI was not run.
+The dashboard and linked gap review remain the numeric evidence baseline; the
+work packages below add no new measurements.
 
-   **Full-review replay — 2026-11-24 (Windows/Python 3.12.16):** With
-   `PYTHONPATH` unset and no repository install, directly replaying the unchanged
-   [workflow console command](../.github/workflows/ci.yml#L38-L43)
-   `pytest tests/ --tb=short -q --cov=bo_export --cov=powerbi_import --cov-report=term-missing --cov-fail-under=80`
-   exited **2** during collection. Both
-   [tests/test_ai_advisory.py](../tests/test_ai_advisory.py#L10-L16) and
-   [tests/test_alerts_generator.py](../tests/test_alerts_generator.py#L6-L10)
-   import `powerbi_import` before the repository root is on the import path.
-   A separate `python -m pytest` run on the same post-cleanup source state passed
-   the unchanged 80% threshold: **21,666/26,858 (80.67%)**, with **1,257 passed,
-   1 skipped, 1,422 subtests**. This does not verify the console invocation.
+1. **Delivered locally — repair the two observed semantic corruptions.**
+  **Outcome/evidence:** duplicate-table repair in
+  [powerbi_import/tmdl_generator.py](../powerbi_import/tmdl_generator.py)
+  can redirect both relationship endpoints by table name without checking
+  whether the renamed target contains each endpoint column; the `SUBSTITUTE`
+  rewrite incorrectly maps a fourth `instance_num` argument to all-occurrence
+  `Text.Replace`. **First change:** `Semantic` leads a bounded TMDL repair;
+  coordinate `Healing`, `Dax` and `Wiring` under the ownership collaboration,
+  with `Tester` adding focused TMDL and generated-relationship end-to-end
+  regressions in [tests/test_tmdl_generator.py](../tests/test_tmdl_generator.py).
+  `Semantic` now resolves relationship endpoints by table/column membership;
+  ambiguous or missing endpoints fail closed and are recorded for review.
+  Four-argument `SUBSTITUTE` with an `instance_num`
+  must be rejected/left unsupported until its semantics can be preserved, not
+  emitted as all-occurrence `Text.Replace`. Revise the erroneous existing
+  expectation. **Local exit:**
+  in the generated model, every `fromTable`/`fromColumn` and
+  `toTable`/`toColumn` endpoint resolves to an existing table and column; a
+  duplicate-name repair never redirects an endpoint to a table lacking that
+  column. Add a negative regression proving unsupported four-argument
+  `SUBSTITUTE` fails closed, and preserve the three-argument behavior.
+  Focused TMDL, Semantic Intelligence and E2E tests pass: **144 tests and
+  53 subtests**. **Risk/non-goal:**
+  do not redirect by name alone or imply general formula parity; no unrelated
+  TMDL/DAX cleanup. The repository Ruff gate remains open independently.
+2. **Restore repository static CI gates — parallel local work.**
+  **Outcome/evidence:** the dashboard records local suite and critical Flake8
+  success. The owner-scoped slices reduced Ruff from 392 to 387 diagnostics;
+  Pyright moved from 72 to 71 errors. Both gates remain open and hosted CI is
+  `not_run`.
+  **First change:** `Tester` coordinates; each primary owner fixes only its
+  Ruff/Pyright findings and records a per-owner before/after diagnostic
+  snapshot. **Dependencies/acceptance:** may proceed alongside item 1; use
+  focused owner tests, `pytest tests/ --tb=short -q` and whole CI-equivalent
+  checks. No blanket `--fix`, suppressions, lowered thresholds or weakened
+  assertions. Only passing hosted CI closes this gate. **Risk/non-goal:** local
+  success is not hosted-CI evidence or migration parity.
+3. **Unblock native InfoCube identity and one BEx query — externally blocked.**
+  **Outcome/evidence (existing pilot, not a new result):** linked Import PBIP
+  strict PASS (0 errors/0 warnings); direct CSV comparison has 2 observations
+  and 0 mismatches, limited to one text key and one exact measure. Identity,
+  provenance and equivalence remain `not_verified`; runtime and approval remain
+  `not_run`. **First change:** until the source owner supplies the approved
+  evidence package, do documentation/request work only. It must include a
+  sanitized native InfoCube identity sample with provenance and field mapping;
+  the approved BEx query ID and definition/provider link; selected key-figure
+  formula or restriction, unit/currency and aggregation/exception-aggregation
+  semantics; and agreed authorization, prompt/filter, hierarchy/time context
+  and grain. `Assessor` leads identity review with `Orchestrator`, `Evidence`
+  and `Tester`, plus the external BW source owner. Do not infer a SAP API or
+  native mapping. After identity and query semantics are approved, capture
+  independent source/target results and compare them at the same grain, role
+  and prompt context. **Exit:** matched, missing, mismatched, ambiguous and
+  wrong-client declarations are covered; reviewed source/target captures and
+  business-owner discrepancy disposition exist before conversion is considered.
+  **Risk/non-goal:** synthetic PBIP validation and vectors are not real-source
+  identity, parity or approval.
+4. **Resolve WebI source-backed bindings before schema/generator changes —
+  externally blocked.** **Outcome/evidence:** the synthetic batch exits `0`,
+  but its 13 static warnings are a baseline, not 13 identical acceptance
+  issues; source bindings remain unresolved. **First change:** request a
+  sanitized, source-owner-approved CMS/API report-element-to-provider link
+  and typed output evidence; until received, document/request only. `WebI
+  Migration` coordinates; `BusinessObjects`, `Extractor`, `Wiring`,
+  `Semantic`, `Visual`, `Assessor` and `Tester` own their respective slices.
+  **Dependencies/acceptance:** source evidence precedes schema or generator
+  changes; test matched, missing and ambiguous bindings and typed outputs,
+  then re-evaluate actual static findings. Preserve the existing gate and run
+  focused tests plus the full suite. **Risk/non-goal:** do not equate every
+  baseline warning or claim visual/runtime parity.
+5. **Run an explicitly authorized runtime pilot — downstream gate.**
+  **Outcome:** determine source/target behavior and acceptance independently
+  of local artifacts. **Owners:** `Deployer` executes only separately
+  authorized operations; `Evidence` captures/reconciles results and `Reviewer`
+  reviews acceptance. **Dependencies/acceptance:** wait for applicable local
+  gates (items 1–2), source evidence (items 3–4 as relevant), separate named
+  source/SAP, Desktop and target identities and permissions, safe
+  non-destructive SAP scope, explicit target
+  authorization, and security/business acceptance. Validate Desktop refresh
+  and the authorized Power BI/Fabric target separately; record every unrun
+  runtime check as `not_run`. **Risk/non-goal:** never infer authorization or
+  perform implicit cloud writes, refresh, deployment, cutover or retirement.
 
-  **Console test follow-up — 2026-11-24:** `Tester` added the repository root
-  to the test import path in [conftest](../tests/conftest.py#L5-L13) before
-  collection. Both affected files pass in isolation. The workflow console
-  test command also exits `0` locally with `PYTHONPATH` unset on Python
-  3.12.16: **21,675/26,868 (80.67%)**, above the unchanged 80% threshold.
-  This is not a hosted CI or static-gate pass.
-
-  **Next:** Re-run critical Flake8, repository Ruff and Pyright as configured,
-  then the full OS/Python test matrix with its existing coverage gate. Do not
-  lower the threshold, change coverage scope, or weaken assertions. Require focused
-   behavior regressions for behavior changes and `pytest tests/ --tb=short -q`.
-   Exit requires all configured checks, including hosted CI, to pass. Do not
-   suppress findings, weaken assertions or treat a local suite pass as gate
-   recovery. CI recovery is independent of migration parity and source evidence.
-2. **WebI source-backed binding — blocked.** First obtain a sanitized,
-   source-owner-approved CMS response or verified API contract for
-   report-element-to-provider linkage and typed query-output mapping. The
-   `WebI Migration` role coordinates; `BusinessObjects` owns the CMS
-   contract/client, `Extractor` local metadata, `Wiring` query mapping,
-   `Semantic` model columns, `Visual` PBIR bindings, `Assessor` static checks,
-   and `Tester` regressions. The approved source evidence is a prerequisite to
-   changing schemas or generators. Then test matched, missing, ambiguous and
-   mismatched links, focused owner tests and the required full suite. Synthetic
-   warnings, query-plan ID consistency and successful static validation do
-   not satisfy this gate or establish visual parity.
-3. **BW identity before BEx conversion — blocked on native evidence.** First
-   request a sanitized, source-owner-approved native InfoCube identity sample
-   and agreed field mapping. `Assessor` owns offline identity assessment;
-   `Orchestrator` owns any linked-plan gate; `Tester` owns regressions. Source
-   owner approval and field meaning are external dependencies. Only after
-   identity is resolved may `Assessor` scope one approved query's variables,
-   filters, hierarchy and key-figure semantics; `Dax`, `Semantic`, `Wiring`,
-   `Evidence` and `Tester` own their respective conversion/model/query/result
-   slices. Require focused contract, M/DAX/model and reconciliation tests plus
-   the full suite. Manifest v1.2 kind declarations alone do not unblock this
-   work; no SAP API or identity mapping is to be inferred.
-4. **Runtime, deployment and cutover stay downstream.** `Deployer` owns any
-   separately authorized target operation; `Evidence` reconciles results and
-   `Reviewer` reviews acceptance. Named source/business/security/platform
-   owners, approved scope, safe test design and explicit authorization are
-   prerequisites. Local generation/tests and hosted CI do not authorize CMS or
-   SAP reads, Desktop/Report Builder launch, Power BI/Fabric access, cloud
-   writes, refresh, deployment, rollback, cutover or retirement. Until each
-   is explicitly authorized and performed, record it as `not_run`; do not
-   promote local evidence to hosted or runtime evidence.
-
-The independent CI recovery gate may proceed while source owners prepare
-evidence. The WebI and BW evidence blockers are independent of each other and
-of CI. The sections below preserve their dated details; historical counts and
-phase labels do not supersede this priority order.
+**Wave order:** item 2 is the next implementation focus. Items 3 and 4 remain
+external evidence blocks, with documentation
+and requests as the only work before approved source evidence arrives. Item 5
+waits on the applicable local and source gates plus explicit authorization.
+Historical counts and phase labels below do not supersede this priority order.
 
 ## Test-coverage recovery roadmap — 2026-11-23
 
@@ -313,7 +319,7 @@ The previously uncovered follow-up modules measured: `migration_config.py`
 
 The post-cleanup local Windows/Python 3.12.16 `python -m pytest` run passed
 the coverage threshold; the workflow console replay failed collection as
-recorded in ordered work item 1. Hosted CI across the supported OS/Python
+recorded in the historical CI trail above. Hosted CI across the supported OS/Python
 matrix, Desktop/Fabric behavior, source equivalence and runtime acceptance
 were not run and remain unverified; local tests do not establish those separate
 evidence gates.
@@ -710,12 +716,47 @@ source evidence; neither is proof of SAP identity or feature parity.
   the unchanged 80% threshold passed **1,262 tests, 1 skipped and 1,434
   subtests** at **21,675/26,868 (80.67%)** coverage. At this milestone, the
   console collection issue had not yet been fixed and hosted CI had not run.
-- **Synthetic reconciliation:** The [offline replay](MIGRATION_REFERENCE.md#replay-the-synthetic-result-comparison)
+- **Standalone synthetic reconciliation (1.0):** The original offline replay
   compared two observations per case with no key discrepancies. It returned
   `pass`/0 for matching vectors and `fail`/1 for the changed target quantity
   (`12` vs `11` on `2026-11-24`). The full local suite passed **1,263 tests**
   with **1 skipped, 1,438 subtests and 80.67% coverage**. The comparator and
-  schema are unchanged; the values were supplied, not queried from the PBIP.
+  schema were unchanged in that slice; the values were supplied, not queried
+  from the PBIP.
+- **Linked reconciliation follow-up:** `Orchestrator` and `Evidence` added the
+  [opt-in plan check](SAP_BW_TO_FABRIC_DESIGN.md#link-the-vectors-to-one-declared-infocube-plan)
+  for query, source system, project and selected key-figure declarations.
+  Linked reports 1.1 distinguish row comparison from plan linkage and the
+  requirement for a nonzero observation count. `Tester` covers agreement,
+  mismatches, empty/duplicate-only vectors, bad declarations and old modes.
+  No input schema, PBIP generator or BW-5 gate changed; the check is local.
+  The documented replay produced `pass`/0 and `fail`/1 with two observations
+  each; strict static PBIP validation passed without errors or warnings.
+  Focused suites passed **86 tests and 478 subtests**. The full local console
+  suite passed **1,268 tests, 1 skipped and 1,454 subtests** at **80.67%**
+  coverage with the unchanged 80% threshold. Hosted CI was not verified.
+- **Two-CSV preparation follow-up:** `Evidence` and `Orchestrator` added a
+  [local packager](MIGRATION_REFERENCE.md#prepare-vectors-from-two-csv-captures)
+  for independently prepared two-column CSVs, with one mapped text key and
+  one numeric key figure using an exact rule. It writes the existing format
+  for linked comparison without hand-entering JSON rows. The synthetic CSV
+  replay compared two observations with no mismatch; a counterfactual change
+  from `11.00` to `12.00` still packaged but failed linked comparison.
+  Focused suites passed **96 tests and 509 subtests**. The full local console
+  suite passed **1,278 tests, 1 skipped and 1,485 subtests** at **80.72%**
+  coverage with the unchanged 80% threshold. This does not capture real
+  results, verify provenance or change P1-B, P1-D or the BW-5 gate.
+- **Direct CSV comparison follow-up:** `Orchestrator` added an
+  [opt-in CSV mode](MIGRATION_REFERENCE.md#compare-two-csv-captures-directly)
+  on the reconciliation CLI. It requires the complete plan/inventory/semantics
+  trio and writes only the final linked report 1.1. The two-step mode remains
+  available for vector review. The documented direct replay produced one
+  report with two compared observations and no mismatch. Regression tests
+  verify identical direct and two-step reports for matching, mismatched and
+  header-only inputs. Focused suites passed **100 tests and 524 subtests**;
+  the full local suite passed **1,282 tests, 1 skipped and 1,500 subtests**
+  at **80.72%** coverage against the unchanged 80% threshold. This does not
+  change the source-evidence or approval requirements; hosted CI was not verified.
 - **Next real pilot:** The [owner handoff](MIGRATION_REFERENCE.md#collect-evidence-for-an-authorized-pilot)
   records the prerequisites for comparing real results. P1-B and P1-D remain
   blocked on a sanitized, source-owner-approved native InfoCube sample, query
@@ -957,8 +998,9 @@ coverage or migration equivalence.
   conversion, target generation and remote operations were not changed.
 - **Dependencies / compatibility:** version 1.0 schema is unchanged.
   Mathematical `comparison_status`, the empty/empty pass, and exit code 0
-  remain unchanged. Runtime evidence remains `not_run` and verification
-  remains `not_verified`.
+  remain unchanged in standalone mode. The later linked mode adds a
+  separate observation requirement. Runtime evidence remains `not_run` and
+  verification remains `not_verified`.
 - **Validation / exit:** focused tests passed: 18 tests / 30 subtests. The
   full `python -m pytest tests\ --tb=short -q` exited 0; its output did not
   include total counts. `py_compile` and `git diff --check` passed. Tests cover

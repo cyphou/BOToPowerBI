@@ -3,6 +3,24 @@
 ## [Unreleased]
 
 ### In progress
+- **2026-11-24 evidence snapshot:** 1 283 tests passed, 1 skipped and
+  1 504 subtests passed; coverage reached 80.74%. The synthetic linked
+  BEx/InfoCube PBIP passed strict static validation with 0 errors and 0
+  warnings, and direct CSV reconciliation found 0 mismatches across 2
+  synthetic observations. The synthetic Enterprise Sales WebI batch generated
+  successfully with 13 static warnings. Hosted CI, SAP/CMS, Desktop, refresh,
+  Fabric runtime and business acceptance remain `not_run`; native identity
+  and equivalence remain `not_verified`.
+- Semantic safety fixes now resolve duplicate-table relationship endpoints by
+  actual table/column membership and fail closed for ambiguous or missing
+  columns. Four-argument DAX `SUBSTITUTE` is rejected instead of being
+  silently converted to all-occurrence `Text.Replace`; three-argument behavior
+  remains unchanged. Focused semantic and E2E tests pass; repository-wide
+  Ruff/Pyright gates remain separate open work.
+- Owner-scoped static cleanup removed dead compatibility imports, corrected an
+  optional-parameter annotation and cleaned the conversion adapter: Ruff moved
+  from 392 to 387 diagnostics and Pyright from 72 to 71 errors. The full local
+  suite remains green; hosted CI is still not run.
 - Added a reproducible [linked BEx and InfoCube pilot](docs/MIGRATION_REFERENCE.md#linked-bex-and-infocube-pilot)
   using a synthetic BW inventory 1.0, BEx manifest 1.2 and plan 1.6. It produces
   a local single-cube Import PBIP with typed physical columns, a review table,
@@ -10,6 +28,19 @@
 - The pilot now includes a [synthetic reconciliation replay](docs/MIGRATION_REFERENCE.md#replay-the-synthetic-result-comparison)
   for two day-level observations and one deliberately changed quantity.
   It uses the existing offline comparator and does not query SAP or Power BI.
+- BEx reconciliation can now verify vector declarations against a linked
+  InfoCube plan, BW inventory and BEx manifest. Linked reports use version 1.1;
+  mismatched declarations are rejected, and zero observations fail the linked
+  CLI without changing `comparison_status`. Vector input and standalone
+  report 1.0 are unchanged. This does not verify native SAP
+  identity or a generated PBIP.
+- A [BEx CSV packager](docs/MIGRATION_REFERENCE.md#prepare-vectors-from-two-csv-captures)
+  maps two prepared UTF-8 CSVs to the existing vector schema with one text key
+  and one exact key-figure rule. Packaging is separate from comparison and
+  does not execute queries or verify where exports came from.
+- [Direct CSV reconciliation](docs/MIGRATION_REFERENCE.md#compare-two-csv-captures-directly)
+  reuses that mapping and the linked InfoCube checks in one command. It writes
+  only the existing linked report 1.1, without a separate vector JSON file.
 - Console `pytest` now collects local packages without requiring an installed
   checkout or `PYTHONPATH`. The test-only change leaves assertions and the
   80% coverage threshold unchanged.
@@ -38,8 +69,8 @@
   `no_measure_observations_compared` when `summary.measures_compared` is zero.
   After a successful report write, the CLI prints
   “No measure observations were compared; this result does not establish
-  measure agreement.” This notice does not alter `comparison_status` or exit
-  behavior (two empty vectors remain `pass`/0); schema 1.0, runtime evidence
+  measure agreement.” This notice does not alter `comparison_status` or
+  standalone exit behavior (two empty vectors remain `pass`/0). Runtime evidence
   `not_run` and verification `not_verified` are unchanged.
 - `PBIWorkspaceDeployer.deploy_rolling` is intentionally disabled and returns
   `status: failed`, `phase: blocked` and `rolled_back: false` without remote

@@ -2,6 +2,12 @@
 
 Detailed procedures and historical local evidence. Start with the concise [README](../README.md).
 
+> [!NOTE]
+> **Bilan — 24 nov. 2026:** 1 282 tests réussis, 1 ignoré, 80.72% de couverture.
+> BEx/InfoCube synthétique: PBIP strict PASS, 2 observations comparées, 0 écart.
+> WebI synthétique: génération réussie, 13 avertissements statiques. Aucun SAP,
+> Desktop, rafraîchissement, Fabric, CI hébergée ou acceptation métier exécuté.
+
 ## Export generated M and DAX expressions
 
 BO generation automatically attempts review exports for standard folder and
@@ -769,6 +775,91 @@ The strict static check reports `PASS` with zero errors and warnings for this
 fixture. The linkage report in `pbip` records the resolved local binding and
 leaves `gate_closed: false` and `native_infocube_identity_verification: not_verified`.
 
+##### Compare two CSV captures directly
+
+Run this example from the repository root. It uses the two fictional CSVs
+with the same [explicit mapping](fixtures/sap_bw_bex_pilot_csv_mapping.example.json)
+as the two-step workflow below: one pre-normalized text key and one exact
+numeric comparison. The command needs the linked plan, BW inventory and BEx
+manifest, but does not need or open a generated PBIP.
+
+```powershell
+$fixtures = "docs\fixtures"
+$csvPilot = Join-Path ([System.IO.Path]::GetTempPath()) ("bo-bex-csv-direct-" + [guid]::NewGuid().ToString("N"))
+New-Item -ItemType Directory -Path $csvPilot | Out-Null
+
+python migrate_bw_reconcile.py `
+  --bex-csv-mapping "$fixtures\sap_bw_bex_pilot_csv_mapping.example.json" `
+  --source-csv "$fixtures\sap_bw_bex_pilot_source.example.csv" `
+  --target-csv "$fixtures\sap_bw_bex_pilot_target.example.csv" `
+  --plan "$fixtures\sap_bw_bex_pilot_plan.example.json" `
+  --inventory "$fixtures\sap_bw_bex_pilot_inventory.example.json" `
+  --semantics "$fixtures\sap_bw_bex_pilot_semantics.example.json" `
+  --output "$csvPilot\reconciliation-direct.json"
+if ($LASTEXITCODE -ne 0) { throw "Direct CSV comparison did not pass" }
+
+$report = Get-Content -Raw -LiteralPath "$csvPilot\reconciliation-direct.json" | ConvertFrom-Json
+if ($report.schema_version -ne '1.1' -or $report.plan_linkage.status -ne 'pass' -or
+    $report.summary.measures_compared -ne 2 -or $report.summary.measure_mismatches -ne 0) {
+    throw "Expected a linked report with two matching observations"
+}
+$report.summary
+```
+
+Only the requested linked report is written; there is no intermediate vector
+file. Exit `0` requires a matching comparison with observations. Exit `1`
+writes a report for discrepancies or zero observations. For two header-only
+CSVs, `comparison_status` is `pass`, but `observation_requirement.status`
+is `fail`. Exit `2` indicates invalid arguments, input, linkage or output;
+invalid inputs create no report and existing reports are not overwritten.
+Keep real inputs and reports in protected storage: the report contains keys,
+values and evidence labels. This workflow does not execute queries,
+authenticate the captures or verify native InfoCube identity.
+
+##### Prepare vectors from two CSV captures
+
+Use the two-step workflow if you need to review or retain the vector file.
+Use the [CSV mapping](fixtures/sap_bw_bex_pilot_csv_mapping.example.json) to
+explicitly map the already normalized day key and the billed quantity in the
+fictional [source CSV](fixtures/sap_bw_bex_pilot_source.example.csv) and
+[target CSV](fixtures/sap_bw_bex_pilot_target.example.csv). The target has a
+different column order and writes `11.00` where the source writes `11`.
+The packager keeps both spellings; the comparator checks numeric equality.
+
+Reuse `$fixtures` and `$pilot` from the setup above. Use two new paths in
+that directory, one for the vectors and one for the comparison report.
+Neither command reads the generated PBIP.
+
+```powershell
+python migrate_bw_bex_vectors.py `
+  --mapping "$fixtures\sap_bw_bex_pilot_csv_mapping.example.json" `
+  --source-csv "$fixtures\sap_bw_bex_pilot_source.example.csv" `
+  --target-csv "$fixtures\sap_bw_bex_pilot_target.example.csv" `
+  --output "$pilot\vectors-from-csv.json"
+if ($LASTEXITCODE -ne 0) { throw "CSV packaging failed" }
+
+python migrate_bw_reconcile.py `
+  --bex-result-vectors "$pilot\vectors-from-csv.json" `
+  --plan "$fixtures\sap_bw_bex_pilot_plan.example.json" `
+  --inventory "$fixtures\sap_bw_bex_pilot_inventory.example.json" `
+  --semantics "$fixtures\sap_bw_bex_pilot_semantics.example.json" `
+  --output "$pilot\reconciliation-from-csv.json"
+if ($LASTEXITCODE -ne 0) { throw "CSV vectors did not reconcile" }
+
+$report = Get-Content -Raw -LiteralPath "$pilot\reconciliation-from-csv.json" | ConvertFrom-Json
+if ($report.summary.measures_compared -ne 2 -or $report.summary.measure_mismatches -ne 0) {
+    throw "Expected two observations and no mismatches"
+}
+$report.summary
+```
+
+The first exit `0` only means the vector file was written. The second means
+two declared observations were compared and matched in this example. See the
+[CSV input contract](SAP_BW_TO_FABRIC_DESIGN.md#package-operator-prepared-bex-result-csvs)
+for accepted headers, keys, numeric text, and failure cases. Keep real input
+and output files in protected storage; this step does not sanitize a capture
+or authenticate how it was produced.
+
 ##### Replay the synthetic result comparison
 
 The [matching vectors](fixtures/sap_bw_bex_pilot_result_vectors.example.json)
@@ -780,20 +871,28 @@ one row per calendar day, with the same declared role and prompt context
 and the typed Power BI column `Clé du jour` to `day_key` (`YYYY-MM-DD`), not
 the display caption `Jour`. For `synthetic-billed-quantity`, the manifest
 declares `EA` and the plan maps `[Measures].[ZPILOT_QTY]` to `Quantité facturée`.
-The comparator checks numeric values exactly; it does not validate units,
-normalize keys, read the plan or verify the mapping. The two sides have
-distinct fictional run and evidence references.
+The comparator checks these numeric values exactly; it does not validate units
+or normalize keys. The two sides have distinct fictional run and evidence
+references.
 
-Reuse `$fixtures` and `$pilot` from the setup above. No generated PBIP is
-needed for these commands; the report paths must be new:
+Reuse `$fixtures` and `$pilot` from the setup above. Passing all three linked
+inputs checks that the vectors name the same declared BEx query, source
+system, target project and selected key figure. No generated PBIP is needed;
+the report paths must be new:
 
 ```powershell
-python migrate_bw_reconcile.py `
+$linkage = @(
+  "--plan", "$fixtures\sap_bw_bex_pilot_plan.example.json",
+  "--inventory", "$fixtures\sap_bw_bex_pilot_inventory.example.json",
+  "--semantics", "$fixtures\sap_bw_bex_pilot_semantics.example.json"
+)
+
+python migrate_bw_reconcile.py @linkage `
   --bex-result-vectors "$fixtures\sap_bw_bex_pilot_result_vectors.example.json" `
   --output "$pilot\reconciliation-pass.json"
 if ($LASTEXITCODE -ne 0) { throw "Matching vectors should exit 0" }
 
-python migrate_bw_reconcile.py `
+python migrate_bw_reconcile.py @linkage `
   --bex-result-vectors "$fixtures\sap_bw_bex_pilot_result_vectors_mismatch.example.json" `
   --output "$pilot\reconciliation-mismatch.json"
 if ($LASTEXITCODE -ne 1) { throw "The deliberate mismatch should exit 1" }
@@ -804,18 +903,30 @@ if ($match.summary.measures_compared -ne 2 -or $match.summary.measure_mismatches
    $mismatch.summary.measures_compared -ne 2 -or $mismatch.summary.measure_mismatches -ne 1) {
    throw "Expected two comparisons in each report and one deliberate mismatch"
 }
-$match.summary
-$mismatch.measure_mismatches
+foreach ($report in @($match, $mismatch)) {
+  if ($report.plan_linkage.status -ne 'pass' -or $report.observation_requirement.status -ne 'pass') {
+    throw "Expected matching plan declarations and nonempty observations"
+  }
+}
+$match.plan_linkage.vector_measure_bindings | Format-Table key_figure_id, selector, column
+$mismatch.measure_mismatches | Format-List key, measure, source_value, target_value, difference, allowed_difference
 ```
 
 Both reports compare two observations with no missing, extra or duplicate
-keys. The first reports `pass`; the second reports `fail` and identifies
-`2026-11-24`, with `11` on the source side and `12` on the target side
-(numeric difference `1`, allowed `0`). Exit `2` is an input or write error.
-A `pass` with zero observations is not measure agreement. These values are
-invented, not results queried from SAP or from the PBIP. The replay does not
-verify InfoCube identity, linkage, provenance or equivalence, run a refresh,
-or close BW-5.
+keys. In the linked report 1.1, the plan binding and observation requirement
+pass for both cases. The first `comparison_status` is `pass`; the second
+is `fail` and identifies `2026-11-24`, with `11` on the source side and `12`
+on the target side (numeric difference `1`, allowed `0`). In this mode, zero
+observations also exit `1` with a report, even if `comparison_status` is `pass`. A wrong
+query, project, source system or selected key-figure ID is an input error:
+exit `2` before a report is written. Omit all three linkage flags to use the
+standalone comparator; a partial set is rejected. See the
+[comparison contract](SAP_BW_TO_FABRIC_DESIGN.md#offline-bex-result-vector-comparison).
+
+These values are invented, not results queried from SAP or from the PBIP.
+Matching declarations do not establish native InfoCube identity, provenance,
+grain or equivalence. The command does not open the PBIP, execute queries,
+run a refresh or close BW-5.
 
 ##### Collect evidence for an authorized pilot
 
@@ -840,9 +951,11 @@ convert BEx calculations, prompts, security or layout.
   stable keys, not formatted captions; compare detail and totals separately.
   Review missing or duplicate keys, nulls and rounding before comparison.
   Schema 1.0 does not accept null measures; do not substitute zero or
-  silently drop rows.
+  silently drop rows. After capture, use the [direct CSV comparison](#compare-two-csv-captures-directly)
+  for one stable text key and one exact quantity comparison if the exports
+  can be projected to two clean columns. It does not replace independent capture.
 3. **Business owner:** approve the comparison scope, units, rounding and any
-  tolerance; require nonzero observations and review discrepancies before
+  tolerance; run the linked comparison and review discrepancies before
   accepting the result. Record Desktop rendering, refresh and consumer
   acceptance separately. P1-B (native identity) and P1-D (source-backed
   semantics) remain blocked pending review of the required source evidence.

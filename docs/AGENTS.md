@@ -1,5 +1,9 @@
 # Multi-Agent Architecture — BusinessObjects to Power BI Migration
 
+> **Simple rule:** specialist roles organize implementation and evidence review.
+> They do not run automatically and do not certify a migration. Local tests and
+> generated artifacts are separate from SAP, Desktop, Fabric and business acceptance.
+
 This project uses a **specialized agent model**. Each agent has scoped domain knowledge,
 file ownership, and clear boundaries.
 

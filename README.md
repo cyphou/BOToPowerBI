@@ -4,6 +4,24 @@ Generate local Power BI, Fabric or paginated-report artifacts from supported
 SAP BusinessObjects metadata. Extraction and conversion are partial: generated
 files still require source, data, security and report validation.
 
+## Migration evidence — 24 Nov 2026
+
+> [!IMPORTANT]
+> **Local pilots are ready to review. Full migration approval is not established.**
+
+| Area | Result | Boundary |
+|---|---|---|
+| Python tests | 🟢 **1 283 passed**, 1 skipped, 1 504 subtests | 80.74% coverage; 80% threshold passed |
+| BEx / InfoCube | 🟢 Synthetic pilot strictly validated | 0 static errors, 0 warnings; 2 CSV observations, 0 mismatches |
+| WebI | 🟠 Synthetic batch generated | 0 static errors, 13 review warnings |
+| Hosted CI | ⚪ Not run | Ruff 387; Pyright 71 errors / 2 warnings; hosted OS/Python jobs remain open |
+| SAP / Desktop / Fabric runtime | ⚪ Not run | No refresh, rendering, source query or deployment evidence |
+| Identity / equivalence | ⚪ Not verified | No real owner-approved source export or business acceptance |
+
+A PBIP, a green test suite and a static PASS do not prove a real migration.
+See the [gap analysis](docs/GAP_ANALYSIS.md#local-bo-bex-and-infocube-review--2026-11-24)
+and the [final verification report folder](artifacts/final-migration-verification/).
+
 ## ⚡ Quick Start
 
 Requires Python 3.12 or later. The core migration engine uses the standard
@@ -207,6 +225,13 @@ unresolved. No kind generates DAX or measures. Assessment gates are unchanged,
 `gate_closed` remains false and runtime statuses remain `not_run`. See the
 [BEx assessment contract](docs/SAP_BW_TO_FABRIC_DESIGN.md#bw-5-offline-bex-semantic-capture).
 
+[Compare two prepared CSV captures directly](docs/MIGRATION_REFERENCE.md#compare-two-csv-captures-directly)
+using one text key and one exact numeric measure. The CLI checks declared
+identifiers against the InfoCube plan, BW inventory and BEx manifest. To
+retain the vectors, use the
+[vector packager](docs/MIGRATION_REFERENCE.md#prepare-vectors-from-two-csv-captures).
+Neither path extracts source data.
+
 To compare locally declared BEx source and target result vectors, use a
 versioned manifest and a new report path:
 
@@ -218,13 +243,17 @@ python migrate_bw_reconcile.py `
 
 The comparator checks declared composite keys and exact or decimal-tolerance
 measure rules. A pass applies only to the supplied declarations; it does not
-run SAP or Fabric, establish provenance or coverage, prove semantic
+run SAP, Power BI or Fabric, establish provenance or coverage, prove semantic
 equivalence, or close BW-5. If the report's `measures_compared` is zero, it
 includes `no_measure_observations_compared`, and the CLI prints
 “No measure observations were compared; this result does not establish measure
-agreement.” This notice does not change `comparison_status` or the exit code;
-two empty vectors can still yield `pass`/0. Native InfoCube identity remains
-blocked pending source-owner-approved evidence and an agreed field mapping.
+agreement.” In standalone mode two empty vectors can still yield `pass`/0.
+To tie the comparison to a declared InfoCube, add `--plan`, `--inventory`
+and `--semantics` together. This mode refuses inconsistent query, source,
+project or selected key-figure IDs, and exits `1` if no measures are compared.
+See the [linked pilot replay](docs/MIGRATION_REFERENCE.md#replay-the-synthetic-result-comparison).
+Native InfoCube identity remains blocked pending source-owner-approved evidence
+and an agreed field mapping.
 See the [BEx comparison contract and limitations](docs/SAP_BW_TO_FABRIC_DESIGN.md#offline-bex-result-vector-comparison).
 
 BO folder and BIAR, shared-model, Python importer and local MCP generation

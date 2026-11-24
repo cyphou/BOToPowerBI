@@ -18,6 +18,7 @@ from powerbi_import.tmdl_generator import (
     _self_heal_model,
     generate_tmdl,
 )
+from powerbi_import.recovery_report import RecoveryReport
 
 
 class TestTmdlGeneratorOutput(unittest.TestCase):
@@ -319,7 +320,7 @@ class TestTmdlGeneratorOutput(unittest.TestCase):
             'NOT([Actif] = FALSE())': 'not ([Actif] = false)',
             'LEFT([Nom], 2)': 'Text.Start([Nom], 2)',
             'MID([Nom], 2, 3)': 'Text.Middle([Nom], 2 - 1, 3)',
-            'SUBSTITUTE([Nom], "a", "é", 1)': 'Text.Replace([Nom], "a", "é")',
+            'SUBSTITUTE([Nom], "a", "é")': 'Text.Replace([Nom], "a", "é")',
             'DATEDIFF([Début], [Fin], MONTH)':
                 '(Date.Year([Fin])*12 + Date.Month([Fin])) - (Date.Year([Début])*12 + Date.Month([Début]))',
             'DATEDIFF([Début], [Fin], YEAR)': 'Date.Year([Fin]) - Date.Year([Début])',
@@ -336,6 +337,8 @@ class TestTmdlGeneratorOutput(unittest.TestCase):
             'CALCULATE(SUM([Montant]))',
             'DATEDIFF([Début], [Fin], WEEK)',
             'CONCATENATEX([Rows], [Name])',
+            'SUBSTITUTE([Nom], "a", "é", 1)',
+            'SUBSTITUTE([Nom], "a")',
         ):
             with self.subTest(unsupported=unsupported):
                 self.assertIsNone(_dax_to_m_expression(unsupported))
@@ -469,7 +472,42 @@ class TestTmdlGeneratorOutput(unittest.TestCase):
         self.assertTrue(tables[0]['measures'][0]['isHidden'])
         self.assertIn('MigrationNote', [item['name'] for item in tables[0]['measures'][0]['annotations']])
         self.assertEqual(tables[0]['measures'][1]['name'], 'Orphan')
-        self.assertEqual(model['model']['relationships'][0]['fromTable'], 'Orders_2')
+        self.assertEqual(model['model']['relationships'][0]['fromTable'], 'Orders')
+        self.assertEqual(model['model']['relationships'][0]['toTable'], 'Orders_2')
+
+    def test_self_healing_drops_ambiguous_and_missing_duplicate_endpoints_with_recovery(self):
+        cases = (
+            ('ambiguous', [
+                {'name': 'Orders', 'columns': [{'name': 'Id'}]},
+                {'name': 'Orders', 'columns': [{'name': 'Id'}]},
+                {'name': 'Customers', 'columns': [{'name': 'Id'}]},
+            ], {'fromTable': 'Orders', 'fromColumn': 'Id',
+                'toTable': 'Customers', 'toColumn': 'Id'}),
+            ('missing', [
+                {'name': 'Orders', 'columns': [{'name': 'Id'}]},
+                {'name': 'Orders', 'columns': [{'name': 'Amount'}]},
+            ], {'fromTable': 'Orders', 'fromColumn': 'Missing',
+                'toTable': 'Orders', 'toColumn': 'Amount'}),
+        )
+
+        for reason, tables, relationship in cases:
+            with self.subTest(reason=reason):
+                model = {'model': {'tables': tables, 'relationships': [relationship]}}
+                recovery = RecoveryReport(f'{reason}_endpoint')
+
+                with contextlib.redirect_stdout(io.StringIO()):
+                    repairs = _self_heal_model(model, recovery=recovery)
+
+                self.assertEqual(repairs, 2)
+                self.assertEqual(model['model']['relationships'], [])
+                self.assertEqual([table['name'] for table in model['model']['tables']],
+                                 ['Orders', 'Orders_2'] + (['Customers'] if reason == 'ambiguous' else []))
+                self.assertEqual(recovery.get_summary()['by_type'],
+                                 {'duplicate_table': 1, 'unresolved_endpoint': 1})
+                unresolved = recovery.repairs[-1]
+                self.assertEqual(unresolved['category'], 'relationship')
+                self.assertEqual(unresolved['repair_type'], 'unresolved_endpoint')
+                self.assertIn(f'({reason})', unresolved['description'])
 
 
 if __name__ == '__main__':

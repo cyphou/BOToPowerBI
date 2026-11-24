@@ -1,5 +1,10 @@
 # Demo Studio integration
 
+> **Evidence boundary:** Demo Studio presentations describe or preview local
+> workflows. They do not constitute SAP or Power BI runtime validation, source
+> equivalence or migration approval. Use the repository evidence dashboard for
+> the verified scope of a demonstration.
+
 <!-- demo-studio:integration:start -->
 ## Demo and presentation workflow
 

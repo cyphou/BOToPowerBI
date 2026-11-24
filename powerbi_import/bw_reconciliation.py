@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import csv
 import json
 import re
+from collections.abc import Iterable, Iterator
 from datetime import datetime, timedelta
 from decimal import MAX_EMAX, MIN_EMIN, Decimal, InvalidOperation, localcontext
 from pathlib import Path
@@ -574,10 +576,166 @@ def load_bex_result_vectors(path: str | Path) -> dict:
         ) from None
 
 
+_BEX_CSV_MAPPING_FIELDS = {
+    "schema_version", "comparison_id", "scope", "key_field", "key_figure_id", "source", "target",
+}
+_BEX_CSV_METADATA_FIELDS = (
+    "system_id", "object_id", "run_id", "evidence_ref", "role", "prompt_context_ref", "grain",
+)
+_BEX_CSV_HEADER_FIELDS = ("key_column", "measure_column")
+_BEX_CSV_SIDE_FIELDS: set[str] = set(_BEX_CSV_METADATA_FIELDS + _BEX_CSV_HEADER_FIELDS)
+_BEX_CSV_AUTH_LINK = re.compile(
+    r"[a-z][a-z0-9+.-]*://[^/\s?#]*@|(?:^|[?&#;])(?:sig|signature|x-amz-signature|x-goog-signature)=",
+    re.IGNORECASE,
+)
+_BEX_CSV_FIELD = r'(?:[^,"\r\n]*+|"(?:[^"\r\n]|"")*+")'
+_BEX_CSV_RECORD = re.compile(rf"{_BEX_CSV_FIELD},{_BEX_CSV_FIELD}")
+
+
+def _scan_bex_csv_text(value: str, location: str) -> None:
+    # Check decoded text as well as the JSON representation used by the comparator.
+    serialized = json.dumps(value, ensure_ascii=False)
+    try:
+        serialized.encode("utf-8")
+    except UnicodeError:
+        raise BWReconciliationError(
+            f"BW reconciliation contract error at {location}: must be valid UTF-8 text"
+        ) from None
+    if scan_for_credentials(value) or scan_for_credentials(serialized) or _BEX_CSV_AUTH_LINK.search(value):
+        _fail(location, "credential-like content is not allowed")
+
+
+def _validate_bex_csv_mapping(mapping: Any) -> dict:
+    root = _object(mapping, "$", _BEX_CSV_MAPPING_FIELDS)
+    if root["schema_version"] != "1.0":
+        _fail("$.schema_version", "expected version 1.0")
+    for field in ("comparison_id", "key_field", "key_figure_id"):
+        location = f"$.{field}"
+        _scan_bex_csv_text(_text(root[field], location), location)
+    scope = _bex_scope(root["scope"], "$.scope")
+    for field, value in scope.items():
+        _scan_bex_csv_text(value, f"$.scope.{field}")
+    for name in ("source", "target"):
+        location = f"$.{name}"
+        side = _object(root[name], location, _BEX_CSV_SIDE_FIELDS)
+        for field in _BEX_CSV_METADATA_FIELDS + _BEX_CSV_HEADER_FIELDS:
+            field_location = f"{location}.{field}"
+            _scan_bex_csv_text(_text(side[field], field_location), field_location)
+        if side["key_column"] == side["measure_column"]:
+            _fail(f"{location}.measure_column", "must differ from key_column")
+
+    source, target = root["source"], root["target"]
+    if source["object_id"] != scope["query_id"]:
+        _fail("$.source.object_id", "must match $.scope.query_id")
+    for field in ("role", "prompt_context_ref", "grain"):
+        if source[field] != target[field]:
+            _fail(f"$.target.{field}", f"must match $.source.{field}")
+    for field in ("run_id", "evidence_ref"):
+        if source[field] == target[field]:
+            _fail(f"$.target.{field}", f"must differ from $.source.{field}")
+    return root
+
+
+def _require_bex_regular_file(value: str | Path, location: str) -> Path:
+    try:
+        path = Path(value)
+        if not path.is_file():
+            raise ValueError
+    except (OSError, TypeError, ValueError):
+        raise BWReconciliationError(
+            f"BW reconciliation contract error at {location}: expected a regular file"
+        ) from None
+    return path
+
+
+def load_bex_csv_mapping(path: str | Path) -> dict:
+    """Load a strict UTF-8 JSON mapping for two local BEx CSV captures."""
+    try:
+        mapping = load_comparison(_require_bex_regular_file(path, "$.mapping"))
+    except (OSError, ValueError, InvalidOperation, RecursionError):
+        raise BWReconciliationError("Unable to load local BW BEx CSV mapping JSON.") from None
+    return _validate_bex_csv_mapping(mapping)
+
+
+def _checked_bex_csv_lines(lines: Iterable[str], location: str) -> Iterator[str]:
+    for number, line in enumerate(lines, start=1):
+        # csv.reader(strict=True) still accepts bare quotes in unquoted fields.
+        # All supported fields are single-line, so validate quoting per record.
+        if '"' in line and not _BEX_CSV_RECORD.fullmatch(line.rstrip("\r\n")):
+            _fail(f"{location}.line[{number}]", "must be well-formed UTF-8 CSV with single-line fields")
+        yield line
+
+
+def _read_bex_csv_rows(
+    path: Path, location: str, side: dict, key_field: str, key_figure_id: str,
+) -> list[dict]:
+    key_column, measure_column = side["key_column"], side["measure_column"]
+    rows = []
+    try:
+        with path.open("r", encoding="utf-8-sig", newline="") as handle:
+            reader = csv.reader(_checked_bex_csv_lines(handle, location), strict=True)
+            header = next(reader, [])
+            if len(header) != 2 or set(header) != {key_column, measure_column}:
+                _fail(f"{location}.header", "must contain exactly the two declared columns")
+            key_index, measure_index = header.index(key_column), header.index(measure_column)
+            for index, record in enumerate(reader):
+                row_location = f"{location}.rows[{index}]"
+                if len(record) != 2:
+                    _fail(row_location, "must contain exactly two fields")
+                key_location = f"{row_location}.key"
+                key = _text(record[key_index], key_location)
+                _scan_bex_csv_text(key, key_location)
+                measure = record[measure_index]
+                _decimal(measure, f"{row_location}.measure")
+                rows.append({"key": {key_field: key}, "measures": {key_figure_id: measure}})
+    except BWReconciliationError:
+        raise
+    except (csv.Error, OSError, ValueError):
+        raise BWReconciliationError(
+            f"BW reconciliation contract error at {location}: expected readable, well-formed UTF-8 CSV"
+        ) from None
+    return rows
+
+
+def build_bex_csv_result_vectors(
+    mapping: Any, source_csv: str | Path, target_csv: str | Path,
+) -> dict:
+    """Package two local CSV captures without comparing their rows or verifying provenance."""
+    root = _validate_bex_csv_mapping(mapping)
+    source_path = _require_bex_regular_file(source_csv, "$.source.csv")
+    target_path = _require_bex_regular_file(target_csv, "$.target.csv")
+    try:
+        same_file = source_path.samefile(target_path)
+    except (OSError, ValueError):
+        raise BWReconciliationError("Unable to check source and target CSV file identity.") from None
+    if same_file:
+        _fail("$.target.csv", "must not refer to the same file as $.source.csv")
+
+    scope = dict(root["scope"])
+    key_field, key_figure_id = root["key_field"], root["key_figure_id"]
+    vectors = {
+        "schema_version": "1.0",
+        "comparison_id": root["comparison_id"],
+        "scope": scope,
+        "key_fields": [key_field],
+    }
+    for name, path in (("source", source_path), ("target", target_path)):
+        side = root[name]
+        vectors[name] = {
+            **{field: side[field] for field in _BEX_CSV_METADATA_FIELDS},
+            "scope": dict(scope),
+            "rows": _read_bex_csv_rows(path, f"$.{name}.csv", side, key_field, key_figure_id),
+        }
+    vectors["rules"] = {key_figure_id: {"mode": "exact"}}
+    return vectors
+
+
 __all__ = [
     "BWReconciliationError",
+    "build_bex_csv_result_vectors",
     "compare_bex_result_vectors",
     "compare_controls",
+    "load_bex_csv_mapping",
     "load_bex_result_vectors",
     "load_comparison",
 ]

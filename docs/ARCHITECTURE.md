@@ -1,5 +1,9 @@
 # Architecture — Business Objects to Power BI Migration
 
+> **Evidence level:** this repository provides local extraction, assessment and
+> generation. It does not execute or approve a real migration. SAP, Desktop,
+> refresh and deployed Fabric checks remain `not_run` unless separately authorized.
+
 ## System Overview
 
 This system performs automated migration of SAP BusinessObjects (BO) reports to Power BI projects (.pbip) in PBIR v4.0 format with TMDL semantic model.

@@ -303,15 +303,16 @@ def _dax_to_m_expression(dax_expr, table_name=''):
                 return None
             return f'Text.Middle({converted[0]}, {converted[1]} - 1, {converted[2]})'
 
-    # SUBSTITUTE → Text.Replace (ignore optional 4th arg: instance_num)
+    # SUBSTITUTE without instance_num → Text.Replace
     body = _extract_function_body(expr, 'SUBSTITUTE')
     if body is not None:
         args = _split_dax_args(body)
-        if len(args) >= 3:
-            converted = [_dax_to_m_expression(a, table_name) for a in args[:3]]
+        if len(args) == 3:
+            converted = [_dax_to_m_expression(a, table_name) for a in args]
             if any(c is None for c in converted):
                 return None
             return f'Text.Replace({", ".join(converted)})'
+        return None
 
     # ── DATEDIFF(start, end, interval) → Duration.Days/Months/Years ──
     body = _extract_function_body(expr, 'DATEDIFF')
@@ -470,14 +471,14 @@ def _self_heal_model(model, recovery=None):
     tables = model.get('model', {}).get('tables', [])
     relationships = model.get('model', {}).get('relationships', [])
 
-    # Build lookup of known tables and their columns
-    table_names = set()
-    table_columns = {}
+    # Keep the original groups so each relationship endpoint can be resolved
+    # against the columns of the table it actually referenced.
+    original_tables = {}
     for t in tables:
         tname = t.get('name', '')
-        if tname:
-            table_names.add(tname)
-            table_columns[tname] = {c.get('name', '') for c in t.get('columns', [])}
+        if tname and tname.strip():
+            original_tables.setdefault(tname, []).append(t)
+    table_names = set(original_tables)
 
     # 1. Deduplicate table names
     seen_names = {}
@@ -494,14 +495,7 @@ def _self_heal_model(model, recovery=None):
             old_name = tname
             t['name'] = new_name
             table_names.add(new_name)
-            table_columns[new_name] = table_columns.pop(old_name, set())
             seen_names[new_name] = t
-            # Rewrite relationship references
-            for rel in relationships:
-                if rel.get('fromTable') == old_name:
-                    rel['fromTable'] = new_name
-                if rel.get('toTable') == old_name:
-                    rel['toTable'] = new_name
             repairs += 1
             print(f"  ⚕ Self-heal: Renamed duplicate table '{old_name}' → '{new_name}'")
             if recovery:
@@ -512,6 +506,44 @@ def _self_heal_model(model, recovery=None):
                                 severity='warning')
         else:
             seen_names[tname] = t
+
+    # Resolve each endpoint independently. Ambiguous or missing columns cannot
+    # be assigned to a renamed duplicate without guessing.
+    valid_relationships = []
+    for rel in relationships:
+        resolved = {}
+        unresolved = []
+        for side in ('from', 'to'):
+            name = rel.get(f'{side}Table', '')
+            column = rel.get(f'{side}Column', '')
+            candidates = [t for t in original_tables.get(name, [])
+                          if column and any(c.get('name') == column
+                                            for c in t.get('columns', []))]
+            if len(candidates) == 1:
+                resolved[side] = candidates[0]['name']
+            else:
+                reason = 'ambiguous' if candidates else 'missing'
+                unresolved.append(f'{side} endpoint {name}.{column} ({reason})')
+        if unresolved:
+            desc = (f"{rel.get('fromTable', '')}.{rel.get('fromColumn', '')} → "
+                    f"{rel.get('toTable', '')}.{rel.get('toColumn', '')}")
+            repairs += 1
+            print(f"  ⚕ Self-heal: Dropped relationship '{desc}' ({'; '.join(unresolved)})")
+            if recovery:
+                recovery.record('relationship', 'unresolved_endpoint',
+                                item_name=desc,
+                                description='; '.join(unresolved),
+                                action='Dropped relationship; endpoint could not be resolved',
+                                severity='warning',
+                                follow_up='Review relationship table and column references')
+            continue
+        for side in ('from', 'to'):
+            rel[f'{side}Table'] = resolved[side]
+        valid_relationships.append(rel)
+    relationships[:] = valid_relationships
+
+    table_columns = {t['name']: {c.get('name', '') for c in t.get('columns', [])}
+                     for t in tables if t.get('name', '').strip()}
 
     # 2. Validate measure column references
     measure_names_in_model = set()

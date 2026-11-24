@@ -1,5 +1,9 @@
 # powerbi_import — Power BI Generation
 
+> **Evidence level — 24 Nov 2026:** local generation and static validation are
+> available; SAP/CMS data, Desktop rendering, refresh, deployment and business
+> acceptance are not. A generated PBIP is not migration approval.
+
 Generates Power BI projects (`.pbip`) or Fabric artifact bundles from adapted
 SAP BusinessObjects metadata. Use the root CLI so extraction's 15 raw collections
 pass through the BO adapter before generation. Local generation is not proof of

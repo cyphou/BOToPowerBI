@@ -1,5 +1,10 @@
 # Full SAP BW to Fabric Migration — Design Baseline
 
+> **Statut — 24 nov. 2026:** le pilote BEx/InfoCube synthétique est prêt pour
+> la revue locale. Son PBIP passe la validation statique, mais l’identité native,
+> le rafraîchissement, l’exécution SAP/Power BI, l’équivalence et l’approbation
+> restent ouverts.
+
 **Status:** proposed end-to-end migration design, with an offline BW inventory
 contract, limited staged-history and normalized-transformation notebook
 generators, and local comparison/assessment helpers. No SAP or Fabric runtime
@@ -691,6 +696,42 @@ reconciliation, consumer acceptance and Desktop/Service rendering remain
 `not_run`. This is a contract and gap report, not a BEx converter or BW-5 exit
 gate.
 
+### Package operator-prepared BEx result CSVs
+
+`migrate_bw_bex_vectors.py` accepts two distinct local CSVs and a strict
+[mapping 1.0](schemas/sap_bw_bex_csv_mapping.schema.json). It writes a new
+[result-vector 1.0](schemas/sap_bw_bex_result_vectors.schema.json) file for one
+text key and one exactly compared key figure. The mapping explicitly names
+both CSV headers, declares one query scope, and supplies source and target
+IDs. The source object ID must equal the query ID. Role, prompt-context
+reference and grain must match on both sides; run and evidence references
+must differ. These are labels, not authenticated references.
+
+- Prepare each CSV with exactly its two mapped headers (either order),
+    comma delimiters, and UTF-8 with or without a BOM. Standard CSV quoting,
+    including doubled quotes, is supported for single-line fields only. Empty
+    files, blank lines, extra columns and malformed records are refused.
+- Use a nonblank key already normalized consistently on both sides. Text
+    including Unicode and leading zeros is preserved. Use plain ASCII decimal
+    text such as `-7.25`, `0` or `11.00`, with an optional leading minus.
+    Blanks, nulls, extra leading zeros in measures, exponents, grouping and
+    locale decimal separators are not accepted. The packager preserves numeric
+    text and row order; it does not aggregate, filter, deduplicate or fill nulls.
+- Header-only inputs and duplicate keys are kept for the comparison step.
+    In linked comparison, zero observations or duplicate keys prevent success.
+    Packaging exit `0` means only that a vector file was written. Exit `2`
+    means invalid input or an output error; existing files are not overwritten.
+    Invalid inputs create no output; a write error may leave a partial file.
+
+The [two-step walkthrough](MIGRATION_REFERENCE.md#prepare-vectors-from-two-csv-captures)
+retains the vector file for review. The [direct walkthrough](MIGRATION_REFERENCE.md#compare-two-csv-captures-directly)
+uses the same CSV mapping and linked InfoCube comparison without saving vectors.
+Neither workflow reads native SAP exports, executes SAP or Power BI, or proves that the
+declared role, filters, grain, units or labels match an actual run. The
+pattern-based input guard rejects recognized credential-like text, including
+common signed links; it does not sanitize the inputs or output. Keep business
+data and references in protected storage. BW-5 remains open.
+
 ### Offline BEx result-vector comparison
 
 The separate `migrate_bw_reconcile.py` BEx mode compares locally declared
@@ -716,23 +757,55 @@ running the PBIP. The [authorized pilot handoff](MIGRATION_REFERENCE.md#collect-
 describes what to collect before comparing real results.
 
 A `pass` means only that the supplied local vectors satisfy those declared
-rules. It does not authenticate SAP source or Fabric target values or prompt-
-context references, establish source coverage or native InfoCube identity,
-execute SAP or Fabric, prove semantic equivalence, or constitute owner/business
-approval. SAP/Fabric execution and approval are `not_run`; authenticity,
-provenance, source coverage and semantic equivalence are `not_verified`.
+rules. Neither mode authenticates the source/target values or prompt-context
+references, establishes source coverage or native InfoCube identity, executes
+SAP, Power BI or Fabric, proves semantic equivalence, or constitutes owner or
+business approval. Runtime and approval remain `not_run`; authenticity,
+provenance, source coverage and semantic equivalence remain `not_verified`.
 When the report's `summary.measures_compared` is zero, it adds the
 `no_measure_observations_compared` limitation. After successfully writing the
 report, the CLI prints “No measure observations were compared; this result does
-not establish measure agreement.” This is a notice, not a status override:
-`comparison_status` and exit behavior are unchanged. For example, two empty
-vectors still produce `pass`/0; that does not establish measure agreement.
-The report schema remains 1.0, runtime evidence remains `not_run`, and
-verification remains `not_verified`.
-Therefore this comparator does not close BW-5, which remains open. Native
-InfoCube identity remains blocked on a sanitized, source-owner-approved sample
-and agreed field mapping. It is a static local comparator, not runtime or
-source-target reconciliation.
+not establish measure agreement.” Standalone BEx reports remain version 1.0:
+two empty vectors still produce `comparison_status: pass` and exit `0` with
+this notice, not evidence of measure agreement. The snapshot-control
+`--comparison` mode is unchanged.
+
+#### Link the vectors to one declared InfoCube plan
+
+With `--bex-result-vectors`, supply `--plan`, `--inventory` and `--semantics`
+together to opt in. Alternatively, supply `--bex-csv-mapping`, `--source-csv`
+and `--target-csv` with all three linkage inputs to prepare vectors in memory.
+These CSV options cannot be combined with the vector or snapshot-control
+input modes. The direct CSV mode writes the same linked report, not a vector
+file, and uses the same exit rules. Both linked forms reuse the linked PBIP
+input validation, including the BW-5 candidate, declared client, direct
+InfoCube provider and selected measure bindings. They then require exact matches:
+
+| Vector field | Required local declaration |
+|---|---|
+| `scope.query_id` and `source.object_id` | Linked BEx query ID. The vector scope must also match on both sides. |
+| `source.system_id` | Inventory `source_system.id`. |
+| `target.object_id` | Plan `project_name`, a local label, not a Power BI service ID. |
+| Names in `rules` | Nonempty subset of the plan's selected BEx key-figure IDs, not captions or selectors. |
+
+This CLI refuses duplicate plan JSON keys, non-JSON constants and recognized
+credential-like text in the plan. The scan is pattern-based; do not put
+secrets in any input. The input schemas are unchanged. In a linked report
+1.1, `plan_linkage` records the local query/provider/cube IDs, project/table
+names and the vector measures' declared ID → selector → column bindings.
+`observation_requirement` is separate from `comparison_status` and passes
+only when at least one measure is compared on a matched unique key. Exit `0`
+requires both an observation and a comparison pass. A comparison failure
+or zero observations exits `1` with a report; two empty vectors may still
+have `comparison_status: pass` but fail the linked observation requirement.
+An invalid trio, input or linkage exits `2` without a new report. Write
+errors also exit `2`; existing reports are never overwritten.
+
+This mode does not read or verify a generated PBIP and does not check the
+mapping of actual keys, business grain, units or effective context. It does
+not close BW-5 (`gate_closed: false`). Native InfoCube identity stays
+`not_verified` until a sanitized, source-owner-approved sample and agreed
+field mapping are reviewed separately.
 
 ### Explicit SAP BW Power Query selection
 

@@ -11,15 +11,13 @@ Functions exported here mirror the signatures used by:
 from __future__ import annotations
 
 import logging
-import re
 from typing import Optional
 
 from bo_export.dax_converter import convert_bo_formula_to_dax
 from bo_export.m_query_builder import (
     _with_table_schema,
     build_m_query,
-    build_m_query_for_universe,
-    inject_m_steps,
+    inject_m_steps,  # noqa: F401 - public compatibility re-export
 )
 
 logger = logging.getLogger(__name__)
@@ -105,7 +103,9 @@ def map_tableau_to_powerbi_type(source_type: str) -> str:
     return map_bo_to_powerbi_type(source_type)
 
 
-def generate_power_query_m(datasource_or_connection: dict, table: dict = None, **kwargs) -> str:
+def generate_power_query_m(
+    datasource_or_connection: dict, table: Optional[dict] = None, **kwargs
+) -> str:
     """Generate an M expression from a datasource/connection dict.
 
     Called by tmdl_generator as ``generate_power_query_m(connection, table)``

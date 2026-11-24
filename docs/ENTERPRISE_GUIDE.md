@@ -1,5 +1,9 @@
 # Enterprise Migration Guide — Business Objects to Power BI
 
+> **Evidence first:** local synthetic pilots and static validation do not replace
+> discovery, runtime, cutover and approval gates. Use each phase only with
+> owner-approved evidence for the source and target.
+
 ## 8-Phase Migration Methodology
 
 ### Phase 1: Discovery (Weeks 1–2)

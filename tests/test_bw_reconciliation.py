@@ -190,7 +190,11 @@ class TestBWReconciliation(unittest.TestCase):
             failed_path = Path(directory) / "failed.json"
             manifest_path.write_text(json.dumps(self.manifest), encoding="utf-8")
             self.assertEqual(main(["--comparison", str(manifest_path), "--output", str(report_path)]), 0)
-            self.assertEqual(json.loads(report_path.read_text(encoding="utf-8"))["comparison_status"], "pass")
+            report = json.loads(report_path.read_text(encoding="utf-8"))
+            self.assertEqual(report["comparison_status"], "pass")
+            self.assertEqual(report["schema_version"], "1.0")
+            self.assertNotIn("plan_linkage", report)
+            self.assertNotIn("observation_requirement", report)
             self.assertEqual(main(["--comparison", str(manifest_path), "--output", str(report_path)]), 2)
 
             failed = copy.deepcopy(self.manifest)
@@ -209,6 +213,12 @@ class TestBWReconciliation(unittest.TestCase):
 
 
 class TestBExResultVectorReconciliation(unittest.TestCase):
+    fixtures = ROOT / "docs" / "fixtures"
+    pilot_plan_path = fixtures / "sap_bw_bex_pilot_plan.example.json"
+    pilot_inventory_path = fixtures / "sap_bw_bex_pilot_inventory.example.json"
+    pilot_semantics_path = fixtures / "sap_bw_bex_pilot_semantics.example.json"
+    pilot_vectors_path = fixtures / "sap_bw_bex_pilot_result_vectors.example.json"
+
     @classmethod
     def setUpClass(cls):
         cls.manifest = json.loads(
@@ -229,6 +239,27 @@ class TestBExResultVectorReconciliation(unittest.TestCase):
             "source_coverage": "not_verified",
             "semantic_equivalence": "not_verified",
         })
+        self.assertNotIn("plan_linkage", report)
+        self.assertNotIn("observation_requirement", report)
+
+    def _pilot_linkage_args(self, plan_path=None):
+        return [
+            "--plan", str(self.pilot_plan_path if plan_path is None else plan_path),
+            "--inventory", str(self.pilot_inventory_path),
+            "--semantics", str(self.pilot_semantics_path),
+        ]
+
+    def assert_linked_cli_refusal(self, vectors_path, report_path, diagnostic, *, plan_path=None):
+        args = [
+            "--bex-result-vectors", str(vectors_path),
+            *self._pilot_linkage_args(plan_path),
+            "--output", str(report_path),
+        ]
+        with redirect_stdout(StringIO()), redirect_stderr(StringIO()) as stderr:
+            self.assertEqual(main(args), 2, stderr.getvalue())
+        self.assertIn(diagnostic, stderr.getvalue())
+        self.assertFalse(report_path.exists())
+        return stderr.getvalue()
 
     def test_synthetic_fixture_reports_missing_extra_duplicate_and_measure_tolerance(self):
         report = compare_bex_result_vectors(self.manifest)
@@ -584,13 +615,9 @@ class TestBExResultVectorReconciliation(unittest.TestCase):
             self.assertEqual(both_inputs.returncode, 2)
 
     def test_bex_cli_reconciles_linked_synthetic_pilot(self):
-        fixtures = ROOT / "docs" / "fixtures"
-        plan = json.loads(
-            (fixtures / "sap_bw_bex_pilot_plan.example.json").read_text(encoding="utf-8")
-        )
-        semantics = json.loads(
-            (fixtures / "sap_bw_bex_pilot_semantics.example.json").read_text(encoding="utf-8")
-        )
+        plan = json.loads(self.pilot_plan_path.read_text(encoding="utf-8"))
+        semantics = json.loads(self.pilot_semantics_path.read_text(encoding="utf-8"))
+        inventory = json.loads(self.pilot_inventory_path.read_text(encoding="utf-8"))
         linkage = plan["bex_linkage"]
         query_id = linkage["query_id"]
         measure = "synthetic-billed-quantity"
@@ -601,6 +628,22 @@ class TestBExResultVectorReconciliation(unittest.TestCase):
         )
         self.assertIn(measure, {figure["id"] for figure in semantics["key_figures"]})
 
+        expected_linkage = {
+            "status": "pass",
+            "evidence_boundary": "declared_local_plan_inventory_and_bex_only",
+            "query_id": query_id,
+            "provider_id": linkage["provider_id"],
+            "cube_id": linkage["cube_id"],
+            "project_name": plan["project_name"],
+            "table_name": plan["datasource"]["tables"][0]["name"],
+            "vector_measure_bindings": [{
+                "key_figure_id": measure,
+                "selector": "[Measures].[ZPILOT_QTY]",
+                "column": "Quantité facturée",
+            }],
+            "native_infocube_identity_verification": "not_verified",
+            "gate_closed": False,
+        }
         mismatch = {
             "key": {"day_key": "2026-11-24"},
             "measure": measure,
@@ -611,33 +654,32 @@ class TestBExResultVectorReconciliation(unittest.TestCase):
             "status": "fail",
         }
         cases = (
-            ("sap_bw_bex_pilot_result_vectors.example.json", 0, "pass", []),
+            (self.pilot_vectors_path, 0, "pass", []),
             (
-                "sap_bw_bex_pilot_result_vectors_mismatch.example.json",
+                self.fixtures / "sap_bw_bex_pilot_result_vectors_mismatch.example.json",
                 1, "fail", [mismatch],
             ),
         )
-        for filename, returncode, status, mismatches in cases:
-            with self.subTest(fixture=filename), tempfile.TemporaryDirectory() as directory:
-                vectors_path = fixtures / filename
+        command = [sys.executable, str(ROOT / "migrate_bw_reconcile.py")]
+        for vectors_path, returncode, status, mismatches in cases:
+            with self.subTest(fixture=vectors_path.name), tempfile.TemporaryDirectory() as directory:
                 vectors = json.loads(vectors_path.read_text(encoding="utf-8"))
                 report_path = Path(directory) / "report.json"
+                vector_args = ["--bex-result-vectors", str(vectors_path)]
                 completed = subprocess.run(
-                    [
-                        sys.executable, str(ROOT / "migrate_bw_reconcile.py"),
-                        "--bex-result-vectors", str(vectors_path),
-                        "--output", str(report_path),
-                    ],
+                    [*command, *vector_args, "--output", str(report_path)],
                     cwd=ROOT, capture_output=True, text=True, check=False,
                 )
                 self.assertEqual(completed.returncode, returncode, completed.stderr)
                 report = json.loads(report_path.read_text(encoding="utf-8"))
 
-                # Compare local declarations; the comparator does not infer linkage.
+                # The standalone report preserves the local declarations without claiming linkage.
                 self.assertEqual(vectors["rules"], {measure: {"mode": "exact"}})
+                self.assertEqual(report["scope"], vectors["scope"])
                 for declaration in (vectors, report):
                     self.assertEqual(declaration["scope"]["query_id"], query_id)
                     self.assertEqual(declaration["source"]["object_id"], query_id)
+                    self.assertEqual(declaration["source"]["system_id"], inventory["source_system"]["id"])
                     self.assertEqual(declaration["target"]["object_id"], plan["project_name"])
 
                 self.assertEqual(report["comparison_status"], status)
@@ -655,6 +697,168 @@ class TestBExResultVectorReconciliation(unittest.TestCase):
                 self.assertEqual(report["evidence_boundary"], "declared_local_bex_result_vectors_only")
                 self.assertNotIn("no_measure_observations_compared", report["limitations"])
                 self.assert_evidence_remains_unverified(report)
+
+                linked_path = Path(directory) / "linked-report.json"
+                linked_args = [*vector_args, *self._pilot_linkage_args(), "--output", str(linked_path)]
+                linked = subprocess.run(
+                    [*command, *linked_args],
+                    cwd=ROOT, capture_output=True, text=True, check=False,
+                )
+                self.assertEqual(linked.returncode, returncode, linked.stderr)
+                self.assertIn("required measure observations: pass", linked.stdout)
+                linked_bytes = linked_path.read_bytes()
+                linked_report = json.loads(linked_bytes)
+                self.assertEqual(linked_report, {
+                    **report,
+                    "schema_version": "1.1",
+                    "plan_linkage": expected_linkage,
+                    "observation_requirement": {"status": "pass", "minimum_measure_observations": 1},
+                })
+                self.assertIs(linked_report["plan_linkage"]["gate_closed"], False)
+
+                if status == "pass":
+                    with redirect_stdout(StringIO()), redirect_stderr(StringIO()) as stderr:
+                        self.assertEqual(main(linked_args), 2, stderr.getvalue())
+                    self.assertIn("failed while writing the report", stderr.getvalue())
+                    self.assertEqual(linked_path.read_bytes(), linked_bytes)
+
+    def test_linked_bex_cli_requires_measure_observations(self):
+        manifest = load_bex_result_vectors(self.pilot_vectors_path)
+        cases = (
+            ("both_empty", [], "pass"),
+            ("duplicate_only", manifest["source"]["rows"][:1] * 2, "fail"),
+        )
+        for case, rows, status in cases:
+            with self.subTest(case=case), tempfile.TemporaryDirectory() as directory:
+                vectors_path = Path(directory) / "vectors.json"
+                report_path = Path(directory) / "report.json"
+                vectors = copy.deepcopy(manifest)
+                for side in ("source", "target"):
+                    vectors[side]["rows"] = rows
+                vectors_path.write_text(json.dumps(vectors), encoding="utf-8")
+                with redirect_stdout(StringIO()) as stdout, redirect_stderr(StringIO()) as stderr:
+                    self.assertEqual(main([
+                        "--bex-result-vectors", str(vectors_path),
+                        *self._pilot_linkage_args(),
+                        "--output", str(report_path),
+                    ]), 1, stderr.getvalue())
+                self.assertIn("required measure observations: fail", stdout.getvalue())
+                self.assertIn("No measure observations were compared", stdout.getvalue())
+                report = json.loads(report_path.read_text(encoding="utf-8"))
+                self.assertEqual(report["comparison_status"], status)
+                self.assertEqual(report["plan_linkage"]["status"], "pass")
+                self.assertEqual(report["observation_requirement"], {
+                    "status": "fail", "minimum_measure_observations": 1,
+                })
+                self.assertEqual(report["checks"], [])
+                self.assertEqual(report["summary"]["measures_compared"], 0)
+                self.assertIn("no_measure_observations_compared", report["limitations"])
+
+    def test_linked_bex_cli_rejects_vector_linkage_mismatches(self):
+        manifest = load_bex_result_vectors(self.pilot_vectors_path)
+        cases = (
+            ("scope", "query_id"),
+            ("source", "object_id"),
+            ("source", "system_id"),
+            ("target", "object_id"),
+            ("rules", None),
+        )
+        for section, field in cases:
+            path = f"$.{section}" if field is None else f"$.{section}.{field}"
+            with self.subTest(path=path), tempfile.TemporaryDirectory() as directory:
+                vectors = copy.deepcopy(manifest)
+                if field is None:
+                    measure = next(iter(vectors["rules"]))
+                    caption = "Synthetic billed quantity"
+                    vectors["rules"][caption] = vectors["rules"].pop(measure)
+                    for side in ("source", "target"):
+                        for row in vectors[side]["rows"]:
+                            row["measures"][caption] = row["measures"].pop(measure)
+                else:
+                    vectors[section][field] = "unrelated-id"
+                    if section == "scope":
+                        for side in ("source", "target"):
+                            vectors[side]["scope"] = vectors["scope"].copy()
+                self.assertEqual(compare_bex_result_vectors(vectors)["comparison_status"], "pass")
+                vectors_path = Path(directory) / "vectors.json"
+                vectors_path.write_text(json.dumps(vectors), encoding="utf-8")
+                self.assert_linked_cli_refusal(
+                    vectors_path, Path(directory) / "report.json", f"at {path}:",
+                )
+
+    def test_linked_bex_cli_requires_trio_with_vectors(self):
+        linkage_args = self._pilot_linkage_args()
+        vector_args = ["--bex-result-vectors", str(self.pilot_vectors_path)]
+        cases = (
+            ("missing-plan", [*vector_args, *linkage_args[2:]], "must be supplied together"),
+            ("missing-semantics", [*vector_args, *linkage_args[:-2]], "must be supplied together"),
+            ("controls", [
+                "--comparison", str(self.fixtures / "sap_bw_reconciliation.example.json"),
+                *linkage_args,
+            ], "require --bex-result-vectors"),
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            for case, args, diagnostic in cases:
+                with self.subTest(case=case), redirect_stderr(StringIO()) as stderr:
+                    report_path = Path(directory) / f"{case}-report.json"
+                    with self.assertRaises(SystemExit) as raised:
+                        main([*args, "--output", str(report_path)])
+                    self.assertEqual(raised.exception.code, 2)
+                    self.assertIn(f"--plan, --inventory and --semantics {diagnostic}.", stderr.getvalue())
+                    self.assertFalse(report_path.exists())
+
+    def test_linked_bex_cli_reuses_plan_validation(self):
+        plan = json.loads(self.pilot_plan_path.read_text(encoding="utf-8"))
+        plan["datasource"]["connection"]["client_id"] = "001"
+        with tempfile.TemporaryDirectory() as directory:
+            wrong_client = Path(directory) / "wrong-client.json"
+            wrong_client.write_text(json.dumps(plan), encoding="utf-8")
+            cases = (
+                (wrong_client, "$.datasource.connection.client_id does not match the BW inventory source client"),
+                (
+                    self.fixtures / "sap_bw_bex_pbip_plan.example.json",
+                    "BEx linkage is required when BW-5 inputs are supplied",
+                ),
+            )
+            for plan_path, diagnostic in cases:
+                with self.subTest(plan=plan_path.name):
+                    self.assert_linked_cli_refusal(
+                        self.pilot_vectors_path, Path(directory) / f"{plan_path.stem}-report.json",
+                        diagnostic, plan_path=plan_path,
+                    )
+
+    def test_linked_bex_cli_rejects_unsafe_plan_json(self):
+        plan = self.pilot_plan_path.read_text(encoding="utf-8")
+        client = '"client_id": "000"'
+        json_error = "Unable to load valid local linked BW cube plan JSON."
+        credential_error = "Credential-like content is not allowed in the linked BW cube plan."
+        table_sentinel, figure_sentinel = "FAKE-TABLE", "FAKE-FIGURE"
+        cases = (
+            # A last-value-wins loader would keep the valid client.
+            ("duplicate_client", client, f'"client_id": "001", {client}', json_error),
+            ("non_json_constant", client, '"client_id": NaN', json_error),
+            (
+                "table_name", '"name": "Ventes d\'été"',
+                f'"name": "password={table_sentinel}"', credential_error,
+            ),
+            (
+                "key_figure_id", '"key_figure_id": "synthetic-billed-quantity"',
+                f'"key_figure_id": "token={figure_sentinel}"', credential_error,
+            ),
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            directory = Path(directory)
+            for case, original, replacement, diagnostic in cases:
+                with self.subTest(case=case):
+                    self.assertEqual(plan.count(original), 1)
+                    plan_path = directory / f"{case}.json"
+                    plan_path.write_text(plan.replace(original, replacement, 1), encoding="utf-8")
+                    stderr = self.assert_linked_cli_refusal(
+                        self.pilot_vectors_path, directory / f"{case}-report.json",
+                        diagnostic, plan_path=plan_path,
+                    )
+                    self.assertNotIn(table_sentinel, stderr)
+                    self.assertNotIn(figure_sentinel, stderr)
 
 
 if __name__ == "__main__":

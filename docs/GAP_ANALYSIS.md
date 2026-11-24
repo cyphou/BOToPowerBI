@@ -6,6 +6,16 @@ This review used synthetic data on Windows/Python 3.12.16. The BO pipeline,
 BEx assessment, and single-cube PBIP generator are separate paths; see the
 [workflow guide](../README.md#bw-bex-infocube-workflows).
 
+### Evidence at a glance
+
+| Check | Local result | What it proves |
+|---|---|---|
+| Python suite | 🟢 1 283 passed, 1 skipped, 1 504 subtests; 80.74% coverage | Code behavior only |
+| BEx / InfoCube | 🟢 PBIP strict validation: 0 errors, 0 warnings | Local structure, not SAP parity |
+| CSV reconciliation | 🟢 2 synthetic observations, 0 mismatches | Supplied declarations only |
+| WebI Enterprise Sales | 🟠 Batch generated, 13 static warnings | Generation, not visual or runtime parity |
+| Hosted CI / runtime | ⚪ Not run | No SAP, Desktop, refresh, Fabric or acceptance evidence |
+
 | Path exercised | Observed local result |
 |---|---|
 | BO XI / Desktop Intelligence | The synthetic REP assessment exited `0` and returned a partial report; no automatic report conversion. |
@@ -35,12 +45,14 @@ Desktop validation.
 	exports or linkage evidence. The [linked pilot](MIGRATION_REFERENCE.md#linked-bex-and-infocube-pilot)
 	has a positive manifest 1.2 / plan 1.6 regression and negative linkage and
 	generated-output cases. Native identity remains unverified.
-- **P1 — Semantic fidelity:** [duplicate-table repair](../powerbi_import/tmdl_generator.py#L488-L503)
-	can redirect both relationship endpoints to the renamed table even when a
-	column exists only on the original. The [DAX-to-M `SUBSTITUTE` rewrite](../powerbi_import/tmdl_generator.py#L305-L313)
-	also discards the occurrence argument, so it replaces all matches rather
-	than one. Test valid relationship endpoints and preserve or reject unsupported
-	occurrence-specific rewrites; do not treat the current assertions as parity.
+- **P1 — Semantic fidelity (fixed locally, parity still unverified):** duplicate-table
+	repair now resolves relationship endpoints by table/column membership and
+	fails closed for ambiguous or missing columns. The DAX-to-M `SUBSTITUTE`
+	bridge preserves the three-argument case and rejects the unsupported
+	occurrence-specific fourth argument instead of replacing all matches.
+	Focused TMDL, Semantic Intelligence and E2E tests pass **144 tests and 53
+	subtests**. This fixes the observed local corruption paths; it does not
+	establish general DAX equivalence or source semantic parity.
 - **P2 — InfoCube shared M expression (fixed locally):** the shared parameter
   now encodes BW server metadata with the same M literal rules as the cube
   partition. The test covers embedded quotes and a literal M escape sequence.

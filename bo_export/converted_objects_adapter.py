@@ -13,12 +13,11 @@ Usage::
 
 from __future__ import annotations
 
-from collections import Counter
 import logging
 import re
+from collections import Counter
 from typing import Any
 
-from bo_export.dax_converter import convert_bo_formula_to_dax
 from bo_export.compat import map_bo_to_powerbi_type
 
 logger = logging.getLogger(__name__)

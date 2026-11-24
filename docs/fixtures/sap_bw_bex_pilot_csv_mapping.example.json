@@ -1,0 +1,32 @@
+{
+  "schema_version": "1.0",
+  "comparison_id": "synthetic-bex-infocube-pilot-match",
+  "scope": {
+    "query_id": "SYNTHETIC-BW-PILOT:BEX:SALES-DAILY",
+    "query_scope_id": "synthetic-day-detail-2026-11-23-to-2026-11-24"
+  },
+  "key_field": "day_key",
+  "key_figure_id": "synthetic-billed-quantity",
+  "source": {
+    "system_id": "SYNTHETIC-BW-PILOT",
+    "object_id": "SYNTHETIC-BW-PILOT:BEX:SALES-DAILY",
+    "run_id": "synthetic-bex-pilot-source-csv",
+    "evidence_ref": "synthetic://bex-infocube-pilot/results/source-csv",
+    "role": "synthetic-sales-review",
+    "prompt_context_ref": "synthetic://bex-infocube-pilot/context/no-prompts",
+    "grain": "one detail row per calendar day",
+    "key_column": "ZPILOT_DAY",
+    "measure_column": "ZPILOT_QTY"
+  },
+  "target": {
+    "system_id": "SYNTHETIC-POWER-BI-PILOT",
+    "object_id": "Synthetic BEx InfoCube Pilot",
+    "run_id": "synthetic-bex-pilot-target-csv",
+    "evidence_ref": "synthetic://bex-infocube-pilot/results/target-csv",
+    "role": "synthetic-sales-review",
+    "prompt_context_ref": "synthetic://bex-infocube-pilot/context/no-prompts",
+    "grain": "one detail row per calendar day",
+    "key_column": "Clé du jour",
+    "measure_column": "Quantité facturée"
+  }
+}

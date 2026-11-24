@@ -1,0 +1,55 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:bo-to-powerbi:schema:sap-bw-bex-csv-mapping:1.0",
+  "title": "SAP BW BEx CSV result-vector mapping",
+  "description": "Strict declarations for packaging two local two-column CSV captures as BEx result vectors. CSV paths are supplied separately. The mapping does not attest to provenance, query execution, or semantic equivalence.",
+  "$comment": "The packager requires matching source.object_id and scope.query_id, distinct header aliases on each side, matching role, prompt_context_ref and grain across sides, and distinct run_id and evidence_ref labels across sides.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "comparison_id", "scope", "key_field", "key_figure_id", "source", "target"],
+  "properties": {
+    "schema_version": {"const": "1.0"},
+    "comparison_id": {"$ref": "#/$defs/text"},
+    "scope": {"$ref": "#/$defs/scope"},
+    "key_field": {"$ref": "#/$defs/text"},
+    "key_figure_id": {"$ref": "#/$defs/text"},
+    "source": {"$ref": "#/$defs/side"},
+    "target": {"$ref": "#/$defs/side"}
+  },
+  "$defs": {
+    "text": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "\\S",
+      "not": {"pattern": "[\\u0000-\\u001f\\u007f]"}
+    },
+    "scope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["query_id", "query_scope_id"],
+      "properties": {
+        "query_id": {"$ref": "#/$defs/text"},
+        "query_scope_id": {"$ref": "#/$defs/text"}
+      }
+    },
+    "side": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "system_id", "object_id", "run_id", "evidence_ref", "role", "prompt_context_ref", "grain",
+        "key_column", "measure_column"
+      ],
+      "properties": {
+        "system_id": {"$ref": "#/$defs/text"},
+        "object_id": {"$ref": "#/$defs/text"},
+        "run_id": {"$ref": "#/$defs/text"},
+        "evidence_ref": {"$ref": "#/$defs/text"},
+        "role": {"$ref": "#/$defs/text"},
+        "prompt_context_ref": {"$ref": "#/$defs/text"},
+        "grain": {"$ref": "#/$defs/text"},
+        "key_column": {"$ref": "#/$defs/text"},
+        "measure_column": {"$ref": "#/$defs/text"}
+      }
+    }
+  }
+}

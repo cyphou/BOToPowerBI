@@ -1,5 +1,9 @@
 # Fabric Skills And MCP Setup
 
+> **État local :** cette configuration permet des opérations locales; elle ne
+> fournit ni migration déployée, ni rafraîchissement, ni approbation métier.
+> Tout accès distant reste séparément autorisé.
+
 This repository adapts TableauToPowerBI's specialist ownership, migration-skill,
 and evidence boundaries to BusinessObjects. It does not import the Tableau engine,
 its local MCP server, or its user-specific configuration.
